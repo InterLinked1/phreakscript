@@ -11,6 +11,8 @@ In a nutshell, run:
 
 Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet examples``` to get started.
 
+PhreakScript must be run as root, even if Asterisk does not run as root.
+
 ### Change Log
 
 Please run ```phreaknet about```
