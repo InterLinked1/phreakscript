@@ -14,7 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
-# 2021-10-14 0.0.40 PhreakScript: Changed upstream to GitHub
+# 2021-10-14 0.0.40 PhreakScript: Added GitHub integration
 # 2021-10-14 0.0.39 Asterisk: change upstream Asterisk from 18.7 to 18.8.0-rc1, remove custom patches for logger, app_queue, CHANNEL_EXISTS, func_vmcount, app_mf
 # 2021-10-14 0.0.38 PhreakScript: Added update protection (against corrupted upstream) and ability to set custom upstream source for PhreakScript
 # 2021-10-12 0.0.37 Asterisk: Pat Fleet sounds, boilerplate audio files, pulsar AGI
@@ -68,7 +68,6 @@ PHREAKNET_CLLI=""
 INTERLINKED_APIKEY=""
 BOILERPLATE_SOUNDS=0
 SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
-SCRIPT_UPSTREAM="https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh"
 
 echog() { printf "\e[32;1m%s\e[0m\n" "$*" >&2; }
 echoerr() { printf "\e[31;1m%s\e[0m\n" "$*" >&2; } # https://stackoverflow.com/questions/2990414/echo-that-outputs-to-stderr
