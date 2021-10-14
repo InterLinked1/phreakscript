@@ -7,7 +7,7 @@ Please refer to the Docs: https://docs.phreaknet.org/#phreakscript
 
 In a nutshell, run:
 
-```wget https://docs.phreaknet.org/script/phreaknet.sh; chmod +x phreaknet.sh; ./phreaknet.sh make; exec $SHELL```
+```wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh; chmod +x phreaknet.sh; ./phreaknet.sh make; exec $SHELL```
 
 Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet examples``` to get started.
 
