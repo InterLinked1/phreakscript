@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.39 (2021-10-14)
+# v0.0.42 (2021-10-16)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,8 +14,10 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-10-16 0.0.42 PhreakScript: Added preliminary pubdocs command for Wiki-format documentation generation
+# 2021-10-15 0.0.41 PhreakScript: remove chan_iax2 RSA patch (available upstream in 18.8.0-rc1)
 # 2021-10-14 0.0.40 PhreakScript: Added GitHub integration
-# 2021-10-14 0.0.39 Asterisk: change upstream Asterisk from 18.7 to 18.8.0-rc1, remove custom patches for logger, app_queue, CHANNEL_EXISTS, func_vmcount, app_mf
+# 2021-10-14 0.0.39 Asterisk: change upstream Asterisk from 18.7 to 18.8.0-rc1, remove custom patches for logger, app_queue, CHANNEL_EXISTS, func_vmcount, app_mf (available upstream in 18.8.0-rc1)
 # 2021-10-14 0.0.38 PhreakScript: Added update protection (against corrupted upstream) and ability to set custom upstream source for PhreakScript
 # 2021-10-12 0.0.37 Asterisk: Pat Fleet sounds, boilerplate audio files, pulsar AGI
 # 2021-10-12 0.0.34 DAHDI: Changed upstream from master to next branch by manually incorporating these patches
@@ -115,6 +117,7 @@ Commands:
    backtrace     Use astcoredumper to process a backtrace and upload to InterLinked Paste
 
    *** Miscellaneous ***
+   pubdocs       Generate Wiki documentation
    edit          Edit PhreakScript
 
 Options:
@@ -261,8 +264,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	cd /usr/src/$2
 
-	# IAX2 RSA + Encryption
-	patch -u -b channels/chan_iax2.c -i /tmp/iaxrsa.patch
 	# Add ReturnIf application
 	patch -u -b apps/app_stack.c -i /tmp/returnif.patch
 	# Bug fix to translation code
@@ -636,6 +637,29 @@ elif [ "$cmd" = "installts" ]; then
 		exit 2
 	fi
 	install_testsuite
+elif [ "$cmd" = "pubdocs" ]; then
+	cd /usr/src
+	AST_SRC_DIR=`ls /usr/src | grep "asterisk-" | tail -1`
+	apt-get install -y python-dev python-virtualenv python-lxml
+	pip install pystache
+	pip install premailer
+	if [ -d publish-docs ]; then
+		rm -rf publish-docs
+	fi
+	git clone https://github.com/asterisk/publish-docs.git
+	cd publish-docs
+	printf "%s\n" "Generating Confluence markup..."
+	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=/usr/src/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
+	printf "%s\n" "Converting Confluence to HTML..."
+	if [ ! -f confluence2html ]; then
+		wget https://raw.githubusercontent.com/rmloveland/confluence2html/master/confluence2html
+	fi
+	chmod +x confluence2html
+	PERL_MM_USE_DEFAULT=1 cpan -i CPAN
+	perl -MCPAN -e 'install File::Slurp'
+	./confluence2html < confluence.txt > docs.html
+	ls -l /usr/src/publish-docs
+	printf "%s\n" "All Wiki documentation has been generated and is now in /usr/src/publish-docs/docs.html"
 elif [ "$cmd" = "config" ]; then
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		printf '\a'
