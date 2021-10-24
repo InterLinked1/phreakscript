@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.42 (2021-10-16)
+# v0.0.43 (2021-10-24)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-10-24 0.0.43 PhreakScript: temporarily added app_assert and sig_analog compiler fix
 # 2021-10-16 0.0.42 PhreakScript: Added preliminary pubdocs command for Wiki-format documentation generation
 # 2021-10-15 0.0.41 PhreakScript: remove chan_iax2 RSA patch (available upstream in 18.8.0-rc1)
 # 2021-10-14 0.0.40 PhreakScript: Added GitHub integration
@@ -42,7 +43,7 @@
 # 2021-10-07 0.0.1  Asterisk (ASTERISK-29428): app_dial (Bug Fix): prevent infinite loop from hanging calls when Dial D option used with progress
 # 2021-10-07 0.0.1  Asterisk (ASTERISK-29455): translate.c (Bug Fix): prevent translator from choosing gsm to ulaw, all else equal
 # 2021-10-07 0.0.1  Asterisk (ASTERISK-29493): app_stack (New Feature): Add ReturnIf application
-# 2021-10-07 0.0.1  Asterisk (ASTERISK-20219): chan_iax2 (Improvement): Add encryption to RSA authentication (merged as of Oct. 2021, patch will be removed soon) # TODO
+# 2021-10-07 0.0.1  Asterisk (ASTERISK-20219): chan_iax2 (Improvement): Add encryption to RSA authentication (merged as of Oct. 2021, patch will be removed soon)
 ## End Change Log
 
 # Script environment variables
@@ -148,6 +149,7 @@ install_prereq() {
 	apt-get install -y ntp iptables tcpdump wget curl sox libcurl4-openssl-dev mpg123 dnsutils php festival bc fail2ban mariadb-server git
 	# used to feed the country code non-interactively
 	apt-get install -y debconf-utils
+	apt-get -y autoremove
 }
 
 install_testsuite() {
@@ -298,6 +300,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	wget https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O /usr/src/$2/apps/app_tdd.c --no-cache
 
 	## Gerrit patches for merged in master branch (will be removed once released in next version)
+	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
+	gerrit_patch 16630 "https://gerrit.asterisk.org/changes/asterisk~16630/revisions/1/patch?download" # sig_analog compiler fix
 
 	# never going to be merged upstream:
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/3/patch?download" # chan_sip: Add custom parameters
@@ -829,6 +833,10 @@ elif [ "$cmd" = "genpatch" ]; then
 	cd /tmp
 	printf '\a'
 	read -r -p "Full path to file that will be patched idempotently: " file1
+	if [ ! -f $file1 ]; then
+		echoerr "File $file1 does not exist!"
+		exit 2
+	fi
 	base=`basename $file1`
 	mkdir /tmp/patch_${EPOCHSECONDS}_0
 	mkdir /tmp/patch_${EPOCHSECONDS}_1
