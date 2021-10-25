@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.43 (2021-10-24)
+# v0.0.44 (2021-10-25)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-10-25 0.0.44 PhreakScript: bug fixes to compiler options for menuselect, temp. bug fix for app_read and addition of func_json
 # 2021-10-24 0.0.43 PhreakScript: temporarily added app_assert and sig_analog compiler fix
 # 2021-10-16 0.0.42 PhreakScript: Added preliminary pubdocs command for Wiki-format documentation generation
 # 2021-10-15 0.0.41 PhreakScript: remove chan_iax2 RSA patch (available upstream in 18.8.0-rc1)
@@ -302,6 +303,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Gerrit patches for merged in master branch (will be removed once released in next version)
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16630 "https://gerrit.asterisk.org/changes/asterisk~16630/revisions/1/patch?download" # sig_analog compiler fix
+	gerrit_patch 16633 "https://gerrit.asterisk.org/changes/asterisk~16633/revisions/1/patch?download" # app_read and app.c bug fix
+	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/1/patch?download" # func_json
 
 	# never going to be merged upstream:
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/3/patch?download" # chan_sip: Add custom parameters
@@ -503,21 +506,25 @@ elif [ "$cmd" = "install" ]; then
 	apt-get install -y libvpb1
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
-	./configure --with-jansson-bundled
+	if [ "$TEST_SUITE" = "1" ]; then
+		./configure --with-jansson-bundled --enable-dev-mode
+	else
+		./configure --with-jansson-bundled
+	fi
 	cp contrib/scripts/voicemailpwcheck.py /usr/local/bin
 	chmod +x /usr/local/bin/voicemailpwcheck.py
 	# Change Compile Options: https://wiki.asterisk.org/wiki/display/AST/Using+Menuselect+to+Select+Asterisk+Options
 	make menuselect.makeopts
 	menuselect/menuselect --enable format_mp3 menuselect.makeopts # add mp3 support
 	# We want ulaw, not gsm (default)
-	menuselect/menuselect --disable-category MENUSELECT_MOH MENUSELECT_CORE_SOUNDS MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
+	menuselect/menuselect --disable-category MENUSELECT_MOH --disable-category MENUSELECT_CORE_SOUNDS --disable-category MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
 	# Only grab sounds if this is the first time
 	if [ ! -d "$AST_SOUNDS_DIR" ]; then
 		# todo: once Pat Fleet prompts are added, have this pull the Pat Fleet prompts
-		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW MOH-OPSOUND-ULAW EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
+		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW --enable MOH-OPSOUND-ULAW --enable EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
 	fi
 	if [ "$TEST_SUITE" = "1" ]; then
-		menuselect/menuselect --enable DONT_OPTIMIZE BETTER_BACKTRACES TEST_FRAMEWORK menuselect.makeopts
+		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK menuselect.makeopts
 	fi
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		menuselect/menuselect --enable chan_dahdi menuselect.makeopts
@@ -538,6 +545,10 @@ elif [ "$cmd" = "install" ]; then
 	printf "%s\n" "Beginning custom patches..."
 	phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
 	printf "%s\n" "Custom patching completed..."
+	if [ "$TEST_SUITE" = "1" ]; then
+		rm apps/app_softmodem.c apps/app_tdd.c # too many compiler warnings to bother with for dev mode...
+		rm funcs/func_notchfilter.c # ditto for now...
+	fi
 	# Compile Asterisk
 	nice make # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 	# Only generate config if this is the first time
