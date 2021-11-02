@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.44 (2021-10-25)
+# v0.0.47 (2021-11-02)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,9 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-02 0.0.47 PhreakScript: switched upstream Asterisk to 18.8.0
+# 2021-11-01 0.0.46 PhreakScript: added boilerplate asterisk.conf
+# 2021-10-30 0.0.45 PhreakScript: add IAX2 dynamic RSA outdialing
 # 2021-10-25 0.0.44 PhreakScript: bug fixes to compiler options for menuselect, temp. bug fix for app_read and addition of func_json
 # 2021-10-24 0.0.43 PhreakScript: temporarily added app_assert and sig_analog compiler fix
 # 2021-10-16 0.0.42 PhreakScript: Added preliminary pubdocs command for Wiki-format documentation generation
@@ -49,7 +52,6 @@
 
 # Script environment variables
 AST_SOURCE_NAME="asterisk-18-current"
-AST_SOURCE_NAME="asterisk-18.8.0-rc1" # remove once 18.8 is released # TODO
 MIN_ARGS=1
 FILE_PATH=$(realpath -s $0)
 PATCH_DIR=https://docs.phreaknet.org/script
@@ -153,7 +155,38 @@ install_prereq() {
 	apt-get -y autoremove
 }
 
-install_testsuite() {
+install_testsuite_itself() { # $1 = $FORCE_INSTALL
+	cd /usr/src
+	if [ -d "testsuite" ]; then
+		if [ "$1" = "1" ]; then
+			printf "%s\n" "Reinstalling testsuite..."
+			rm -rf testsuite
+		else
+			echoerr "Test Suite already exists... specify --force flag to reinstall"
+		fi
+	fi
+	git clone https://gerrit.asterisk.org/testsuite
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download testsuite..."
+		return 1
+	fi
+	cd testsuite/asttest
+	make
+	make install
+	asttest
+	cd ..
+	cd addons
+	make update
+	cd starpy
+	python setup.py install
+	cd ../..
+	apt-get install -y python-twisted
+	pip install twisted
+	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
+	printf "%s\n" "Asterisk Test Suite installation complete"
+}
+
+install_testsuite() { # $1 = $FORCE_INSTALL
 	apt-get clean
 	apt-get update -y
 	apt-get upgrade -y
@@ -176,22 +209,7 @@ install_testsuite() {
 	menuselect/menuselect --enable DONT_OPTIMIZE BETTER_BACKTRACES TEST_FRAMEWORK menuselect.makeopts
 	make
 	make install
-	cd /usr/src
-	git clone https://gerrit.asterisk.org/testsuite
-	cd testsuite/asttest
-	make
-	make install
-	asttest
-	cd ..
-	cd addons
-	make update
-	cd starpy
-	python setup.py install
-	cd ../..
-	apt-get install -y python-twisted
-	pip install twisted
-	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
-	printf "%s\n" "Asterisk Test Suite installation complete"
+	install_testsuite_itself "$1"
 }
 
 gerrit_patch() {
@@ -305,6 +323,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 16630 "https://gerrit.asterisk.org/changes/asterisk~16630/revisions/1/patch?download" # sig_analog compiler fix
 	gerrit_patch 16633 "https://gerrit.asterisk.org/changes/asterisk~16633/revisions/1/patch?download" # app_read and app.c bug fix
 	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/1/patch?download" # func_json
+	gerrit_patch 16635 "https://gerrit.asterisk.org/changes/asterisk~16635/revisions/1/patch?download" # chan_iax2 dynamic RSA out dialing
 
 	# never going to be merged upstream:
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/3/patch?download" # chan_sip: Add custom parameters
@@ -591,7 +610,7 @@ elif [ "$cmd" = "install" ]; then
 
 	# Development Mode (Asterisk Test Suite)
 	if [ "$TEST_SUITE" = "1" ]; then
-		install_testsuite
+		install_testsuite "$FORCE_INSTALL"
 	fi
 
 	/etc/init.d/asterisk status
@@ -651,7 +670,7 @@ elif [ "$cmd" = "installts" ]; then
 		echoerr "PhreakScript installts must be run as root. Aborting..."
 		exit 2
 	fi
-	install_testsuite
+	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "pubdocs" ]; then
 	cd /usr/src
 	AST_SRC_DIR=`ls /usr/src | grep "asterisk-" | tail -1`
@@ -730,6 +749,7 @@ elif [ "$cmd" = "config" ]; then
 	wget -q --show-progress https://docs.phreaknet.org/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
 	ls -l
 	cd /etc/asterisk
+	wget -q --show-progress https://docs.phreaknet.org/asterisk.conf -O /etc/asterisk/asterisk.conf --no-cache
 	wget -q --show-progress https://docs.phreaknet.org/iax.conf -O /etc/asterisk/iax.conf --no-cache
 	wget -q --show-progress https://docs.phreaknet.org/sip.conf -O /etc/asterisk/sip.conf --no-cache
 	wget -q --show-progress https://docs.phreaknet.org/pjsip.conf -O /etc/asterisk/pjsip.conf --no-cache
