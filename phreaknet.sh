@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.47 (2021-11-02)
+# v0.0.48 (2021-11-03)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-03 0.0.48 PhreakScript: added basic dialplan validation
 # 2021-11-02 0.0.47 PhreakScript: switched upstream Asterisk to 18.8.0
 # 2021-11-01 0.0.46 PhreakScript: added boilerplate asterisk.conf
 # 2021-10-30 0.0.45 PhreakScript: add IAX2 dynamic RSA outdialing
@@ -117,6 +118,7 @@ Commands:
    genpatch      Generate a PhreakPatch
 
    *** Debugging ***
+   validate      Run dialplan validation and diagnostics and look for problems
    trace         Capture a CLI trace and upload to InterLinked Paste
    backtrace     Use astcoredumper to process a backtrace and upload to InterLinked Paste
 
@@ -339,6 +341,138 @@ function download_if_missing() {
 	else
 		printf "Audio file already present, not overwriting: %s\n" "$1"
 	fi
+}
+
+function rule_audio() {
+	cd /var/lib/asterisk/sounds/en/ # so we can use both relative and absolute paths
+	# trying to use {} to combine the output of multiple commands causes issues, so do them serially
+	directories="/etc/asterisk/"
+	pcregrep -rho1 --include='.*\.conf$' ',Playback\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f1 > /tmp/phreakscript_update.txt
+	pcregrep -rho1 --include='.*\.conf$' ',BackGround\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f1 >> /tmp/phreakscript_update.txt
+	pcregrep -rho1 --include='.*\.conf$' ',Read\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f2 | grep -v "dial" | grep -v "stutter" | grep -v "congestion" >> /tmp/phreakscript_update.txt
+	filenames=$(cat /tmp/phreakscript_update.txt | cut -d')' -f1 | tr '&' '\n' | sed '/^$/d' | sort | uniq | grep -v "\${" | xargs  -d "\n" -n1 -I{} sh -c 'if ! test -f "{}.ulaw"; then echo "{}"; fi')
+	lines=`echo "$filenames" | wc -l`
+	if [ "$lines" -ne "0" ]; then
+		echoerr "ERROR: Missing audio file(s) detected ($lines)"
+		while IFS= read -r filename; do
+			grep -rnRE --include \*.conf "[,&\(]$filename" $directories | grep -v ":;" | grep -v ",dial," | grep -v ",stutter," | grep -E "Playback|BackGround|Read" | grep --color "$filename"
+		done <<< "$filenames"
+	else
+		echo "No missing sound files detected..."
+	fi
+	rm /tmp/phreakscript_update.txt
+	errors=$(($errors + $lines))
+	cd /tmp
+}
+
+function rule_invalid_jump() {
+	results=$(pcregrep -ro3 --include='.*\.conf$' -hi '([1n\)]),(Goto|Gosub|GotoIf|GosubIf)\(([A-Za-z0-9_-]*),([A-Za-z0-9:\\$\{\}_-]*),([A-Za-z0-9:\\$\{\}_-]*)([\)\(:])' /etc/asterisk/ | sort | uniq | xargs -n1 -I{} sh -c 'if ! grep -r --include \*.conf "\[{}\]" /etc/asterisk/; then echo "Missing reference:{}"; fi' | grep "Missing reference:" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" /etc/asterisk/ | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
+	lines=`echo "$results" | wc -l`
+	chars=`echo "$results" | wc -c`
+	if [ $chars -gt 1 ]; then # this is garbage whitespace
+		if [ "$lines" -ne "0" ]; then
+			echoerr "WARNING: $2 ($lines)"
+			while IFS= read -r instance; do
+				echo "$instance"
+				
+			done <<< "$results"
+		else
+			echo "OK: $2"
+		fi
+		warnings=$(($warnings + $lines))
+	fi
+}
+
+function rule_unref() {
+	printf "%s\n" "Unreachable check: Assuming all dialplan code is in subdirectories of /etc/asterisk..."
+	results=$(pcregrep -ro -hi --include='.*\.conf$' '^\[([A-Za-z0-9-])+?\]' $(ls -d /etc/asterisk/*/) | cut -d "[" -f2 | cut -d "]" -f1 | xargs -n1 -I{} sh -c 'if ! grep -rE --include \*.conf "([ @?,:^\(=]){}"  /etc/asterisk/; then echo "Unreachable Code:{}"; fi' | grep "Unreachable Code:" | grep -vE "\-([0-9]+)$" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" $(ls -d /etc/asterisk/*/) | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
+	lines=`echo "$results" | wc -l`
+	chars=`echo "$results" | wc -c`
+	if [ $chars -gt 1 ]; then # this is garbage whitespace
+		if [ "$lines" -ne "0" ]; then
+			echoerr "WARNING: $2 ($lines)"
+			while IFS= read -r instance; do
+				echo "$instance"
+				
+			done <<< "$results"
+		else
+			echo "OK: $2"
+		fi
+		warnings=$(($warnings + $lines))
+	fi
+}
+
+function rule_warning() { # $1 = rule, $2 = rule name
+	results=$(grep -rnE --include \*.conf "$1" /etc/asterisk | sed 's/\s\s*/ /g' | cut -c 15-)
+	lines=`echo "$results" | wc -l`
+	chars=`echo "$results" | wc -c`
+	if [ $chars -gt 1 ]; then # this is garbage whitespace
+		if [ "$lines" -ne "0" ]; then
+			echoerr "WARNING: $2 ($lines)"
+			while IFS= read -r instance; do
+				echo "$instance"
+			done <<< "$results"
+		else
+			echo "OK: $2"
+		fi
+		warnings=$(($warnings + $lines))
+	fi
+}
+
+function rule_error() { # $1 = rule, $2 = rule name
+	results=$(grep -rnE --include \*.conf "$1" /etc/asterisk | sed 's/\s\s*/ /g' | cut -c 15-)
+	lines=`echo "$results" | wc -l`
+	chars=`echo "$results" | wc -c`
+	if [ $chars -gt 1 ]; then # this is garbage whitespace
+		if [ "$lines" -ne "0" ]; then
+			echoerr "ERROR: $2 ($lines)"
+			while IFS= read -r instance; do
+				echo "$instance - ${#instance} $chars"
+			done <<< "$results"
+		else
+			echo "OK: $2"
+		fi
+		errors=$(($errors + $lines))
+	fi
+}
+
+function run_rules() {
+	warnings=0
+	errors=0
+	printf "%s\n" "Processing rules..."
+	# Warnings
+	rule_warning '"\${(.*?)}"=""' 'Null check using expression'
+	rule_warning '"\${(.*?)}"!=""' 'Existence check using expression'
+	rule_warning '\$\[\${ISNULL\(([^&|]*?)\)}\]' 'Unnecessary expression surrounding ISNULL'
+	rule_warning '\$\[\${EXISTS\(([^&|]*?)\)}\]' 'Unnecessary expression surrounding EXISTS'
+	rule_warning '\$\[\${[A-Z]+\(([^&|=><+*/-]*?)\)}\]' 'Unnecessary expression surrounding function'
+	rule_warning '\${SHELL\(curl "(.*?)"\)}' 'SHELL replacable with CURL'
+	rule_warning 'ExecIf\(\$\[(.*?)\]\?Return\((.*?)\):Return\((.*?)\)\)' 'ExecIf with Return for both branches replacable with Return IF'
+	rule_warning 'ExecIf\(\$\[(.*?)\]\?Return\((.*?)\)\)' 'ExecIf expression with Return for one branch replacable with ReturnIf'
+	rule_warning 'ExecIf\(\$\{(.*?)\}\?Return\((.*?)\)\)' 'ExecIf function with Return for one branch replacable with ReturnIf'
+	rule_warning 'Return\(\${IF\((.*?)\?1:0\)\}\)' 'IF inside RETURN is superfluous'
+	rule_warning '\w*(?<!\$);([A-Za-z ]+)?\)' 'Unmatched closing parenthesis in comment' # ignore \; because that's not a comment, it's escaped
+	rule_warning ',Log\(([A-Za-z])+, ' 'Leading whitespace in log message'
+	rule_warning 'Dial\(SIP/' 'SIP dial (deprecated or removed channel driver)'
+	rule_invalid_jump "" "Branch to nonexistent location (missing references)"
+	rule_unref "" "Context not explicitly reachable"
+
+	# Errors
+	rule_error 'exten => ([*#\[\]a-zA-z0-9]*?),[^1]' 'Extension has no priority'
+	rule_error ' n\((.*?)\),n,'  'Duplicate next for priority'
+	rule_error 'same  [^n]'  'Same, but no next priority label'
+	rule_error 'If\(\$\{(.*?)&(.*?)\}\?'  'Multiple functions without enclosing expression' # check for multiple functions without enclosing expression
+	rule_error ' (.*?),([1n]),(.*?)\(([^\)]*) ;'  'Unterminated application call, followed by comment' # Asterisk will catch *this* error
+	rule_error 'Gosub\(([-a-z0-9,]*)\(([-a-zA-Z0-9\$\{\},]*)\)([^\)])'  'Unterminated Gosub',
+	rule_error 'Return\(([-a-zA-Z0-9\$\{\}\(\),]*)\}( *?);'  'Unterminated Return'
+	rule_error 'exten  \['  'Extension pattern without leading underscore'
+	rule_error 'exten  ([A-Za-z0-9\[]+)?(]).,'  'Extension pattern without leading underscore'
+	rule_error 'exten  ([A-Za-z0-9\[]+)?(])!,'  'Extension pattern without leading underscore'
+	rule_error '\w*(?<!\$)\[([A-Za-z0-9\$\{\}+-])+\]\?'  'Opening bracket without dollar sign'
+	rule_error ',ExecIf\(([^?])+\?([a-z0-9])([a-z0-9]*)(:?)([a-z0-9]*)([a-z0-9]*)'  'ExecIf, but meant GotoIf?'
+	rule_error ',GotoIf\(([^?])+\?([A-Z])([a-z0-9\(\)]*)(:?)([A-Z]*)([a-z0-9\(\)]*)\)'  'GotoIf, but meant ExecIf?'
+	rule_audio # find audio files which don't exist
+	printf "%s\n" "$warnings warning(s), $errors error(s)"
 }
 
 # Minimum argument check
@@ -908,6 +1042,8 @@ elif [ "$cmd" = "upgrade" ]; then
 	# echo updater
 elif [ "$cmd" = "edit" ]; then
 	exec nano $FILE_PATH
+elif [ "$cmd" = "validate" ]; then
+	run_rules
 elif [ "$cmd" = "trace" ]; then
 	debugtime=$EPOCHSECONDS
 	channel="debug_$debugtime.txt"
@@ -976,6 +1112,7 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"                                  Download and initialize boilerplate PhreakNet configuration"
 	printf "%s\n"		"phreaknet keygen                  Upload existing RSA public key to PhreakNet"
 	printf "%s\n"		"phreaknet keygen --rotate         Create or rotate PhreakNet RSA keypair, then upload public key to PhreakNet"
+	printf "%s\n"		"phreaknet validate                Validate your dialplan configuration and check for errors"
 	printf "\n%s\n\n"	"Maintenance commands:"
 	printf "%s\n"		"phreaknet update                  Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n"		"phreaknet update --upstream=URL   Update PhreakScript using URL as the upstream source (for testing)."
