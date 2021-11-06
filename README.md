@@ -11,27 +11,26 @@ PhreakScript installs:
    - Fixes ulaw/gsm codec translation bug
    - Fixes infinite loop Dial bug
    - Adds the following applications:
-      - Assert
-      - ReturnIf
-      - If
-      - EndIf
-      - ExecIf
-      - SendMail
-      - MallocTrim
-      - SendFrame
-      - StreamSilence
-      - ToneSweep
-      - SIPAddParameter
-      - Softmodem (third-party)
-      - TddRx (third-party)
+      - ``Assert``
+      - ``ReturnIf``
+      - ``If``, ``EndIf``, ``ExecIf``
+      - ``SendMail``
+      - ``MallocTrim``
+      - ``SendFrame``
+      - ``StreamSilence``
+      - ``ToneSweep``
+      - ``ToneScan``
+      - ``SIPAddParameter``
+      - ``Softmodem`` (third-party)
+      - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
-      - OTHER_CHANNEL
-      - NOTCH_FILTER
-      - EVAL_EXTEN
-      - DB_CHANNEL
-      - DB_CHANNEL_PRUNE
-      - JSON_DECODE
-      - SIP_PARAMETER
+      - ``OTHER_CHANNEL``
+      - ``NOTCH_FILTER``
+      - ``EVAL_EXTEN``
+      - ``DB_CHANNEL``
+      - ``DB_CHANNEL_PRUNE``
+      - ``JSON_DECODE``
+      - ``SIP_PARAMETER``
 
 PhreakScript is also useful for:
 - automating installation and maintenance of Asterisk, Asterisk Test Suite, Asterisk Test Framework, DAHDI Linux, DAHDI Tools, and related resources
