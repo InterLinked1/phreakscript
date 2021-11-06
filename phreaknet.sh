@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.48 (2021-11-03)
+# v0.0.49 (2021-11-04)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-06 0.0.49 PhreakScript: added debug to trace
 # 2021-11-03 0.0.48 PhreakScript: added basic dialplan validation
 # 2021-11-02 0.0.47 PhreakScript: switched upstream Asterisk to 18.8.0
 # 2021-11-01 0.0.46 PhreakScript: added boilerplate asterisk.conf
@@ -75,6 +76,7 @@ PHREAKNET_CLLI=""
 INTERLINKED_APIKEY=""
 BOILERPLATE_SOUNDS=0
 SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
+DEBUG_LEVEL=0
 
 echog() { printf "\e[32;1m%s\e[0m\n" "$*" >&2; }
 echoerr() { printf "\e[31;1m%s\e[0m\n" "$*" >&2; } # https://stackoverflow.com/questions/2990414/echo-that-outputs-to-stderr
@@ -137,6 +139,7 @@ Options:
    -w, --weaktls      Allow less secure TLS versions down to TLS 1.0 (default is 1.2+)
        --boilerplate  sounds: Also install boilerplate sounds
        --clli         config: CLLI code
+	   --debug        trace: Debug level (default is 0/OFF, max is 10)
        --disa         config: DISA number
        --api-key      config: InterLinked API key
        --rotate       keygen: Rotate/create keys
@@ -349,11 +352,11 @@ function rule_audio() {
 	directories="/etc/asterisk/"
 	pcregrep -rho1 --include='.*\.conf$' ',Playback\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f1 > /tmp/phreakscript_update.txt
 	pcregrep -rho1 --include='.*\.conf$' ',BackGround\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f1 >> /tmp/phreakscript_update.txt
-	pcregrep -rho1 --include='.*\.conf$' ',Read\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f2 | grep -v "dial" | grep -v "stutter" | grep -v "congestion" >> /tmp/phreakscript_update.txt
+	pcregrep -rho1 --include='.*\.conf$' ',Read\((.*)?\)' $directories | grep -vx ';.*' | cut -s -d',' -f2 | grep -v "dial" | grep -v "stutter" | grep -v "congestion" >> /tmp/phreakscript_update.txt
 	filenames=$(cat /tmp/phreakscript_update.txt | cut -d')' -f1 | tr '&' '\n' | sed '/^$/d' | sort | uniq | grep -v "\${" | xargs  -d "\n" -n1 -I{} sh -c 'if ! test -f "{}.ulaw"; then echo "{}"; fi')
 	lines=`echo "$filenames" | wc -l`
 	if [ "$lines" -ne "0" ]; then
-		echoerr "ERROR: Missing audio file(s) detected ($lines)"
+		echoerr "WARNING: Missing audio file(s) detected ($lines)"
 		while IFS= read -r filename; do
 			grep -rnRE --include \*.conf "[,&\(]$filename" $directories | grep -v ":;" | grep -v ",dial," | grep -v ",stutter," | grep -E "Playback|BackGround|Read" | grep --color "$filename"
 		done <<< "$filenames"
@@ -361,7 +364,7 @@ function rule_audio() {
 		echo "No missing sound files detected..."
 	fi
 	rm /tmp/phreakscript_update.txt
-	errors=$(($errors + $lines))
+	warnings=$(($warnings + $lines))
 	cd /tmp
 }
 
@@ -427,7 +430,7 @@ function rule_error() { # $1 = rule, $2 = rule name
 		if [ "$lines" -ne "0" ]; then
 			echoerr "ERROR: $2 ($lines)"
 			while IFS= read -r instance; do
-				echo "$instance - ${#instance} $chars"
+				echo "$instance"
 			done <<< "$results"
 		else
 			echo "OK: $2"
@@ -456,6 +459,7 @@ function run_rules() {
 	rule_warning 'Dial\(SIP/' 'SIP dial (deprecated or removed channel driver)'
 	rule_invalid_jump "" "Branch to nonexistent location (missing references)"
 	rule_unref "" "Context not explicitly reachable"
+	rule_audio # find audio files which don't exist
 
 	# Errors
 	rule_error 'exten => ([*#\[\]a-zA-z0-9]*?),[^1]' 'Extension has no priority'
@@ -471,7 +475,6 @@ function run_rules() {
 	rule_error '\w*(?<!\$)\[([A-Za-z0-9\$\{\}+-])+\]\?'  'Opening bracket without dollar sign'
 	rule_error ',ExecIf\(([^?])+\?([a-z0-9])([a-z0-9]*)(:?)([a-z0-9]*)([a-z0-9]*)'  'ExecIf, but meant GotoIf?'
 	rule_error ',GotoIf\(([^?])+\?([A-Z])([a-z0-9\(\)]*)(:?)([A-Z]*)([a-z0-9\(\)]*)\)'  'GotoIf, but meant ExecIf?'
-	rule_audio # find audio files which don't exist
 	printf "%s\n" "$warnings warning(s), $errors error(s)"
 }
 
@@ -482,7 +485,7 @@ else
 	cmd="$1"
 fi
 
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhstw -l cc:,dahdi,force,help,sip,testsuite,user:,weaktls,clli:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhstw -l cc:,dahdi,force,help,sip,testsuite,user:,weaktls,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -503,6 +506,7 @@ while true; do
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
 		--disa ) PHREAKNET_DISA=$2; shift 2;;
+		--debug ) DEBUG_LEVEL=$2; shift 2;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
 		--upstream ) SCRIPT_UPSTREAM=$2; shift 2;;
@@ -607,6 +611,7 @@ elif [ "$cmd" = "install" ]; then
 			exit 1
 		fi
 		make install
+		make all install config
 		if [ ! -d /usr/src/$DAHDI_TOOLS_SRC_DIR ]; then
 			printf "Directory not found: %s\n" "/usr/src/$DAHDI_TOOLS_SRC_DIR"
 			exit 2
@@ -1045,11 +1050,30 @@ elif [ "$cmd" = "edit" ]; then
 elif [ "$cmd" = "validate" ]; then
 	run_rules
 elif [ "$cmd" = "trace" ]; then
+	VERBOSE_LEVEL=10
 	debugtime=$EPOCHSECONDS
 	channel="debug_$debugtime.txt"
-	printf "Starting debug: %s\n" "$debugtime"
-	/sbin/asterisk -rx "logger add channel $channel notice,warning,error,verbose"
-	/sbin/asterisk -rx "core set verbose 10"
+	if [[ $DEBUG_LEVEL =~ ^-?[0-9]+$ ]]; then
+        if [ $DEBUG_LEVEL -lt 0 ]; then
+			echoerr "Invalid debug level: $DEBUG_LEVEL"
+			exit 2
+		elif [ $DEBUG_LEVEL -gt 10 ]; then
+			echoerr "Invalid debug level: $DEBUG_LEVEL"
+			exit 2
+		else
+			if [ $DEBUG_LEVEL -gt 0 ]; then
+				/sbin/asterisk -rx "logger add channel $channel notice,warning,error,verbose,debug"
+				/sbin/asterisk -rx "core set debug $DEBUG_LEVEL"
+			else
+				/sbin/asterisk -rx "logger add channel $channel notice,warning,error,verbose"
+			fi
+		fi
+	else
+		echoerr "Debug level must be numeric: $DEBUG_LEVEL"
+		exit 2
+	fi
+	/sbin/asterisk -rx "core set verbose $VERBOSE_LEVEL"
+	printf "Starting trace (verbose %d, debug %d): %s\n" $VERBOSE_LEVEL $DEBUG_LEVEL "$debugtime"
 	printf "%s\n" "Starting CLI trace..."
 	printf '\a'
 	read -r -p "A CLI trace is now being collected. Reproduce the issue, then press ENTER to conclude the trace: "
