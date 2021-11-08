@@ -20,6 +20,7 @@ PhreakScript installs:
       - ``StreamSilence``
       - ``ToneSweep``
       - ``ToneScan``
+      - ``DialTone``
       - ``SIPAddParameter``
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
