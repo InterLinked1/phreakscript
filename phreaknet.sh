@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.49 (2021-11-04)
+# v0.0.50 (2021-11-07)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-07 0.0.50 PhreakScript: added app_dialtone
 # 2021-11-06 0.0.49 PhreakScript: added debug to trace
 # 2021-11-03 0.0.48 PhreakScript: added basic dialplan validation
 # 2021-11-02 0.0.47 PhreakScript: switched upstream Asterisk to 18.8.0
@@ -312,6 +313,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	wget https://code.phreaknet.org/asterisk/app_memory.c -O /usr/src/$2/apps/app_memory.c --no-cache
 	# Add func_evalexten module
 	wget https://code.phreaknet.org/asterisk/func_evalexten.c -O /usr/src/$2/funcs/func_evalexten.c --no-cache
+	# Add app_dialtone module
+	wget https://code.phreaknet.org/asterisk/app_dialtone.c -O /usr/src/$2/apps/app_dialtone.c --no-cache
 
 	## Additional Standalone Modules
 	wget https://code.phreaknet.org/asterisk/app_frame.c -O /usr/src/$2/apps/app_frame.c --no-cache
@@ -453,7 +456,10 @@ function run_rules() {
 	rule_warning 'ExecIf\(\$\[(.*?)\]\?Return\((.*?)\):Return\((.*?)\)\)' 'ExecIf with Return for both branches replacable with Return IF'
 	rule_warning 'ExecIf\(\$\[(.*?)\]\?Return\((.*?)\)\)' 'ExecIf expression with Return for one branch replacable with ReturnIf'
 	rule_warning 'ExecIf\(\$\{(.*?)\}\?Return\((.*?)\)\)' 'ExecIf function with Return for one branch replacable with ReturnIf'
+	rule_warning 'ExecIf\(\$\[(.*?)\]\?Return\)' 'ExecIf function with Return replacable with ReturnIf'
+	rule_warning 'ExecIf\(\$\{(.*?)\}\?Return\)' 'ExecIf function with Return replacable with ReturnIf'
 	rule_warning 'Return\(\${IF\((.*?)\?1:0\)\}\)' 'IF inside RETURN is superfluous'
+	rule_warning '\(\$\[([A-Z])+\(' 'Expression syntax but found function?'
 	rule_warning '\w*(?<!\$);([A-Za-z ]+)?\)' 'Unmatched closing parenthesis in comment' # ignore \; because that's not a comment, it's escaped
 	rule_warning ',Log\(([A-Za-z])+, ' 'Leading whitespace in log message'
 	rule_warning 'Dial\(SIP/' 'SIP dial (deprecated or removed channel driver)'
@@ -1137,6 +1143,9 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"phreaknet keygen                  Upload existing RSA public key to PhreakNet"
 	printf "%s\n"		"phreaknet keygen --rotate         Create or rotate PhreakNet RSA keypair, then upload public key to PhreakNet"
 	printf "%s\n"		"phreaknet validate                Validate your dialplan configuration and check for errors"
+	printf "\n%s\n\n"	"Debugging commands:"
+	printf "%s\n"		"phreaknet trace                   Perform a trace with verbosity 10 and no debug level"
+	printf "%s\n"		"phreaknet trace --debug 1         Perform a trace with verbosity 10 and debug level 1"
 	printf "\n%s\n\n"	"Maintenance commands:"
 	printf "%s\n"		"phreaknet update                  Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n"		"phreaknet update --upstream=URL   Update PhreakScript using URL as the upstream source (for testing)."
