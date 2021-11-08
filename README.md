@@ -53,6 +53,8 @@ Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet example
 
 PhreakScript must be run as root, even if Asterisk does not run as root.
 
+PhreakScript is geared towards Debian-based systems, but pull requests to add support for other Linux distros or BSD are welcome.
+
 ### Change Log
 
 Please run ```phreaknet about```
