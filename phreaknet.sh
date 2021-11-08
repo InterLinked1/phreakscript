@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.51 (2021-11-07)
+# v0.0.52 (2021-11-08)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-08 0.0.52 PhreakScript: POSIX compatibility fixes for phreaknet validate
 # 2021-11-08 0.0.51 PhreakScript: compatibility changes to make POSIX compliant
 # 2021-11-07 0.0.50 PhreakScript: added app_dialtone
 # 2021-11-06 0.0.49 PhreakScript: added debug to trace
@@ -360,11 +361,12 @@ rule_audio() {
 	filenames=$(cat /tmp/phreakscript_update.txt | cut -d')' -f1 | tr '&' '\n' | sed '/^$/d' | sort | uniq | grep -v "\${" | xargs  -d "\n" -n1 -I{} sh -c 'if ! test -f "{}.ulaw"; then echo "{}"; fi')
 	lines=`echo "$filenames" | wc -l`
 	if [ "$lines" -ne "0" ]; then
-		resultfile=$(echo "$filenames" > /tmp/phreakscript_results.txt)
+		echo "$filenames" > /tmp/phreakscript_results.txt
 		echoerr "WARNING: Missing audio file(s) detected ($lines)"
-		while IFS= read -r filename; do
+		while read filename
+		do
 			grep -rnRE --include \*.conf "[,&\(]$filename" $directories | grep -v ":;" | grep -v ",dial," | grep -v ",stutter," | grep -E "Playback|BackGround|Read" | grep --color "$filename"
-		done <$resultfile
+		done < /tmp/phreakscript_results.txt # POSIX compliant
 		rm /tmp/phreakscript_results.txt
 	else
 		echo "No missing sound files detected..."
@@ -380,12 +382,8 @@ rule_invalid_jump() {
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
-			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "WARNING: $2 ($lines)"
-			while IFS= read -r instance; do
-				echo "$instance"
-			done <$resultfile
-			rm /tmp/phreakscript_results.txt
+			echo "$results"
 		else
 			echo "OK: $2"
 		fi
@@ -400,12 +398,8 @@ rule_unref() {
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
-			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "WARNING: $2 ($lines)"
-			while IFS= read -r instance; do
-				echo "$instance"
-			done <$resultfile
-			rm /tmp/phreakscript_results.txt
+			echo "$results"
 		else
 			echo "OK: $2"
 		fi
@@ -419,12 +413,8 @@ rule_warning() { # $1 = rule, $2 = rule name
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
-			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "WARNING: $2 ($lines)"
-			while IFS= read -r instance; do
-				echo "$instance"
-			done <$resultfile
-			rm /tmp/phreakscript_results.txt
+			echo "$results"
 		else
 			echo "OK: $2"
 		fi
@@ -438,12 +428,8 @@ rule_error() { # $1 = rule, $2 = rule name
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
-			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "ERROR: $2 ($lines)"
-			while IFS= read -r instance; do
-				echo "$instance"
-			done <$resultfile
-			rm /tmp/phreakscript_results.txt
+			echo "$results"
 		else
 			echo "OK: $2"
 		fi
