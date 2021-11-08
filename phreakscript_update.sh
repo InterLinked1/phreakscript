@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 g() { printf "\e[32;1m%s\e[0m\n" "$*" >&2; }
 err() { printf "\e[31;1m%s\e[0m\n" "$*" >&2; } # https://stackoverflow.com/questions/2990414/echo-that-outputs-to-stderr
 v1=`grep "# v" $2 | head -1 | cut -d'v' -f2`
@@ -17,6 +17,6 @@ if [ "$test" = "1" ]; then
 	g "Successfully updated PhreakScript from $v1 to $v2"
 else
 	err "PhreakScript failed to update - upstream contains errors ($test)."
-	rm $tmp
+	rm "$tmp"
 fi
-exec rm -f $3
+exec rm -f "$3"

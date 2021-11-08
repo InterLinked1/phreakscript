@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.50 (2021-11-07)
+# v0.0.51 (2021-11-07)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-08 0.0.51 PhreakScript: compatibility changes to make POSIX compliant
 # 2021-11-07 0.0.50 PhreakScript: added app_dialtone
 # 2021-11-06 0.0.49 PhreakScript: added debug to trace
 # 2021-11-03 0.0.48 PhreakScript: added basic dialplan validation
@@ -94,7 +95,7 @@ phreakscript_info() {
 }
 
 usage() {
-	complete -W "make help install installts pulsar sounds config keygen edit genpatch patch update upgrade trace backtrace" phreaknet # has to be manually entered, at present
+	#complete -W "make help install installts pulsar sounds config keygen edit genpatch patch update upgrade trace backtrace" phreaknet # has to be manually entered, at present
 	#source ~/.bash_profile
 	echo "Usage: phreaknet [command] [options]
 Commands:
@@ -140,11 +141,11 @@ Options:
    -w, --weaktls      Allow less secure TLS versions down to TLS 1.0 (default is 1.2+)
        --boilerplate  sounds: Also install boilerplate sounds
        --clli         config: CLLI code
-	   --debug        trace: Debug level (default is 0/OFF, max is 10)
+       --debug        trace: Debug level (default is 0/OFF, max is 10)
        --disa         config: DISA number
        --api-key      config: InterLinked API key
        --rotate       keygen: Rotate/create keys
-	   --upstream     update: Specify upstream source
+       --upstream     update: Specify upstream source
 "
 	phreakscript_info
 	exit 2
@@ -205,7 +206,7 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	pip2 install twisted
 	# in case we're not already in the right directory
 	AST_SRC_DIR=`ls /usr/src | grep "asterisk-" | tail -1`
-	if [ "$AST_SRC_DIR" = ""]; then
+	if [ "$AST_SRC_DIR" = "" ]; then
 		echoerr "Asterisk source not found. Aborting..."
 		return 1
 	fi
@@ -341,7 +342,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	menuselect/menuselect --enable app_memory menuselect.makeopts # app_memory doesn't compile by default
 }
 
-function download_if_missing() {
+download_if_missing() {
 	if [ ! -f "$1" ]; then
 		wget "$2"
 	else
@@ -349,7 +350,7 @@ function download_if_missing() {
 	fi
 }
 
-function rule_audio() {
+rule_audio() {
 	cd /var/lib/asterisk/sounds/en/ # so we can use both relative and absolute paths
 	# trying to use {} to combine the output of multiple commands causes issues, so do them serially
 	directories="/etc/asterisk/"
@@ -359,10 +360,12 @@ function rule_audio() {
 	filenames=$(cat /tmp/phreakscript_update.txt | cut -d')' -f1 | tr '&' '\n' | sed '/^$/d' | sort | uniq | grep -v "\${" | xargs  -d "\n" -n1 -I{} sh -c 'if ! test -f "{}.ulaw"; then echo "{}"; fi')
 	lines=`echo "$filenames" | wc -l`
 	if [ "$lines" -ne "0" ]; then
+		resultfile=$(echo "$filenames" > /tmp/phreakscript_results.txt)
 		echoerr "WARNING: Missing audio file(s) detected ($lines)"
 		while IFS= read -r filename; do
 			grep -rnRE --include \*.conf "[,&\(]$filename" $directories | grep -v ":;" | grep -v ",dial," | grep -v ",stutter," | grep -E "Playback|BackGround|Read" | grep --color "$filename"
-		done <<< "$filenames"
+		done <$resultfile
+		rm /tmp/phreakscript_results.txt
 	else
 		echo "No missing sound files detected..."
 	fi
@@ -371,17 +374,18 @@ function rule_audio() {
 	cd /tmp
 }
 
-function rule_invalid_jump() {
+rule_invalid_jump() {
 	results=$(pcregrep -ro3 --include='.*\.conf$' -hi '([1n\)]),(Goto|Gosub|GotoIf|GosubIf)\(([A-Za-z0-9_-]*),([A-Za-z0-9:\\$\{\}_-]*),([A-Za-z0-9:\\$\{\}_-]*)([\)\(:])' /etc/asterisk/ | sort | uniq | xargs -n1 -I{} sh -c 'if ! grep -r --include \*.conf "\[{}\]" /etc/asterisk/; then echo "Missing reference:{}"; fi' | grep "Missing reference:" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" /etc/asterisk/ | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
+			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "WARNING: $2 ($lines)"
 			while IFS= read -r instance; do
 				echo "$instance"
-				
-			done <<< "$results"
+			done <$resultfile
+			rm /tmp/phreakscript_results.txt
 		else
 			echo "OK: $2"
 		fi
@@ -389,18 +393,19 @@ function rule_invalid_jump() {
 	fi
 }
 
-function rule_unref() {
+rule_unref() {
 	printf "%s\n" "Unreachable check: Assuming all dialplan code is in subdirectories of /etc/asterisk..."
 	results=$(pcregrep -ro -hi --include='.*\.conf$' '^\[([A-Za-z0-9-])+?\]' $(ls -d /etc/asterisk/*/) | cut -d "[" -f2 | cut -d "]" -f1 | xargs -n1 -I{} sh -c 'if ! grep -rE --include \*.conf "([ @?,:^\(=]){}"  /etc/asterisk/; then echo "Unreachable Code:{}"; fi' | grep "Unreachable Code:" | grep -vE "\-([0-9]+)$" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" $(ls -d /etc/asterisk/*/) | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
+			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "WARNING: $2 ($lines)"
 			while IFS= read -r instance; do
 				echo "$instance"
-				
-			done <<< "$results"
+			done <$resultfile
+			rm /tmp/phreakscript_results.txt
 		else
 			echo "OK: $2"
 		fi
@@ -408,16 +413,18 @@ function rule_unref() {
 	fi
 }
 
-function rule_warning() { # $1 = rule, $2 = rule name
+rule_warning() { # $1 = rule, $2 = rule name
 	results=$(grep -rnE --include \*.conf "$1" /etc/asterisk | sed 's/\s\s*/ /g' | cut -c 15-)
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
+			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "WARNING: $2 ($lines)"
 			while IFS= read -r instance; do
 				echo "$instance"
-			done <<< "$results"
+			done <$resultfile
+			rm /tmp/phreakscript_results.txt
 		else
 			echo "OK: $2"
 		fi
@@ -425,16 +432,18 @@ function rule_warning() { # $1 = rule, $2 = rule name
 	fi
 }
 
-function rule_error() { # $1 = rule, $2 = rule name
+rule_error() { # $1 = rule, $2 = rule name
 	results=$(grep -rnE --include \*.conf "$1" /etc/asterisk | sed 's/\s\s*/ /g' | cut -c 15-)
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
 		if [ "$lines" -ne "0" ]; then
+			resultfile=$(echo "$results" > /tmp/phreakscript_results.txt)
 			echoerr "ERROR: $2 ($lines)"
 			while IFS= read -r instance; do
 				echo "$instance"
-			done <<< "$results"
+			done <$resultfile
+			rm /tmp/phreakscript_results.txt
 		else
 			echo "OK: $2"
 		fi
@@ -442,7 +451,7 @@ function rule_error() { # $1 = rule, $2 = rule name
 	fi
 }
 
-function run_rules() {
+run_rules() {
 	warnings=0
 	errors=0
 	printf "%s\n" "Processing rules..."
@@ -525,7 +534,7 @@ while true; do
 	esac
 done
 
-if ! [[ "$AST_CC" =~ ^[0-9]+$ ]]; then
+if [ -z "${AST_CC##*[!0-9]*}" ] ; then # POSIX compliant: https://unix.stackexchange.com/a/574169/
 	echoerr "Country code must be an integer."
 	exit 1
 fi
@@ -862,10 +871,6 @@ elif [ "$cmd" = "config" ]; then
 	fi
 	printf "%s: %s\n" "PhreakNet CLLI code" $PHREAKNET_CLLI
 	printf "%s\n" "InterLinked API key seems to be of valid format, not displaying for security reasons..."
-	# uncommentedlines=`grep "^[^;]" /etc/asterisk/extensions.conf | wc -l`
-	# if [ $uncommentedlines -ne 202]; then # the sample config has 202 lines of uncommented config
-	# 	# 
-	# fi
 	if [ ! -d /etc/asterisk/dialplan ]; then
 		mkdir -p /etc/asterisk/dialplan
 		cd /etc/asterisk/dialplan
