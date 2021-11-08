@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.52 (2021-11-08)
+# v0.0.53 (2021-11-09)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-08 0.0.53 PhreakScript: fixed realpath for POSIX compliance
 # 2021-11-08 0.0.52 PhreakScript: POSIX compatibility fixes for phreaknet validate
 # 2021-11-08 0.0.51 PhreakScript: compatibility changes to make POSIX compliant
 # 2021-11-07 0.0.50 PhreakScript: added app_dialtone
@@ -58,7 +59,7 @@
 # Script environment variables
 AST_SOURCE_NAME="asterisk-18-current"
 MIN_ARGS=1
-FILE_PATH=$(realpath -s $0)
+FILE_PATH=$0
 PATCH_DIR=https://docs.phreaknet.org/script
 BASH_RC="/etc/bash.bashrc"
 AST_CONFIG_DIR="/etc/asterisk"
@@ -541,7 +542,11 @@ elif [ "$cmd" = "make" ]; then
 	v=`grep "phreaknet" $BASH_RC`
 	if [ "$v" = "" ]; then
 		printf "%s\n" "alias phreaknet='$FILE_PATH'" >> $BASH_RC
-		printf "%s\n" "Aliased PhreakScript globally as phreaknet."
+		if [ $? -eq 0 ]; then
+			printf "%s\n" "Aliased PhreakScript globally as phreaknet."
+		else
+			echoerr "Failed to alias PhreakScript globally."
+		fi
 	else
 		printf "%s\n" "PhreakScript already aliased, taking no action."
 	fi
