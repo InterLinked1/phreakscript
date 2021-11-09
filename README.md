@@ -48,7 +48,7 @@ Please refer to the Docs: https://docs.phreaknet.org/#phreakscript
 
 In a nutshell, run:
 
-```wget https://docs.phreaknet.org/script/phreaknet.sh; chmod +x phreaknet.sh; ./phreaknet.sh make; exec $SHELL```
+```cd /usr/local/src; wget https://docs.phreaknet.org/script/phreaknet.sh; chmod +x phreaknet.sh; ./phreaknet.sh make```
 
 Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet examples``` to get started.
 
