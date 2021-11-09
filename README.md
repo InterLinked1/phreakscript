@@ -54,11 +54,17 @@ Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet example
 
 PhreakScript must be run as root, even if Asterisk does not run as root.
 
-PhreakScript is geared towards Debian-based systems, but pull requests to add support for other Linux distros or BSD are welcome.
+PhreakScript is primarily supported on Debian-based Linux systems. Support has also been added for FreeBSD. Pull requests to add support for other Linux distros or BSD are welcome.
 
 ### Change Log
 
 Please run ```phreaknet about```
+
+### Reporting Issues
+
+The preferred issue reporting procedure is by cutting us a ticket at InterLinked Issues: https://issues.interlinked.us/
+
+Choose "PhreakScript" as the category.
 
 ### Pull Requests
 
