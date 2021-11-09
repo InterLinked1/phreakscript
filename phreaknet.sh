@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.0.53 (2021-11-09)
+# v0.1.0 (2021-11-09)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-09 0.1.0 PhreakScript: changed make to use hard link instead of alias, FreeBSD linking fixes
+# 2021-11-09 0.0.54 PhreakScript: lots and lots of POSIX compatibility fixes, added info command, flag test option
 # 2021-11-08 0.0.53 PhreakScript: fixed realpath for POSIX compliance
 # 2021-11-08 0.0.52 PhreakScript: POSIX compatibility fixes for phreaknet validate
 # 2021-11-08 0.0.51 PhreakScript: compatibility changes to make POSIX compliant
@@ -59,12 +61,20 @@
 # Script environment variables
 AST_SOURCE_NAME="asterisk-18-current"
 MIN_ARGS=1
-FILE_PATH=$0
+FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+FILE_NAME=$( basename $0 ) # grr... why is realpath not in the POSIX standard?
+FILE_PATH="$FILE_DIR/$FILE_NAME"
 PATCH_DIR=https://docs.phreaknet.org/script
-BASH_RC="/etc/bash.bashrc"
+OS_DIST_INFO="(lsb_release -ds || cat /etc/*release || uname -om ) 2>/dev/null | head -n1 | cut -d'=' -f2"
+OS_DIST_INFO=$(eval "$OS_DIST_INFO")
+PAC_MAN="apt-get"
 AST_CONFIG_DIR="/etc/asterisk"
 AST_SOUNDS_DIR="/var/lib/asterisk/sounds/en"
 AST_MOH_DIR="/var/lib/asterisk/moh"
+AST_SOURCE_PARENT_DIR="/usr/src"
+AST_MAKE="make"
+
+echo $FILE_PATH
 
 # Defaults
 AST_CC=1 # Country Code (default: 1 - NANPA)
@@ -85,13 +95,23 @@ DEBUG_LEVEL=0
 echog() { printf "\e[32;1m%s\e[0m\n" "$*" >&2; }
 echoerr() { printf "\e[31;1m%s\e[0m\n" "$*" >&2; } # https://stackoverflow.com/questions/2990414/echo-that-outputs-to-stderr
 
+if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+	PAC_MAN="pkg"
+	AST_SOURCE_PARENT_DIR="/usr/local/src"
+	AST_MAKE="gmake"
+fi
+
 phreakscript_info() {
-	printf "%s" "PhreakScript "
-	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
-	/sbin/asterisk -V
+	echo $OS_DIST_INFO
+	echo "Package Manager: $PAC_MAN"
+	if [ -f /sbin/asterisk ]; then
+		/sbin/asterisk -V
+	fi
 	if [ -d /etc/dahdi ]; then
 		/sbin/dahdi_cfg -tv 2>&1 | grep "ersion"
 	fi
+	printf "%s" "PhreakScript "
+	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
 	echo "(C) 2021 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
 	echo "To report bugs or request feature additions, please report at https://issues.interlinked.us (also see https://docs.phreaknet.org/#contributions) and/or post to the PhreakNet mailing list: https://groups.io/g/phreaknet" | fold -s -w 120
 }
@@ -105,6 +125,7 @@ Commands:
    about         About PhreakScript
    help          Program usage
    examples      Example usages
+   info          System info
 
    *** First Use / Installation ***
    make          Add PhreakScript to path
@@ -137,6 +158,7 @@ Options:
    -d, --dahdi        Install DAHDI
    -f, --force        Force install or config
    -h, --help         Display usage
+   -o, --flag-test    Option flag test
    -s, --sip          Use chan_sip instead of or in addition to chan_pjsip
    -t, --testsuite    Compile with developer support for Asterisk test suite and unit tests
    -u, --user         User as which to run Asterisk (non-root)
@@ -154,18 +176,26 @@ Options:
 }
 
 install_prereq() {
-	apt-get clean
-	apt-get update -y
-	apt-get upgrade -y
-	apt-get dist-upgrade -y
-	apt-get install -y ntp iptables tcpdump wget curl sox libcurl4-openssl-dev mpg123 dnsutils php festival bc fail2ban mariadb-server git
-	# used to feed the country code non-interactively
-	apt-get install -y debconf-utils
-	apt-get -y autoremove
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get clean
+		apt-get update -y
+		apt-get upgrade -y
+		apt-get dist-upgrade -y
+		apt-get install -y ntp iptables tcpdump wget curl sox libcurl4-openssl-dev mpg123 dnsutils php festival bc fail2ban mariadb-server git
+		# used to feed the country code non-interactively
+		apt-get install -y debconf-utils
+		apt-get -y autoremove
+	elif [ "$PAC_MAN" = "pkg" ]; then
+		pkg -y update
+		pkg -y upgrade
+		pkg install -y sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion # bind-tools for dig
+	else
+		echoerr "Could not determine what package manager to use..."
+	fi
 }
 
 install_testsuite_itself() { # $1 = $FORCE_INSTALL
-	cd /usr/src
+	cd $AST_SOURCE_PARENT_DIR
 	if [ -d "testsuite" ]; then
 		if [ "$1" = "1" ]; then
 			printf "%s\n" "Reinstalling testsuite..."
@@ -200,19 +230,19 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	apt-get update -y
 	apt-get upgrade -y
 	apt-get install -y liblua5.1-0-dev lua5.3 git python python-setuptools
-	cd /usr/src
+	cd $AST_SOURCE_PARENT_DIR
 	# Python 2 support is going away in Debian
 	curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py # https://stackoverflow.com/a/64240018/6110631
 	python get-pip.py
 	pip2 install pyyaml
 	pip2 install twisted
 	# in case we're not already in the right directory
-	AST_SRC_DIR=`ls /usr/src | grep "asterisk-" | tail -1`
+	AST_SRC_DIR=`ls $AST_SOURCE_PARENT_DIR | grep "asterisk-" | tail -1`
 	if [ "$AST_SRC_DIR" = "" ]; then
 		echoerr "Asterisk source not found. Aborting..."
 		return 1
 	fi
-	cd /usr/src/$AST_SRC_DIR
+	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	./configure --enable-dev-mode
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE BETTER_BACKTRACES TEST_FRAMEWORK menuselect.makeopts
@@ -224,7 +254,18 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 gerrit_patch() {
 	printf "%s\n" "Downloading and applying Gerrit patch $1"
 	wget -q --show-progress $2 -O $1.diff.base64
-	base64 --decode $1.diff.base64 > $1.diff
+	if [ $? -ne 0 ]; then
+		echoerr "Patch download failed"
+		exit 2
+	fi
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		b64decode -r $1.diff.base64 > $1.diff
+		if [ $? -ne 0 ]; then
+			exit 2
+		fi
+	else
+		base64 --decode $1.diff.base64 > $1.diff
+	fi
 	git apply $1.diff
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Gerrit patch... this should be reported..."
@@ -245,7 +286,7 @@ dahdi_undo() {
 dahdi_custom_patch() {
 	printf "Applying custom DAHDI patch: %s\n" "$1"
 	wget -q --show-progress "$3" -O /tmp/$1.patch --no-cache
-	patch -u -b "/usr/src/$2" -i /tmp/$1.patch
+	patch -u -b "$AST_SOURCE_PARENT_DIR/$2" -i /tmp/$1.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply DAHDI patch... this should be reported..."
 	fi
@@ -287,12 +328,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Add Patches To Existing Modules
 
 	cd /tmp
-	wget https://code.phreaknet.org/asterisk/iaxrsa.patch
 	wget https://code.phreaknet.org/asterisk/returnif.patch
 	wget https://code.phreaknet.org/asterisk/6112308.diff
 	wget https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff
 
-	cd /usr/src/$2
+	cd $AST_SOURCE_PARENT_DIR/$2
 
 	# Add ReturnIf application
 	patch -u -b apps/app_stack.c -i /tmp/returnif.patch
@@ -301,39 +341,39 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	# Bug fix to app_dial (prevent infinite loop)
 	patch -u -b apps/app_dial.c -i /tmp/6112308.diff
 
-	rm -f /tmp/iaxrsa.patch /tmp/returnif.patch /tmp/translate.diff /tmp/6112308.diff
+	rm -f /tmp/returnif.patch /tmp/translate.diff /tmp/6112308.diff
 
 	## Add Standalone Modules
 	# Add app_if module
-	wget https://code.phreaknet.org/asterisk/app_if.c -O /usr/src/$2/apps/app_if.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_if.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_if.c --no-cache
 	# Add func_ochannel module
-	wget https://code.phreaknet.org/asterisk/func_ochannel.c -O /usr/src/$2/funcs/func_ochannel.c --no-cache
+	wget https://code.phreaknet.org/asterisk/func_ochannel.c -O $AST_SOURCE_PARENT_DIR/$2/funcs/func_ochannel.c --no-cache
 	# Add func_notchfilter module
-	wget https://code.phreaknet.org/asterisk/func_notchfilter.c -O /usr/src/$2/funcs/func_notchfilter.c --no-cache
+	wget https://code.phreaknet.org/asterisk/func_notchfilter.c -O $AST_SOURCE_PARENT_DIR/$2/funcs/func_notchfilter.c --no-cache
 	# Add app_mail module
-	wget https://code.phreaknet.org/asterisk/app_mail.c -O /usr/src/$2/apps/app_mail.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_mail.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_mail.c --no-cache
 	# Add app_memory module
-	wget https://code.phreaknet.org/asterisk/app_memory.c -O /usr/src/$2/apps/app_memory.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_memory.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_memory.c --no-cache
 	# Add func_evalexten module
-	wget https://code.phreaknet.org/asterisk/func_evalexten.c -O /usr/src/$2/funcs/func_evalexten.c --no-cache
+	wget https://code.phreaknet.org/asterisk/func_evalexten.c -O $AST_SOURCE_PARENT_DIR/$2/funcs/func_evalexten.c --no-cache
 	# Add app_dialtone module
-	wget https://code.phreaknet.org/asterisk/app_dialtone.c -O /usr/src/$2/apps/app_dialtone.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_dialtone.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_dialtone.c --no-cache
 
 	## Additional Standalone Modules
-	wget https://code.phreaknet.org/asterisk/app_frame.c -O /usr/src/$2/apps/app_frame.c --no-cache
-	wget https://code.phreaknet.org/asterisk/app_streamsilence.c -O /usr/src/$2/apps/app_streamsilence.c --no-cache
-	wget https://code.phreaknet.org/asterisk/app_tonetest.c -O /usr/src/$2/apps/app_tonetest.c --no-cache
-	wget https://code.phreaknet.org/asterisk/func_dbchan.c -O /usr/src/$2/apps/func_dbchan.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_frame.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_frame.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_streamsilence.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_streamsilence.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_tonetest.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tonetest.c --no-cache
+	wget https://code.phreaknet.org/asterisk/func_dbchan.c -O $AST_SOURCE_PARENT_DIR/$2/apps/func_dbchan.c --no-cache
 
 	## Third Party Modules
-	wget https://code.phreaknet.org/asterisk/app_softmodem.c -O /usr/src/$2/apps/app_softmodem.c --no-cache
-	wget https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O /usr/src/$2/apps/app_tdd.c --no-cache
+	wget https://code.phreaknet.org/asterisk/app_softmodem.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_softmodem.c --no-cache
+	wget https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tdd.c --no-cache
 
 	## Gerrit patches for merged in master branch (will be removed once released in next version)
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16630 "https://gerrit.asterisk.org/changes/asterisk~16630/revisions/1/patch?download" # sig_analog compiler fix
 	gerrit_patch 16633 "https://gerrit.asterisk.org/changes/asterisk~16633/revisions/1/patch?download" # app_read and app.c bug fix
-	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/1/patch?download" # func_json
+	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/2/patch?download" # func_json
 	gerrit_patch 16635 "https://gerrit.asterisk.org/changes/asterisk~16635/revisions/1/patch?download" # chan_iax2 dynamic RSA out dialing
 
 	# never going to be merged upstream:
@@ -487,20 +527,30 @@ else
 	cmd="$1"
 fi
 
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhstw -l cc:,dahdi,force,help,sip,testsuite,user:,weaktls,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
+FLAG_TEST=0
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostw -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,weaktls,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
 	exit 2
 fi
 
-eval set -- "$PARSED_ARGUMENTS"
+if [ "$OS_DIST_INFO" != "FreeBSD" ]; then
+	eval set -- "$PARSED_ARGUMENTS"
+else
+	shift # for FreeBSD
+fi
+
 while true; do
+	if [ "$1" = "" ]; then
+		break # for FreeBSD
+	fi
 	case "$1" in
         -c | --cc ) AST_CC=$2; shift 2;;
 		-d | --dahdi ) CHAN_DAHDI=1; shift ;;
 		-f | --force ) FORCE_INSTALL=1; shift ;;
 		-h | --help ) cmd="help" ;;
+		-o | --flag-test ) FLAG_TEST=1; echo "$options"; shift;;
 		-s | --sip ) CHAN_SIP=1; shift ;;
 		-t | --testsuite ) TEST_SUITE=1; shift ;;
 		-u | --user ) AST_USER=$2; shift 2;;
@@ -517,9 +567,14 @@ while true; do
 		# If invalid options were passed, then getopt should have reported an error,
 		# which we checked as VALID_ARGUMENTS when getopt was called...
 		*) echo "Unexpected option: $1"
-		   cmd="help" ;;
+		   cmd="help"; break ;;
 	esac
 done
+
+if [ "$FLAG_TEST" = "1" ]; then
+	echog "Flag test successful."
+	exit 0
+fi
 
 if [ -z "${AST_CC##*[!0-9]*}" ] ; then # POSIX compliant: https://unix.stackexchange.com/a/574169/
 	echoerr "Country code must be an integer."
@@ -532,28 +587,21 @@ if [ "$cmd" = "help" ]; then
 elif [ "$cmd" = "make" ]; then
 	# chmod +x phreaknet.sh
 	# ./phreaknet.sh make
-	# exec $SHELL
 	# phreaknet install
 
-	if [ "$EUID" -ne 0 ]; then
+	if [ $(id -u) -ne 0 ]; then
 		echoerr "PhreakScript make must be run as root. Aborting..."
 		exit 2
 	fi
-	v=`grep "phreaknet" $BASH_RC`
-	if [ "$v" = "" ]; then
-		printf "%s\n" "alias phreaknet='$FILE_PATH'" >> $BASH_RC
-		if [ $? -eq 0 ]; then
-			printf "%s\n" "Aliased PhreakScript globally as phreaknet."
-		else
-			echoerr "Failed to alias PhreakScript globally."
-		fi
+	ln $FILE_PATH /usr/local/sbin/phreaknet
+	if [ $? -eq 0 ]; then
+		echo "PhreakScript added to path."
 	else
-		printf "%s\n" "PhreakScript already aliased, taking no action."
+		echo "PhreakScript could not be added to path. Is it already there?"
+		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
-	# source ~/.bash_profile
-	# exec $SHELL
 elif [ "$cmd" = "install" ]; then
-	if [ "$EUID" -ne 0 ]; then
+	if [ $(id -u) -ne 0 ]; then
 		echoerr "PhreakScript install must be run as root. Aborting..."
 		exit 2
 	fi
@@ -569,12 +617,16 @@ elif [ "$cmd" = "install" ]; then
 	# Get DAHDI
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		apt-get install -y linux-headers-`uname -r` build-essential binutils-dev
-		cd /usr/src
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to download system headers"
+			exit 2
+		fi
+		cd $AST_SOURCE_PARENT_DIR
 		wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz
 		wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz
 		DAHDI_LIN_SRC_DIR=`tar -tzf dahdi-linux-current.tar.gz | head -1 | cut -f1 -d"/"`
 		DAHDI_TOOLS_SRC_DIR=`tar -tzf dahdi-tools-current.tar.gz | head -1 | cut -f1 -d"/"`
-		if [ -d "/usr/src/$DAHDI_LIN_SRC_DIR" ]; then
+		if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR" ]; then
 			if [ "$FORCE_INSTALL" = "1" ]; then
 				rm -rf $DAHDI_LIN_SRC_DIR
 			else
@@ -582,7 +634,7 @@ elif [ "$cmd" = "install" ]; then
 				exit 1
 			fi
 		fi
-		if [ -d "/usr/src/$DAHDI_TOOLS_SRC_DIR" ]; then
+		if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR" ]; then
 			if [ "$FORCE_INSTALL" = "1" ]; then
 				rm -rf $DAHDI_TOOLS_SRC_DIR
 			else
@@ -592,11 +644,11 @@ elif [ "$cmd" = "install" ]; then
 		fi
 		tar -zxvf dahdi-linux-current.tar.gz && rm dahdi-linux-current.tar.gz
 		tar -zxvf dahdi-tools-current.tar.gz && rm dahdi-tools-current.tar.gz
-		if [ ! -d /usr/src/$DAHDI_LIN_SRC_DIR ]; then
-			printf "Directory not found: %s\n" "/usr/src/$DAHDI_LIN_SRC_DIR"
+		if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
+			printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
 			exit 2
 		fi
-		cd /usr/src/$DAHDI_LIN_SRC_DIR
+		cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR
 		# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
 		dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
@@ -618,11 +670,11 @@ elif [ "$cmd" = "install" ]; then
 		fi
 		make install
 		make all install config
-		if [ ! -d /usr/src/$DAHDI_TOOLS_SRC_DIR ]; then
-			printf "Directory not found: %s\n" "/usr/src/$DAHDI_TOOLS_SRC_DIR"
+		if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
+			printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
 			exit 2
 		fi
-		cd /usr/src/$DAHDI_TOOLS_SRC_DIR
+		cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 		dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://code.phreaknet.org/asterisk/dahdi/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
 		autoreconf -i
 		./configure
@@ -641,7 +693,7 @@ elif [ "$cmd" = "install" ]; then
 		/sbin/dahdi_cfg # in case not in path
 	fi
 	# Get latest Asterisk LTS version
-	cd /usr/src
+	cd $AST_SOURCE_PARENT_DIR
 	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 	wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
 	if [ $? -ne 0 ]; then
@@ -649,7 +701,7 @@ elif [ "$cmd" = "install" ]; then
 		exit 1
 	fi
 	AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
-	if [ -d "/usr/src/$AST_SRC_DIR" ]; then
+	if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
 		if [ "$FORCE_INSTALL" = "1" ]; then
 			rm -rf $AST_SRC_DIR
 		else
@@ -660,20 +712,26 @@ elif [ "$cmd" = "install" ]; then
 	printf "%s\n" "Installing production version $AST_SRC_DIR..."
 	tar -zxvf $AST_SOURCE_NAME.tar.gz
 	rm $AST_SOURCE_NAME.tar.gz
-	if [ ! -d /usr/src/$AST_SRC_DIR ]; then
-		printf "Directory not found: %s\n" "/usr/src/$AST_SRC_DIR"
+	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
+		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
 		exit 2
 	fi
-	cd /usr/src/$AST_SRC_DIR
+	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	# Install Pre-Reqs
-	printf "%s %d" "libvpb1 libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
-	apt-get install -y libvpb1
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		printf "%s %d" "libvpb1 libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
+		apt-get install -y libvpb1
+	fi
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
+	chmod +x configure
 	if [ "$TEST_SUITE" = "1" ]; then
 		./configure --with-jansson-bundled --enable-dev-mode
 	else
 		./configure --with-jansson-bundled
+	fi
+	if [ $? -ne 0 ]; then
+		exit 2
 	fi
 	cp contrib/scripts/voicemailpwcheck.py /usr/local/bin
 	chmod +x /usr/local/bin/voicemailpwcheck.py
@@ -714,26 +772,42 @@ elif [ "$cmd" = "install" ]; then
 		rm funcs/func_notchfilter.c # ditto for now...
 	fi
 	# Compile Asterisk
-	nice make # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+	if [ "$AST_MAKE" = "gmake" ]; then # jansson fails to compile nicely on its own with gmake
+		cd third-party/jansson
+		gmake
+		cd ../..
+	fi
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		nice $AST_MAKE ASTLDFLAGS=-lcrypt main
+	else
+		nice $AST_MAKE # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+	fi
+	if [ $? -ne 0 ]; then
+		exit 2
+	fi
 	# Only generate config if this is the first time
 	# Install Asterisk
 	if [ ! -d "$AST_CONFIG_DIR" ]; then
-		make samples # do not run this on upgrades or it will wipe out your config!
+		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
 	fi
-	rm -f /usr/lib/asterisk/modules/*.so
-	make install # actually install modules
-	make config # install init script
-	make install-logrotate # auto compress and rotate log files
+	if [ -d /usr/lib/asterisk/modules ]; then
+		rm -f /usr/lib/asterisk/modules/*.so
+	elif [ -d /usr/local/lib/asterisk/modules ]; then
+		rm -f /usr/local/lib/asterisk/modules/*.so
+	fi
+	$AST_MAKE install # actually install modules
+	$AST_MAKE config # install init script
+	$AST_MAKE install-logrotate # auto compress and rotate log files
 
 	if [ "$ODBC" = "1" ]; then # MariaDB ODBC for Asterisk
 		apt-get install -y unixodbc unixodbc-dev mariadb-server
-		cd /usr/src
+		cd $AST_SOURCE_PARENT_DIR
 		wget https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/mariadb-connector-odbc-3.1.11-debian-buster-amd64.tar.gz # https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/
 		tar -zxvf mariadb-connector-odbc-3.1.11-debian-buster-amd64/lib/mariadb
 		cd mariadb-connector-odbc-3.1.11-debian-buster-amd64/lib/mariadb
 		cp libmaodbc.so /usr/lib/x86_64-linux-gnu/odbc/
 		cp libmariadb.so /usr/lib/x86_64-linux-gnu/odbc/
-		cd /usr/src
+		cd $AST_SOURCE_PARENT_DIR
 		odbcinst -j
 		echo "[MariaDB]" > mariadb.ini && echo "Description	= Maria DB" >> mariadb.ini && echo "Driver = /usr/lib/x86_64-linux-gnu/odbc/libmaodbc.so" >> mariadb.ini && echo "Setup = /usr/lib/x86_64-linux-gnu/odbc/libodbcmyS.so" >> mariadb.ini
 		odbcinst -i -d -f mariadb.ini
@@ -767,13 +841,13 @@ elif [ "$cmd" = "install" ]; then
 		echog "Note that DAHDI was installed and requires a reboot before it can be used."
 	fi
 elif [ "$cmd" = "pulsar" ]; then
-	cd /usr/src
+	cd $AST_SOURCE_PARENT_DIR
 	wget https://octothorpe.info/downloads/pulsar-agi.tar.gz
 	wget https://code.phreaknet.org/asterisk/pulsar-noanswer.agi # bug fix to pulsar.agi, to fix broken answer supervision:
 	mv pulsar-agi.tar.gz /var/lib/asterisk
 	cd /var/lib/asterisk
 	tar xvfz pulsar-agi.tar.gz # automatically creates /var/lib/asterisk/sounds/pulsar/
-	mv /usr/src/pulsar-noanswer.agi /var/lib/asterisk/agi-bin/pulsar.agi
+	mv $AST_SOURCE_PARENT_DIR/pulsar-noanswer.agi /var/lib/asterisk/agi-bin/pulsar.agi
 	chmod 755 /var/lib/asterisk/agi-bin/pulsar.agi
 	if [ ! -f /var/lib/asterisk/agi-bin/pulsar.agi ]; then
 		echoerr "pulsar.agi is missing"
@@ -811,14 +885,14 @@ elif [ "$cmd" = "sounds" ]; then
 		download_if_missing "ringback.ulaw" "https://audio.phreaknet.org/stock/ringback.ulaw"
 	fi
 elif [ "$cmd" = "installts" ]; then
-	if [ "$EUID" -ne 0 ]; then
+	if [ $(id -u) -ne 0 ]; then
 		echoerr "PhreakScript installts must be run as root. Aborting..."
 		exit 2
 	fi
 	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "pubdocs" ]; then
-	cd /usr/src
-	AST_SRC_DIR=`ls /usr/src | grep "asterisk-" | tail -1`
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`ls $AST_SOURCE_PARENT_DIR | grep "asterisk-" | tail -1`
 	apt-get install -y python-dev python-virtualenv python-lxml
 	pip install pystache
 	pip install premailer
@@ -828,7 +902,7 @@ elif [ "$cmd" = "pubdocs" ]; then
 	git clone https://github.com/asterisk/publish-docs.git
 	cd publish-docs
 	printf "%s\n" "Generating Confluence markup..."
-	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=/usr/src/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
+	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
 	printf "%s\n" "Converting Confluence to HTML..."
 	if [ ! -f confluence2html ]; then
 		wget https://raw.githubusercontent.com/rmloveland/confluence2html/master/confluence2html
@@ -837,8 +911,8 @@ elif [ "$cmd" = "pubdocs" ]; then
 	PERL_MM_USE_DEFAULT=1 cpan -i CPAN
 	perl -MCPAN -e 'install File::Slurp'
 	./confluence2html < confluence.txt > docs.html
-	ls -l /usr/src/publish-docs
-	printf "%s\n" "All Wiki documentation has been generated and is now in /usr/src/publish-docs/docs.html"
+	ls -l $AST_SOURCE_PARENT_DIR/publish-docs
+	printf "%s\n" "All Wiki documentation has been generated and is now in $AST_SOURCE_PARENT_DIR/publish-docs/docs.html"
 elif [ "$cmd" = "config" ]; then
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		printf '\a'
@@ -1147,6 +1221,8 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"phreaknet update --upstream=URL   Update PhreakScript using URL as the upstream source (for testing)."
 	printf "%s\n"		"phreaknet patch                   Apply the latest PhreakNet configuration patches."
 	printf "\n"
+elif [ "$cmd" = "info" ]; then
+	phreakscript_info
 elif [ "$cmd" = "about" ]; then
 	printf "%s\n%s\n%s\n\n" "========= PhreakScript =========" "PhreakScript automates the management of Asterisk and DAHDI, from installation to patching to debugging." "The version of Asterisk and DAHDI installed by PhreakScript isn't a fork of Asterisk/DAHDI. Rather, it builds on top of the latest versions of Asterisk and DAHDI, so that users benefit from bug fixes and new features and improvements upstream, but also adds additional bug fixes and features that haven't made it upstream, to provide the fullest and richest Asterisk/DAHDI experience. For more details, see https://phreaknet.org/changes" | fold -s -w 80
 	printf "%s\n" "Change Log (both changes to PhreakScript and to Asterisk/DAHDI as installed by PhreakScript"
