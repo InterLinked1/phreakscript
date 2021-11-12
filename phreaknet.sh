@@ -2,7 +2,7 @@
 
 # PhreakScript for Debian systems
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.0 (2021-11-09)
+# v0.1.1 (2021-11-12)
 
 # Setup (as root):
 # cd /etc/asterisk/scripts
@@ -14,6 +14,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-12 0.1.1 PhreakScript: (PHREAKSCRIPT-1) fixed infinite loop with --help argument
 # 2021-11-09 0.1.0 PhreakScript: changed make to use hard link instead of alias, FreeBSD linking fixes
 # 2021-11-09 0.0.54 PhreakScript: lots and lots of POSIX compatibility fixes, added info command, flag test option
 # 2021-11-08 0.0.53 PhreakScript: fixed realpath for POSIX compliance
@@ -73,8 +74,6 @@ AST_SOUNDS_DIR="/var/lib/asterisk/sounds/en"
 AST_MOH_DIR="/var/lib/asterisk/moh"
 AST_SOURCE_PARENT_DIR="/usr/src"
 AST_MAKE="make"
-
-echo $FILE_PATH
 
 # Defaults
 AST_CC=1 # Country Code (default: 1 - NANPA)
@@ -186,8 +185,8 @@ install_prereq() {
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "pkg" ]; then
-		pkg -y update
-		pkg -y upgrade
+		pkg update -y
+		pkg upgrade -y
 		pkg install -y sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion # bind-tools for dig
 	else
 		echoerr "Could not determine what package manager to use..."
@@ -384,6 +383,36 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	menuselect/menuselect --enable app_memory menuselect.makeopts # app_memory doesn't compile by default
 }
 
+freebsd_port_patch() {
+	filename=$( basename $1 )
+	wget -q --show-progress "$1" -O "$filename" --no-cache
+	affectedfile=$( head -n 2 $filename | tail -n 1 | cut -d' ' -f2 )
+	if [ ! -f "$affectedfile" ]; then
+		echoerr "File does not exist: $affectedfile (patched by $filename)"
+		exit 2
+	fi
+	patch $affectedfile -i $filename
+	rm "$filename"
+}
+
+freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files
+	printf "%s\n" "Applying FreeBSD Port Patches..."
+	pwd
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-Makefile"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-agi_Makefile"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-channels_chan__dahdi.c"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-channels_sip_include_sip.h"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-configure"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-contrib_Makefile"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_Makefile"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_asterisk.exports.in"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_http.c"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_lock.c"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile"
+	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile.rules"
+	printf "%s\n" "FreeBSD patching complete..."
+}
+
 download_if_missing() {
 	if [ ! -f "$1" ]; then
 		wget "$2"
@@ -549,7 +578,7 @@ while true; do
         -c | --cc ) AST_CC=$2; shift 2;;
 		-d | --dahdi ) CHAN_DAHDI=1; shift ;;
 		-f | --force ) FORCE_INSTALL=1; shift ;;
-		-h | --help ) cmd="help" ;;
+		-h | --help ) cmd="help"; shift ;;
 		-o | --flag-test ) FLAG_TEST=1; echo "$options"; shift;;
 		-s | --sip ) CHAN_SIP=1; shift ;;
 		-t | --testsuite ) TEST_SUITE=1; shift ;;
@@ -567,7 +596,7 @@ while true; do
 		# If invalid options were passed, then getopt should have reported an error,
 		# which we checked as VALID_ARGUMENTS when getopt was called...
 		*) echo "Unexpected option: $1"
-		   cmd="help"; break ;;
+		   cmd="help"; shift; break ;;
 	esac
 done
 
@@ -724,7 +753,6 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
-	chmod +x configure
 	if [ "$TEST_SUITE" = "1" ]; then
 		./configure --with-jansson-bundled --enable-dev-mode
 	else
@@ -742,7 +770,6 @@ elif [ "$cmd" = "install" ]; then
 	menuselect/menuselect --disable-category MENUSELECT_MOH --disable-category MENUSELECT_CORE_SOUNDS --disable-category MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
 	# Only grab sounds if this is the first time
 	if [ ! -d "$AST_SOUNDS_DIR" ]; then
-		# todo: once Pat Fleet prompts are added, have this pull the Pat Fleet prompts
 		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW --enable MOH-OPSOUND-ULAW --enable EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
 	fi
 	if [ "$TEST_SUITE" = "1" ]; then
@@ -752,7 +779,7 @@ elif [ "$cmd" = "install" ]; then
 		menuselect/menuselect --enable chan_dahdi menuselect.makeopts
 	fi
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
-		echoerr "chan_sip is deprecated and support will be removed in Asterisk 21. Please move to chan_pjsip at your convenience"
+		echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Please move to chan_pjsip at your convenience."
 		menuselect/menuselect --enable chan_sip menuselect.makeopts
 	else
 		menuselect/menuselect --disable chan_sip menuselect.makeopts # remove this in version 21
@@ -770,6 +797,9 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$TEST_SUITE" = "1" ]; then
 		rm apps/app_softmodem.c apps/app_tdd.c # too many compiler warnings to bother with for dev mode...
 		rm funcs/func_notchfilter.c # ditto for now...
+	fi
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		freebsd_port_patches
 	fi
 	# Compile Asterisk
 	if [ "$AST_MAKE" = "gmake" ]; then # jansson fails to compile nicely on its own with gmake
@@ -796,7 +826,17 @@ elif [ "$cmd" = "install" ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
 	$AST_MAKE install # actually install modules
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
+			nm -D ${FILE} | grep PJ_AF_INET
+		done
+	fi
 	$AST_MAKE config # install init script
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		wget https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/asterisk.in
+		cp asterisk.in /usr/local/etc/rc.d/asterisk
+		chmod +x /usr/local/etc/rc.d/asterisk
+	fi
 	$AST_MAKE install-logrotate # auto compress and rotate log files
 
 	if [ "$ODBC" = "1" ]; then # MariaDB ODBC for Asterisk
