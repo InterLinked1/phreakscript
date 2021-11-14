@@ -1,19 +1,19 @@
 #!/bin/sh
 
-# PhreakScript for Debian systems
+# PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.1 (2021-11-12)
+# v0.1.2 (2021-11-14)
 
 # Setup (as root):
-# cd /etc/asterisk/scripts
+# cd /usr/local/src
 # wget https://docs.phreaknet.org/script/phreaknet.sh
 # chmod +x phreaknet.sh
 # ./phreaknet.sh make
-# exec $SHELL
 # phreaknet update
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-12 0.1.2 Asterisk: chan_sip (New Feature): Add fax control using FAX_DETECT_SECONDS and FAX_DETECT_OFF variables, PhreakScript: path improvements
 # 2021-11-12 0.1.1 PhreakScript: (PHREAKSCRIPT-1) fixed infinite loop with --help argument
 # 2021-11-09 0.1.0 PhreakScript: changed make to use hard link instead of alias, FreeBSD linking fixes
 # 2021-11-09 0.0.54 PhreakScript: lots and lots of POSIX compatibility fixes, added info command, flag test option
@@ -74,6 +74,7 @@ AST_SOUNDS_DIR="/var/lib/asterisk/sounds/en"
 AST_MOH_DIR="/var/lib/asterisk/moh"
 AST_SOURCE_PARENT_DIR="/usr/src"
 AST_MAKE="make"
+PATH="/sbin:$PATH"
 
 # Defaults
 AST_CC=1 # Country Code (default: 1 - NANPA)
@@ -103,11 +104,9 @@ fi
 phreakscript_info() {
 	echo $OS_DIST_INFO
 	echo "Package Manager: $PAC_MAN"
-	if [ -f /sbin/asterisk ]; then
-		/sbin/asterisk -V
-	fi
+	asterisk -V 2> /dev/null # Asterisk might or might not exist...
 	if [ -d /etc/dahdi ]; then
-		/sbin/dahdi_cfg -tv 2>&1 | grep "ersion"
+		dahdi_cfg -tv 2>&1 | grep "ersion"
 	fi
 	printf "%s" "PhreakScript "
 	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
@@ -330,6 +329,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	wget https://code.phreaknet.org/asterisk/returnif.patch
 	wget https://code.phreaknet.org/asterisk/6112308.diff
 	wget https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff
+	wget https://code.phreaknet.org/asterisk/sipfaxcontrol.diff
 
 	cd $AST_SOURCE_PARENT_DIR/$2
 
@@ -377,6 +377,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	# never going to be merged upstream:
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/3/patch?download" # chan_sip: Add custom parameters
+	patch -u -b channels/chan_sip.c -i /tmp/sipfaxcontrol.diff
 
 	## Menuselect updates
 	make menuselect.makeopts
@@ -579,7 +580,7 @@ while true; do
 		-d | --dahdi ) CHAN_DAHDI=1; shift ;;
 		-f | --force ) FORCE_INSTALL=1; shift ;;
 		-h | --help ) cmd="help"; shift ;;
-		-o | --flag-test ) FLAG_TEST=1; echo "$options"; shift;;
+		-o | --flag-test ) FLAG_TEST=1; shift;;
 		-s | --sip ) CHAN_SIP=1; shift ;;
 		-t | --testsuite ) TEST_SUITE=1; shift ;;
 		-u | --user ) AST_USER=$2; shift 2;;
@@ -715,11 +716,11 @@ elif [ "$cmd" = "install" ]; then
 		make install
 		make config
 		make install-config
-		/sbin/dahdi_genconf modules # in case not in path
+		dahdi_genconf modules # in case not in path
 		cat /etc/dahdi/modules
 		# modprobe <listed>
-		/sbin/dahdi_genconf system # in case not in path
-		/sbin/dahdi_cfg # in case not in path
+		dahdi_genconf system # in case not in path
+		dahdi_cfg # in case not in path
 	fi
 	# Get latest Asterisk LTS version
 	cd $AST_SOURCE_PARENT_DIR
@@ -1066,9 +1067,9 @@ elif [ "$cmd" = "keygen" ]; then
 	## If you are running Asterisk as not root, make the user as which Asterisk runs own the private key and the new files:
 	# chown asterisk phreaknetrsa.key
 	# chown asterisk /etc/asterisk/iax-phreaknet*
-	/sbin/asterisk -rx "module reload res_crypto"
-	/sbin/asterisk -rx "keys init"
-	/sbin/asterisk -rx "keys show"
+	asterisk -rx "module reload res_crypto"
+	asterisk -rx "keys init"
+	asterisk -rx "keys show"
 elif [ "$cmd" = "update" ]; then
 	if [ ! -f "/tmp/phreakscript_update.sh" ]; then
 		wget -q $PATCH_DIR/phreakscript_update.sh -O /tmp/phreakscript_update.sh
@@ -1178,23 +1179,23 @@ elif [ "$cmd" = "trace" ]; then
 			exit 2
 		else
 			if [ $DEBUG_LEVEL -gt 0 ]; then
-				/sbin/asterisk -rx "logger add channel $channel notice,warning,error,verbose,debug"
-				/sbin/asterisk -rx "core set debug $DEBUG_LEVEL"
+				asterisk -rx "logger add channel $channel notice,warning,error,verbose,debug"
+				asterisk -rx "core set debug $DEBUG_LEVEL"
 			else
-				/sbin/asterisk -rx "logger add channel $channel notice,warning,error,verbose"
+				asterisk -rx "logger add channel $channel notice,warning,error,verbose"
 			fi
 		fi
 	else
 		echoerr "Debug level must be numeric: $DEBUG_LEVEL"
 		exit 2
 	fi
-	/sbin/asterisk -rx "core set verbose $VERBOSE_LEVEL"
+	asterisk -rx "core set verbose $VERBOSE_LEVEL"
 	printf "Starting trace (verbose %d, debug %d): %s\n" $VERBOSE_LEVEL $DEBUG_LEVEL "$debugtime"
 	printf "%s\n" "Starting CLI trace..."
 	printf '\a'
 	read -r -p "A CLI trace is now being collected. Reproduce the issue, then press ENTER to conclude the trace: "
 	printf "%s\n" "CLI trace terminated..."
-	/sbin/asterisk -rx "logger remove channel $channel"
+	asterisk -rx "logger remove channel $channel"
 	if [ ! -f /var/log/asterisk/$channel ]; then
 		echoerr "CLI log trace file not found, aborting..."
 		exit 2
@@ -1215,7 +1216,11 @@ elif [ "$cmd" = "trace" ]; then
 	printf "Paste URL: %s\n" "${url}.txt"
 	rm /var/log/asterisk/$channel
 elif [ "$cmd" = "backtrace" ]; then
-	/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk
+	if [ -f /sbin/asterisk ]; then
+		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk
+	else
+		/var/lib/asterisk/scripts/ast_coredumper core
+	fi
 	if [ ! -f /tmp/core-full.txt ]; then
 		echoerr "Core dumped failed to get backtrace, aborting..."
 		exit 2
