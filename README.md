@@ -30,6 +30,7 @@ PhreakScript installs:
       - ``EVAL_EXTEN``
       - ``DB_CHANNEL``
       - ``DB_CHANNEL_PRUNE``
+      - ``DB_CHANNEL_PRUNE_TIME``
       - ``JSON_DECODE``
       - ``SIP_PARAMETER``
 
