@@ -1,0 +1,26 @@
+diff --git a/apps/app_dial.c b/apps/app_dial.c
+index d611083..76007a5 100644
+--- a/apps/app_dial.c
++++ b/apps/app_dial.c
+@@ -1797,6 +1797,12 @@
+ 					if (ast_write(o->chan, f)) {
+ 						ast_log(LOG_WARNING, "Unable to forward frametype: %u\n",
+ 							f->frametype);
++						/* If we're trying to send DTMF and the call has hung up
++						before we could finish, we're stuck in a loop. Abandon call. */
++						if (ast_check_hangup_locked(o->chan)) {
++							ast_frfree(f);
++							goto wait_over;
++						}
+ 					}
+ 					break;
+ 				case AST_FRAME_CONTROL:
+@@ -1858,7 +1864,7 @@
+ 			ast_frfree(f);
+ 		}
+ 	}
+-
++wait_over:;
+ 	if (!*to || ast_check_hangup(in)) {
+ 		ast_verb(3, "Nobody picked up in %d ms\n", orig);
+ 		publish_dial_end_event(in, out_chans, NULL, "NOANSWER");

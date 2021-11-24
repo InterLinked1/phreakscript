@@ -1,0 +1,29 @@
+--- /var/lib/asterisk/agi-bin/pulsar.agi	2020-11-25 01:47:54.373182874 +0000
++++ /var/lib/asterisk/agi-bin/pulsar.agi	2020-11-25 01:47:54.093186626 +0000
+@@ -86,20 +86,20 @@
+ $type = $_SERVER["argv"][3];
+ if(!type) $type = "panel";
+ 
+-execute_agi("EXEC Playback pulsar/$type/begin");
++execute_agi("EXEC Playback pulsar/$type/begin,noanswer");
+ 
+ $rp = translate($dialcode, $b_side);
+ for($i = 0; $i < 5; $i ++) {
+-	execute_agi("EXEC Playback pulsar/$type/start$i");
+-	if($rp[$i] > 1) execute_agi("EXEC Playback pulsar/$type/first$i");
++	execute_agi("EXEC Playback pulsar/$type/start$i,noanswer");
++	if($rp[$i] > 1) execute_agi("EXEC Playback pulsar/$type/first$i,noanswer");
+ 	$k = $rp[$i] - 2;
+ 	for($j = 0; $j < $k; $j++) {
+-		execute_agi("EXEC Playback pulsar/$type/middle$i");
++		execute_agi("EXEC Playback pulsar/$type/middle$i,noanswer");
+ 	}
+-	execute_agi("EXEC Playback pulsar/$type/last$i");
++	execute_agi("EXEC Playback pulsar/$type/last$i,noanswer");
+ }
+ 
+-execute_agi("EXEC Playback pulsar/$type/end");
++execute_agi("EXEC Playback pulsar/$type/end,noanswer");
+ 
+ fclose($stdin); 
+ fclose($stdout);

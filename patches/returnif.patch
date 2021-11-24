@@ -1,0 +1,106 @@
+--- orig/app_stack.c	2021-09-23 23:45:32.748561851 +0000
++++ app_stack.c	2021-09-23 23:44:00.103518708 +0000
+@@ -113,6 +113,36 @@
+ 			any, is saved in the channel variable <variable>GOSUB_RETVAL</variable>.</para>
+ 		</description>
+ 		<see-also>
++			<ref type="application">ReturnIf</ref>
++			<ref type="application">Gosub</ref>
++			<ref type="application">StackPop</ref>
++		</see-also>
++	</application>
++	<application name="ReturnIf" language="en_US">
++		<synopsis>
++			Conditionally return from gosub routine.
++		</synopsis>
++		<syntax argsep="?">
++			<parameter name="expression" required="true" />
++			<parameter name="execapp" required="true" argsep=":">
++				<argument name="valueiftrue" required="true" hasparams="true">
++					<argument name="args" required="true" />
++				</argument>
++				<argument name="valueiffalse" required="false" hasparams="true">
++					<argument name="args" required="true" />
++				</argument>
++			</parameter>
++		</syntax>
++		<description>
++			<para>If <replaceable>expression</replaceable> is true, jumps to the last label on the stack,
++			removing it. The return <replaceable>valueiftrue</replaceable>, if any, is saved in the channel
++			variable <variable>GOSUB_RETVAL</variable>. If <replaceable>expression</replaceable> is
++			false, and <replaceable>valueiffalse</replaceable> is specified, jumps to the last
++			label on the stack, removing it, and saving <replaceable>valueiffalse</replaceable>
++			in the the channel variable <variable>GOSUB_RETVAL</variable>.</para>
++		</description>
++		<see-also>
++			<ref type="application">Return</ref>
+ 			<ref type="application">Gosub</ref>
+ 			<ref type="application">StackPop</ref>
+ 		</see-also>
+@@ -232,6 +262,7 @@
+ static const char app_gosub[] = "Gosub";
+ static const char app_gosubif[] = "GosubIf";
+ static const char app_return[] = "Return";
++static const char app_returnif[] = "ReturnIf";
+ static const char app_pop[] = "StackPop";
+ 
+ static void gosub_free(void *data);
+@@ -428,6 +459,42 @@
+ 	return res;
+ }
+ 
++static int returnif_exec(struct ast_channel *chan, const char *data)
++{
++	char *args;
++	int res=0;
++	AST_DECLARE_APP_ARGS(cond,
++		AST_APP_ARG(ition);
++		AST_APP_ARG(values);
++	);
++	AST_DECLARE_APP_ARGS(value,
++		AST_APP_ARG(iftrue);
++		AST_APP_ARG(iffalse);
++	);
++
++	if (ast_strlen_zero(data)) {
++		ast_log(LOG_WARNING, "ReturnIf requires an argument: ReturnIf(cond?value1:value2\n");
++		return 0;
++	}
++
++	args = ast_strdupa(data);
++	AST_NONSTANDARD_RAW_ARGS(cond, args, '?');
++	if (cond.argc != 2) {
++		ast_log(LOG_WARNING, "ReturnIf requires an argument: ReturnIf(cond?value1:value2\n");
++		return 0;
++	}
++
++	AST_NONSTANDARD_RAW_ARGS(value, cond.values, ':');
++
++	if (pbx_checkcondition(cond.ition)) {
++		res = return_exec(chan, value.iftrue);
++	} else if (!ast_strlen_zero(value.iffalse)) {
++		res = return_exec(chan, value.iffalse);
++	}
++
++	return res;
++}
++
+ /*!
+  * \internal
+  * \brief Add missing context and/or exten to Gosub application argument string.
+@@ -1282,6 +1349,7 @@
+ 	ast_agi_unregister(&gosub_agi_command);
+ 
+ 	ast_unregister_application(app_return);
++	ast_unregister_application(app_returnif);
+ 	ast_unregister_application(app_pop);
+ 	ast_unregister_application(app_gosubif);
+ 	ast_unregister_application(app_gosub);
+@@ -1304,6 +1372,7 @@
+ 
+ 	ast_register_application_xml(app_pop, pop_exec);
+ 	ast_register_application_xml(app_return, return_exec);
++	ast_register_application_xml(app_returnif, returnif_exec);
+ 	ast_register_application_xml(app_gosubif, gosubif_exec);
+ 	ast_register_application_xml(app_gosub, gosub_exec);
+ 	ast_custom_function_register(&local_function);
