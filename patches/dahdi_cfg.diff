@@ -1,0 +1,11 @@
+--- dahdi_cfg.c.orig	2021-10-12 20:47:49.401069138 -0400
++++ dahdi_cfg.c	2021-10-12 20:48:51.398262395 -0400
+@@ -142,7 +142,7 @@
+ 
+ static bool _are_all_spans_assigned(const char *device_path)
+ {
+-	char attribute[1024];
++	char attribute[1036];
+ 	int res;
+ 	FILE *fp;
+ 	int span_count;
