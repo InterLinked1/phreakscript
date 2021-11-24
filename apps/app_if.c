@@ -182,7 +182,7 @@ static int _if_exec(struct ast_channel *chan, const char *data, int end)
 	const char *if_pri = NULL;
 	char *my_name = NULL;
 	const char *condition = NULL, *label = NULL;
-	char varname[VAR_SIZE], end_varname[VAR_SIZE + 4];
+	char varname[VAR_SIZE + 4], end_varname[VAR_SIZE + 8];
 	const char *prefix = "IF";
 	size_t size=0;
 	int used_index_i = -1, x=0;
@@ -220,7 +220,7 @@ static int _if_exec(struct ast_channel *chan, const char *data, int end)
 	snprintf(varname, VAR_SIZE + 4, "%s_%s", prefix, label);
 	if ((if_pri = pbx_builtin_getvar_helper(chan, varname)) && !end) {
 		if_pri = ast_strdupa(if_pri);
-		snprintf(end_varname,VAR_SIZE + 4,"END_%s",varname);
+		snprintf(end_varname,VAR_SIZE + 8,"END_%s",varname);
 	}
 	ast_channel_unlock(chan);
 
@@ -229,7 +229,7 @@ static int _if_exec(struct ast_channel *chan, const char *data, int end)
 		const char *goto_str;
 		pbx_builtin_setvar_helper(chan, varname, NULL);
 		pbx_builtin_setvar_helper(chan, my_name, NULL);
-		snprintf(end_varname,VAR_SIZE + 4,"END_%s",varname);
+		snprintf(end_varname,VAR_SIZE + 8,"END_%s",varname);
 		ast_channel_lock(chan);
 		if ((goto_str = pbx_builtin_getvar_helper(chan, end_varname))) {
 			ast_parseable_goto(chan, goto_str);
