@@ -139,6 +139,14 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 			ast_log(LOG_WARNING, "%s: original family '%s' is same as parallel family '%s', skipping\n", cmd, family, parallel);
 			continue;
 		}
+		if (family[strlen(family) - 1] == '/') {
+			ast_log(LOG_WARNING, "%s: family '%s' ends in a '/', truncated? Skipping...", cmd, family);
+			continue;
+		}
+		if (parallel && parallel[strlen(parallel) - 1] == '/') {
+			ast_log(LOG_WARNING, "%s: paralell family '%s' ends in a '/', truncated? Skipping...", cmd, parallel);
+			continue;
+		}
 		/* Remove leading and trailing slashes */
 		while (family[0] == '/') {
 			family++;
@@ -154,7 +162,7 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 		}
 
 		for (; dbe; dbe = dbe->next) {
-			#define BUFFER_SIZE 256
+#define BUFFER_SIZE 256
 			struct ast_channel *chan_found = NULL;
 			char channel[BUFFER_SIZE];
 			/* Find the current component */
