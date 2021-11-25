@@ -57,6 +57,10 @@ PhreakScript must be run as root, even if Asterisk does not run as root.
 
 PhreakScript is primarily supported on Debian-based Linux systems. Support has also been added for FreeBSD. Pull requests to add support for other Linux distros or BSD are welcome.
 
+### Documentation
+
+Please refer to the PhreakNet Asterisk documentation for PhreakScript-specific module documentation: https://asterisk.phreaknet.org/
+
 ### Change Log
 
 Please run ```phreaknet about```
