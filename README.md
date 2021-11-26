@@ -40,7 +40,9 @@ PhreakScript is also useful for:
    - can find common syntax errors in dialplan code
    - can find missing audio files referenced by the ``Playback``, ``BackGround``, and ``Read`` applications
    - suggests optimizations that can be made to dialplan code to make it more readable and efficient
+- generating Asterisk user documentation
 - debugging Asterisk configuration
+- generating core dumps
 - automating PhreakNet boilerplate dialplan installation
 
 ### Installation
