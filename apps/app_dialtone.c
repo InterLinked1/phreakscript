@@ -281,13 +281,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 	if (ast_test_flag(&flags, OPT_REEVALUATE)) {
 		const char *context = NULL, *exten = NULL;
 		int ipri;
-		ast_channel_lock(chan);
-		context = ast_channel_context(chan);
-		exten = ast_strdupa(ast_channel_exten(chan));
-		ipri = ast_channel_priority(chan);
-		ast_channel_unlock(chan);
 		char tmpbuf[BUFFER_LEN];
-
 		/* this is capable of parsing the exten data properly */
 		AST_DECLARE_APP_ARGS(extendata,
 			AST_APP_ARG(variable);
@@ -299,6 +293,12 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 			AST_APP_ARG(leading);
 			AST_APP_ARG(options);
 		);
+
+		ast_channel_lock(chan);
+		context = ast_channel_context(chan);
+		exten = ast_strdupa(ast_channel_exten(chan));
+		ipri = ast_channel_priority(chan);
+		ast_channel_unlock(chan);
 
 		if (get_extension_data(tmpbuf, BUFFER_LEN, chan, context, exten, ipri)) {
 			ast_log(LOG_WARNING, "Cannot reevaluate audio: %s\n", arglist.filename2);
