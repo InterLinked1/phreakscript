@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.4 (2021-11-25)
+# v0.1.7 (2021-11-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,9 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-26 0.1.7 PhreakScript: added docgen
+# 2021-11-26 0.1.6 Asterisk: app_tdd (Bug Fix): added patch to fix compiler warnings, decrease buffer threshold
+# 2021-11-25 0.1.5 PhreakScript: removed unnecessary file deletion in dev mode
 # 2021-11-25 0.1.4 PhreakScript: changed upstream for app_softmodem
 # 2021-11-24 0.1.3 PhreakScript: refactored out-of-tree module code and sources
 # 2021-11-14 0.1.2 Asterisk: chan_sip (New Feature): Add fax control using FAX_DETECT_SECONDS and FAX_DETECT_OFF variables, PhreakScript: path improvements
@@ -152,7 +155,8 @@ Commands:
    backtrace     Use astcoredumper to process a backtrace and upload to InterLinked Paste
 
    *** Miscellaneous ***
-   pubdocs       Generate Wiki documentation
+   docgen        Generate Asterisk user documentation
+   pubdocs       Generate Asterisk user documentation (deprecated)
    edit          Edit PhreakScript
 
 Options:
@@ -365,12 +369,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	cd $AST_SOURCE_PARENT_DIR/$2
 
-	## Add patches to existing modules
-	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
-	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
-	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
-	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
-
 	## Add Standalone PhreakNet Modules
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
@@ -386,7 +384,15 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_ochannel.c"
 
 	## Third Party Modules
-	wget https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tdd.c --no-cache
+	printf "Adding new module: %s\n" "apps/app_tdd.c"
+	wget -q https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tdd.c --no-cache
+
+	## Add patches to existing modules
+	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
+	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
+	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
+	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
+	phreak_tree_patch "apps/app_tdd.c" "tdd.diff" # Fix C90 mixed code and declarations, decrease buffer threshold from 256 to 8 (more realtime)
 
 	## Gerrit patches for merged in master branch (will be removed once released in next version)
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
@@ -815,10 +821,6 @@ elif [ "$cmd" = "install" ]; then
 	printf "%s\n" "Beginning custom patches..."
 	phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
 	printf "%s\n" "Custom patching completed..."
-	if [ "$TEST_SUITE" = "1" ]; then
-		rm apps/app_softmodem.c apps/app_tdd.c # too many compiler warnings to bother with for dev mode...
-		rm funcs/func_notchfilter.c # ditto for now...
-	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		freebsd_port_patches
 	fi
@@ -955,6 +957,28 @@ elif [ "$cmd" = "installts" ]; then
 		exit 2
 	fi
 	install_testsuite "$FORCE_INSTALL"
+elif [ "$cmd" = "docgen" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`ls -d */ | grep "asterisk-" | tail -1`
+	cd $AST_SRC_DIR
+	if [ $? -ne 0 ]; then
+		echoerr "Couldn't find Asterisk source directory?"
+		exit 2
+	fi
+	if [ ! -f doc/core-en_US.xml ]; then
+		printf "%s\n" "Failed to find any XML documentation. Has Asterisk been installed yet?"
+		exit 2
+	fi
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y php php7.4-xml
+	fi
+	printf "%s\n" "Obtaining latest version of astdocgen..."
+	wget -q "https://raw.githubusercontent.com/InterLinked1/astdocgen/master/astdocgen.php" -O astdocgen.php --no-cache
+	chmod +x astdocgen.php
+	./astdocgen.php -f doc/core-en_US.xml -x -s > /tmp/astdocgen.xml
+	./astdocgen.php -f /tmp/astdocgen.xml -h > doc/index.html
+	rm /tmp/astdocgen.xml
+	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
 elif [ "$cmd" = "pubdocs" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`ls -d */ | grep "asterisk-" | tail -1`
@@ -984,6 +1008,7 @@ elif [ "$cmd" = "pubdocs" ]; then
 	./confluence2html < confluence.txt > docs.html
 	ls -l $AST_SOURCE_PARENT_DIR/publish-docs
 	printf "%s\n" "All Wiki documentation has been generated and is now in $AST_SOURCE_PARENT_DIR/publish-docs/docs.html"
+	printf "%s\n" "phreaknet pubdocs is deprecated. Please migrate to phreaknet docgen instead"
 elif [ "$cmd" = "config" ]; then
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		printf '\a'
