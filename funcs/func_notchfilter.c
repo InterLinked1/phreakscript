@@ -72,11 +72,21 @@
 		<description>
 			<para>The NOTCH_FILTER function attenuates a specified frequency using the provided bandwidth.</para>
 			<para>For example:</para>
-			<para>Set(NOTCH_FILTER(2600,t)=10.0)</para>
-			<para>Set(NOTCH_FILTER(1004)=5.0)</para>
-			<para>Set(NOTCH_FILTER(2400,r)=15.0)</para>
-			<para>Set(NOTCH_FILTER(1004,r)=10.0)</para>
-			<para>Set(NOTCH_FILTER(1004,d)=)</para>
+			<example title="Filter out 2600 Hz in the TX direction, with bandwidth of 10 Hz">
+			same => n,Set(NOTCH_FILTER(2600,t)=10.0)
+			</example>
+			<example title="Filter out 1004 Hz in both directions, with bandwidth of 5 Hz">
+			same => n,Set(NOTCH_FILTER(1004)=5.0)
+			</example>
+			<example title="Filter out 2400 Hz in the RX direction, with bandwidth of 15 Hz">
+			same => n,Set(NOTCH_FILTER(2400,r)=15.0)
+			</example>
+			<example title="Filter out 1004 Hz in the RX direction, with bandwidth of 10 Hz">
+			same => n,Set(NOTCH_FILTER(1004,r)=10.0)
+			</example>
+			<example title="Disable filtering of 1004 Hz">
+			same => n,Set(NOTCH_FILTER(1004,d)=)
+			</example>
 		</description>
 	</function>
  ***/
