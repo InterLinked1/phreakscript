@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.2 (2021-11-14)
+# v0.1.4 (2021-11-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,7 +13,9 @@
 # phreaknet install
 
 ## Begin Change Log:
-# 2021-11-12 0.1.2 Asterisk: chan_sip (New Feature): Add fax control using FAX_DETECT_SECONDS and FAX_DETECT_OFF variables, PhreakScript: path improvements
+# 2021-11-25 0.1.4 PhreakScript: changed upstream for app_softmodem
+# 2021-11-24 0.1.3 PhreakScript: refactored out-of-tree module code and sources
+# 2021-11-14 0.1.2 Asterisk: chan_sip (New Feature): Add fax control using FAX_DETECT_SECONDS and FAX_DETECT_OFF variables, PhreakScript: path improvements
 # 2021-11-12 0.1.1 PhreakScript: (PHREAKSCRIPT-1) fixed infinite loop with --help argument
 # 2021-11-09 0.1.0 PhreakScript: changed make to use hard link instead of alias, FreeBSD linking fixes
 # 2021-11-09 0.0.54 PhreakScript: lots and lots of POSIX compatibility fixes, added info command, flag test option
@@ -74,7 +76,7 @@ AST_SOUNDS_DIR="/var/lib/asterisk/sounds/en"
 AST_MOH_DIR="/var/lib/asterisk/moh"
 AST_SOURCE_PARENT_DIR="/usr/src"
 AST_MAKE="make"
-PATH="/sbin:$PATH"
+PATH="/sbin:$PATH" # in case su used without path
 
 # Defaults
 AST_CC=1 # Country Code (default: 1 - NANPA)
@@ -102,6 +104,8 @@ if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 fi
 
 phreakscript_info() {
+	printf "%s" "Hostname: "
+	hostname
 	echo $OS_DIST_INFO
 	echo "Package Manager: $PAC_MAN"
 	asterisk -V 2> /dev/null # Asterisk might or might not exist...
@@ -181,12 +185,13 @@ install_prereq() {
 		apt-get dist-upgrade -y
 		apt-get install -y ntp iptables tcpdump wget curl sox libcurl4-openssl-dev mpg123 dnsutils php festival bc fail2ban mariadb-server git
 		# used to feed the country code non-interactively
+		apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -y
 		pkg upgrade -y
-		pkg install -y sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion # bind-tools for dig
+		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion # bind-tools for dig
 	else
 		echoerr "Could not determine what package manager to use..."
 	fi
@@ -235,7 +240,7 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	pip2 install pyyaml
 	pip2 install twisted
 	# in case we're not already in the right directory
-	AST_SRC_DIR=`ls $AST_SOURCE_PARENT_DIR | grep "asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d */ | grep "asterisk-" | tail -1`
 	if [ "$AST_SRC_DIR" = "" ]; then
 		echoerr "Asterisk source not found. Aborting..."
 		return 1
@@ -251,7 +256,7 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 
 gerrit_patch() {
 	printf "%s\n" "Downloading and applying Gerrit patch $1"
-	wget -q --show-progress $2 -O $1.diff.base64
+	wget -q $2 -O $1.diff.base64
 	if [ $? -ne 0 ]; then
 		echoerr "Patch download failed"
 		exit 2
@@ -267,36 +272,40 @@ gerrit_patch() {
 	git apply $1.diff
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Gerrit patch... this should be reported..."
+		exit 2
 	fi
 	rm $1.diff.base64 $1.diff
 }
 
 dahdi_undo() {
 	printf "Restoring drivers by undoing PATCH: %s\n" "$3"
-	wget -q --show-progress "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$4" -O /tmp/$2.patch --no-cache
+	wget -q "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$4" -O /tmp/$2.patch --no-cache
 	patch -u -b -p 1 --reverse -i /tmp/$2.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to reverse DAHDI patch... this should be reported..."
+		exit 2
 	fi
 	rm /tmp/$2.patch
 }
 
 dahdi_custom_patch() {
 	printf "Applying custom DAHDI patch: %s\n" "$1"
-	wget -q --show-progress "$3" -O /tmp/$1.patch --no-cache
+	wget -q "$3" -O /tmp/$1.patch --no-cache
 	patch -u -b "$AST_SOURCE_PARENT_DIR/$2" -i /tmp/$1.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply DAHDI patch... this should be reported..."
+		exit 2
 	fi
 	rm /tmp/$1.patch
 }
 
 dahdi_patch() {
 	printf "Applying unmerged DAHDI patch: %s\n" "$1"
-	wget -q --show-progress "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$1" -O /tmp/$1.patch --no-cache
+	wget -q "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$1" -O /tmp/$1.patch --no-cache
 	patch -u -b -p 1 -i /tmp/$1.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply DAHDI patch... this should be reported..."
+		exit 2
 	fi
 	rm /tmp/$1.patch
 }
@@ -309,7 +318,7 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	dahdi_undo $1 "wcb" "Remove support for all but wcb41xp wcb43xp and wcb23xp." "29cb229cd3f1d252872b7f1924b6e3be941f7ad3"
 	dahdi_undo $1 "wctdm" "Remove support for wctdm800, wcaex800, wctdm410, wcaex410." "a66e88e666229092a96d54e5873d4b3ae79b1ce3"
 	dahdi_undo $1 "wcte12xp" "Remove support for wcte12xp." "3697450317a7bd60bfa7031aad250085928d5c47"
-	dahdi_custom_patch "wcte12xp_base" "$1/drivers/dahdi/wcte12xp/base.c" "https://code.phreaknet.org/asterisk/dahdi/wcte12xp_base.diff" # bug fix for case statement fallthrough
+	dahdi_custom_patch "wcte12xp_base" "$1/drivers/dahdi/wcte12xp/base.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/wcte12xp_base.diff" # bug fix for case statement fallthrough
 	dahdi_undo $1 "wcte11xp" "Remove support for wcte11xp." "3748456d22122cf807b47d5cf6e2ff23183f440d"
 	dahdi_undo $1 "wctdm" "Remove support for wctdm." "04e759f9c5a6f76ed88bc6ba6446fb0c23c1ff55"
 	dahdi_undo $1 "wct1xxp" "Remove support for wct1xxp." "dade6ac6154b58c4f5b6f178cc09de397359000b"
@@ -319,53 +328,64 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Finished undoing DAHDI removals!"
 }
 
+phreak_tree_module() { # $1 = file to patch
+	printf "Adding new module: %s\n" "$1"
+	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download module: $2"
+		exit 2
+	fi
+}
+
+phreak_nontree_patch() { # $1 = patched file, $2 = patch name
+	printf "Applying patch %s to %s\n" "$2" "$1"
+	wget -q "$3" -O "/tmp/$2" --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download patch: $2"
+		exit 2
+	fi
+	patch -u -b "$1" -i "/tmp/$2"
+	rm "/tmp/$2"
+}
+
+phreak_tree_patch() { # $1 = patched file, $2 = patch name
+	printf "Applying patch %s to %s\n" "$2" "$1"
+	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$2" -O "/tmp/$2" --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download patch: $2"
+		exit 2
+	fi
+	patch -u -b "$1" -i "/tmp/$2"
+	rm "/tmp/$2"
+}
+
 phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	### Inject custom PhreakNet patches to add additional functionality and features.
 	###  If/when/as these are integrated upstream, they will be removed from this function. 
 
-	## Add Patches To Existing Modules
-
-	cd /tmp
-	wget https://code.phreaknet.org/asterisk/returnif.patch
-	wget https://code.phreaknet.org/asterisk/6112308.diff
-	wget https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff
-	wget https://code.phreaknet.org/asterisk/sipfaxcontrol.diff
-
 	cd $AST_SOURCE_PARENT_DIR/$2
 
-	# Add ReturnIf application
-	patch -u -b apps/app_stack.c -i /tmp/returnif.patch
-	# Bug fix to translation code
-	patch -u -b main/translate.c -i /tmp/translate.diff
-	# Bug fix to app_dial (prevent infinite loop)
-	patch -u -b apps/app_dial.c -i /tmp/6112308.diff
+	## Add patches to existing modules
+	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
+	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
+	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
+	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
 
-	rm -f /tmp/returnif.patch /tmp/translate.diff /tmp/6112308.diff
-
-	## Add Standalone Modules
-	# Add app_if module
-	wget https://code.phreaknet.org/asterisk/app_if.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_if.c --no-cache
-	# Add func_ochannel module
-	wget https://code.phreaknet.org/asterisk/func_ochannel.c -O $AST_SOURCE_PARENT_DIR/$2/funcs/func_ochannel.c --no-cache
-	# Add func_notchfilter module
-	wget https://code.phreaknet.org/asterisk/func_notchfilter.c -O $AST_SOURCE_PARENT_DIR/$2/funcs/func_notchfilter.c --no-cache
-	# Add app_mail module
-	wget https://code.phreaknet.org/asterisk/app_mail.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_mail.c --no-cache
-	# Add app_memory module
-	wget https://code.phreaknet.org/asterisk/app_memory.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_memory.c --no-cache
-	# Add func_evalexten module
-	wget https://code.phreaknet.org/asterisk/func_evalexten.c -O $AST_SOURCE_PARENT_DIR/$2/funcs/func_evalexten.c --no-cache
-	# Add app_dialtone module
-	wget https://code.phreaknet.org/asterisk/app_dialtone.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_dialtone.c --no-cache
-
-	## Additional Standalone Modules
-	wget https://code.phreaknet.org/asterisk/app_frame.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_frame.c --no-cache
-	wget https://code.phreaknet.org/asterisk/app_streamsilence.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_streamsilence.c --no-cache
-	wget https://code.phreaknet.org/asterisk/app_tonetest.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tonetest.c --no-cache
-	wget https://code.phreaknet.org/asterisk/func_dbchan.c -O $AST_SOURCE_PARENT_DIR/$2/apps/func_dbchan.c --no-cache
+	## Add Standalone PhreakNet Modules
+	phreak_tree_module "apps/app_dialtone.c"
+	phreak_tree_module "apps/app_frame.c"
+	phreak_tree_module "apps/app_if.c"
+	phreak_tree_module "apps/app_mail.c"
+	phreak_tree_module "apps/app_memory.c"
+	phreak_tree_module "apps/app_softmodem.c"
+	phreak_tree_module "apps/app_streamsilence.c"
+	phreak_tree_module "apps/app_tonetest.c"
+	phreak_tree_module "funcs/func_dbchan.c"
+	phreak_tree_module "funcs/func_evalexten.c"
+	phreak_tree_module "funcs/func_notchfilter.c"
+	phreak_tree_module "funcs/func_ochannel.c"
 
 	## Third Party Modules
-	wget https://code.phreaknet.org/asterisk/app_softmodem.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_softmodem.c --no-cache
 	wget https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tdd.c --no-cache
 
 	## Gerrit patches for merged in master branch (will be removed once released in next version)
@@ -377,7 +397,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	# never going to be merged upstream:
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/3/patch?download" # chan_sip: Add custom parameters
-	patch -u -b channels/chan_sip.c -i /tmp/sipfaxcontrol.diff
 
 	## Menuselect updates
 	make menuselect.makeopts
@@ -397,6 +416,7 @@ freebsd_port_patch() {
 }
 
 freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files
+	# todo: some of these are obsolete and some can be integrated upstream
 	printf "%s\n" "Applying FreeBSD Port Patches..."
 	pwd
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-Makefile"
@@ -705,7 +725,7 @@ elif [ "$cmd" = "install" ]; then
 			exit 2
 		fi
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
-		dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://code.phreaknet.org/asterisk/dahdi/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+		dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
 		autoreconf -i
 		./configure
 		make
@@ -870,6 +890,9 @@ elif [ "$cmd" = "install" ]; then
 
 	# Development Mode (Asterisk Test Suite)
 	if [ "$TEST_SUITE" = "1" ]; then
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install gdb # for astcoredumper
+		fi
 		install_testsuite "$FORCE_INSTALL"
 	fi
 
@@ -877,7 +900,8 @@ elif [ "$cmd" = "install" ]; then
 	/etc/init.d/asterisk start
 	/etc/init.d/asterisk status
 
-	printf "%s\n" "Installation has completed. You may now connect to the Asterisk CLI: /sbin/asterisk -r"
+	printf "%s\n" "Asterisk installation has completed. You may now connect to the Asterisk CLI: asterisk -r"
+	printf "%s\n" "If you upgraded Asterisk, you will need to run 'core restart now' for the new version to load."
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		echog "Note that DAHDI was installed and requires a reboot before it can be used."
 	fi
@@ -933,7 +957,7 @@ elif [ "$cmd" = "installts" ]; then
 	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "pubdocs" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls $AST_SOURCE_PARENT_DIR | grep "asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d */ | grep "asterisk-" | tail -1`
 	apt-get install -y python-dev python-virtualenv python-lxml
 	pip install pystache
 	pip install premailer
@@ -942,7 +966,13 @@ elif [ "$cmd" = "pubdocs" ]; then
 	fi
 	git clone https://github.com/asterisk/publish-docs.git
 	cd publish-docs
+	echo $AST_SOURCE_PARENT_DIR
 	printf "%s\n" "Generating Confluence markup..."
+	if [ ! -f "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml" ]; then
+		echoerr "File does not exist: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml"
+		ls -d /usr/src/*/ | grep "asterisk-" | tail -1
+		exit 2
+	fi
 	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
 	printf "%s\n" "Converting Confluence to HTML..."
 	if [ ! -f confluence2html ]; then
