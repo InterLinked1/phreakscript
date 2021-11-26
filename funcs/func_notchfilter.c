@@ -1,7 +1,7 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright (C) 2021, Digium, Inc.
+ * Copyright (C) 2021, Naveen Albert
  *
  * Naveen Albert <asterisk@phreaknet.org>
  *
@@ -63,7 +63,7 @@
 						Default is both directions.</para>
 					</option>
 					<option name="t">
-						<para>Apply the notch filter for transmitted frames, rather than transmitted frames.
+						<para>Apply the notch filter for transmitted frames, rather than received frames.
 						Default is both directions.</para>
 					</option>
 				</optionlist>
@@ -261,31 +261,35 @@ static void expandpoly(void), expand(complex[], int, complex[]), multin(complex,
 /* compute Z-plane pole & zero positions for bandpass resonator */
 static void compute_bpres(void)
 {
+	double theta;
     zplane.numpoles = 2;
 	zplane.numzeros = 2;
 	zplane.zeros[0].re = 1.0;
 	zplane.zeros[0].im = 0.0;
 	zplane.zeros[1].re = -1.0;
 	zplane.zeros[1].im = 0.0;
-    double theta = TWOPI * raw_alpha1; /* where we want the peak to be */
+    theta = TWOPI * raw_alpha1; /* where we want the peak to be */
     if (infq) { /* oscillator */
 		complex zp = expj(theta);
 		zplane.poles[0] = zp;
 		zplane.poles[1] = cconj(zp);
     } else { /* must iterate to find exact pole positions */
 		complex topcoeffs[MAXPZ+1];
+		double r, thm = theta, th1 = 0.0, th2 = PI;
+		int cvg;
 		expand(zplane.zeros, zplane.numzeros, topcoeffs);
-		double r = exp(-theta / (2.0 * qfactor));
-		double thm = theta, th1 = 0.0, th2 = PI;
-		int cvg = 0;
+		r = exp(-theta / (2.0 * qfactor));
+		cvg = 0;
 		for (int i=0; i < 50 && !cvg; i++) {
+			complex botcoeffs[MAXPZ+1];
+			complex g;
+			double phi;
 			complex zp = complexmult(r, expj(thm));
 			zplane.poles[0] = zp;
 			zplane.poles[1] = cconj(zp);
-			complex botcoeffs[MAXPZ+1];
 			expand(zplane.poles, zplane.numpoles, botcoeffs);
-			complex g = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, expj(theta));
-			double phi = g.im / g.re; /* approx to atan2 */
+			g = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, expj(theta));
+			phi = g.im / g.re; /* approx to atan2 */
 			if (phi > 0.0) th2 = thm; else th1 = thm;
 			if (fabs(phi) < EPS) cvg = 1;
 			thm = 0.5 * (th1+th2);
@@ -296,9 +300,11 @@ static void compute_bpres(void)
 
 static void compute_notch(void)
 { /* compute Z-plane pole & zero positions for bandstop resonator (notch filter) */
+	complex zz;
+	double theta;
 	compute_bpres();		/* iterate to place poles */
-	double theta = TWOPI * raw_alpha1;
-	complex zz = expj(theta);	/* place zeros exactly */
+	theta = TWOPI * raw_alpha1;
+	zz = expj(theta);	/* place zeros exactly */
 	zplane.zeros[0] = zz;
 	zplane.zeros[1] = cconj(zz);
 }
@@ -307,15 +313,15 @@ static void expandpoly(void) /* given Z-plane poles & zeros, compute top & bot p
 {
 	complex topcoeffs[MAXPZ+1], botcoeffs[MAXPZ+1];
 	int i;
+	complex c1, c2;
+	double theta;
 	expand(zplane.zeros, zplane.numzeros, topcoeffs);
 	expand(zplane.poles, zplane.numpoles, botcoeffs);
-	complex c1;
 	c1.re = 1.0;
 	c1.im = 0.0;
 	dc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, c1);
-	double theta = TWOPI * 0.5 * (raw_alpha1 + raw_alpha2); /* "jwT" for centre freq. */
+	theta = TWOPI * 0.5 * (raw_alpha1 + raw_alpha2); /* "jwT" for centre freq. */
 	fc_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, expj(theta));
-	complex c2;
 	c2.re = -1.0;
 	c2.im = 0.0;
 	hf_gain = evaluate(topcoeffs, zplane.numzeros, botcoeffs, zplane.numpoles, c2);
@@ -361,6 +367,7 @@ void mknotch(float freq,float bw,long *p1, long *p2, long *p3);
 void mknotch(float freq, float bw, long *p1, long *p2, long *p3)
 {
 #define	NB 14
+	float fsh;
     options = opt_re;
     qfactor = freq / bw;
 	infq = 0;
@@ -370,7 +377,7 @@ void mknotch(float freq, float bw, long *p1, long *p2, long *p3)
     compute_notch();
     expandpoly();
 
-    float fsh = (float) (1 << NB);
+    fsh = (float) (1 << NB);
     *p1 = (long)(xcoeffs[1] * fsh);
     *p2 = (long)(ycoeffs[0] * fsh);
     *p3 = (long)(ycoeffs[1] * fsh);
@@ -402,7 +409,7 @@ static inline int sf_detect(sf_detect_state *s, short *amp,
 #define	NB 14
 
 	/* determine energy level before filtering */
-	for(i = 0; i < samples; i++) {
+	for (i = 0; i < samples; i++) {
 		if (amp[i] < 0) {
 			s->e1 -= amp[i];
 		} else {
@@ -411,7 +418,7 @@ static inline int sf_detect(sf_detect_state *s, short *amp,
 	}
 	/* do 2nd order IIR notch filter at given freq. and calculate
 	    energy */
-	for(i = 0; i < samples; i++) {
+	for (i = 0; i < samples; i++) {
 		x = amp[i] << NB;
 		y = s->x2 + (p1 * (s->x1 >> NB)) + x;
 		y += (p2 * (s->y2 >> NB)) +
@@ -502,11 +509,12 @@ static int notch_callback(struct ast_audiohook *audiohook, struct ast_channel *c
 	ni = datastore->data;
 
 	if (frame->frametype == AST_FRAME_VOICE) { /* we're filtering out an in-band frequency */
+		int newstate;
 		/* Based on direction of frame, and confirm it is applicable */
 		if (!(direction == AST_AUDIOHOOK_DIRECTION_READ ? &ni->rx : &ni->tx))
 			return 0;
 		/* Notch the sample now */
-		int newstate = sf_detect(&ni->rd, frame->data.ptr, frame->samples, ni->rxp1, ni->rxp2, ni->rxp3);
+		newstate = sf_detect(&ni->rd, frame->data.ptr, frame->samples, ni->rxp1, ni->rxp2, ni->rxp3);
 		/* if ni->state > 0 && ni->state != newstate, a state change has occured on this channel */
 		ni->state = newstate;
 	}
@@ -550,16 +558,17 @@ static int notch_read(struct ast_channel *chan, const char *cmd, char *data, cha
 	struct ast_datastore *datastore = NULL;
 	struct notch_information *ni = NULL;
 	struct ast_flags flags = { 0 };
+	
+	AST_DECLARE_APP_ARGS(args,
+		AST_APP_ARG(frequency);
+		AST_APP_ARG(options);
+	);
 
 	if (!chan) {
 		ast_log(LOG_WARNING, "No channel was provided to %s function.\n", cmd);
 		return -1;
 	}
 
-	AST_DECLARE_APP_ARGS(args,
-		AST_APP_ARG(frequency);
-		AST_APP_ARG(options);
-	);
 	parse = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, parse);
 
@@ -604,16 +613,17 @@ static int notch_write(struct ast_channel *chan, const char *cmd, char *data, co
 	struct notch_information *ni = NULL;
 	int is_new = 0;
 	struct ast_flags flags = { 0 };
+	
+	AST_DECLARE_APP_ARGS(args,
+		AST_APP_ARG(frequency);
+		AST_APP_ARG(options);
+	);
 
 	if (!chan) {
 		ast_log(LOG_WARNING, "No channel was provided to %s function.\n", cmd);
 		return -1;
 	}
 
-	AST_DECLARE_APP_ARGS(args,
-		AST_APP_ARG(frequency);
-		AST_APP_ARG(options);
-	);
 	parse = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, parse);
 
@@ -679,6 +689,7 @@ static int notch_write(struct ast_channel *chan, const char *cmd, char *data, co
 
 	/* complex math to calculate the right parameters for notch filter */
 	mknotch(ni->frequency,ni->bandwidth,&ni->rxp1,&ni->rxp2,&ni->rxp3);
+	ast_debug(5, "Notch filter calculations for %f/%f: %ld, %ld, %ld", ni->frequency,ni->bandwidth,ni->rxp1,ni->rxp2,ni->rxp3);
 
 	ni->rd.x1 = 0.0;
 	ni->rd.x2 = 0.0;
