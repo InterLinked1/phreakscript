@@ -8,7 +8,9 @@
  *
  * Parity options added 2018 Rob O'Donnell
  *
- * Updated 2021 to compile under Asterisk 18 by InterLinked
+ * Compiler fixes for Asterisk 18, XML documentation, bug fixes
+ * by InterLinked (Naveen Albert) <asterisk@phreaknet.org>, 2021.
+ * Note that default behavior has been changed from LSB to MSB.
  *
  * This program is free software, distributed under the terms of
  * the GNU General Public License
@@ -16,7 +18,7 @@
  */
 
 /*** MODULEINFO
-	 <depend>spandsp</depend>
+	<depend>spandsp</depend>
 	<support_level>extended</support_level>
 ***/
 
@@ -551,7 +553,7 @@ static int softmodem_communicate(modem_session *s) {
 	server.sin_port=htons(s->port);
 
 	if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
-		ast_log(LOG_WARNING, "Cannot connect to remote host.\n");
+		ast_log(LOG_WARNING, "Cannot connect to remote host: '%s'\n", s->host);
 		return res;
 	}
 
@@ -715,9 +717,12 @@ static int softmodem_exec(struct ast_channel *chan, const char *data) {
 	parse=ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args,parse);
 
-	if (args.host)
-		session.host=args.host;
-	else
+	if (args.host) {
+		session.host= ast_strip(args.host); /* if there are spaces in the hostname, we crash at the memcpy after hp=ast_gethostbyname(s->host, &ahp); */
+		if (strcmp(session.host, args.host)) {
+			ast_log(LOG_WARNING, "Please avoid spaces in the hostname: '%s'\n", args.host);
+		}
+	} else
 		session.host="localhost";
 
 	if (args.port) {
