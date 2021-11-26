@@ -256,7 +256,7 @@ static int _if_exec(struct ast_channel *chan, const char *data, int end)
 		pbx_builtin_setvar_helper(chan, varname, goto_str);
 	} else if (end && if_pri) {
 		/* END of branch */
-		snprintf(end_varname, VAR_SIZE + 4, "END_%s", varname);
+		snprintf(end_varname, VAR_SIZE + 8, "END_%s", varname);
 		if (! pbx_builtin_getvar_helper(chan, end_varname)) {
 			char *goto_str;
 			size = strlen(ast_channel_context(chan)) + strlen(ast_channel_exten(chan)) + 32;
