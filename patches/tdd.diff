@@ -1,5 +1,5 @@
 --- apps/app_tdd.c.orig	2021-11-26 11:41:57.041845942 +0000
-+++ apps/app_tdd.c	2021-11-26 11:47:27.861676070 +0000
++++ apps/app_tdd.c	2021-11-26 12:04:05.341300762 +0000
 @@ -308,7 +308,7 @@
  		span_log(&s->logging, SPAN_LOG_FLOW, "baudot returned zero");
  	}
@@ -9,20 +9,23 @@
  	{
  		s->rx_msg[s->rx_msg_len] = '\0';
  		span_log(&s->logging, SPAN_LOG_FLOW, "[bufsiz] calling put_msg with %d chars", s->rx_msg_len);
-@@ -524,6 +524,7 @@
+@@ -524,6 +524,8 @@
  {
  	struct ast_datastore *datastore = NULL;
  	struct tdd_info *ti = NULL;
 +	v18_state_t *vs = NULL;
++	fsk_rx_state_t *fs = NULL;
  
  	RAII_VAR(struct stasis_message *, stasis_message, NULL, ao2_cleanup);
  	RAII_VAR(struct ast_json *, stasis_message_blob, NULL, ast_json_unref);
-@@ -563,7 +564,7 @@
+@@ -563,8 +565,8 @@
  
  	set_logging(v18_get_logging_state(&ti->v18_state));
  
 -	v18_state_t *vs = &ti->v18_state;
+-	fsk_rx_state_t *fs = &vs->fskrx;
 +	vs = &ti->v18_state;
- 	fsk_rx_state_t *fs = &vs->fskrx;
++	fs = &vs->fskrx;
  	fsk_rx_set_modem_status_handler(fs, modem_rx_status, ti); /* override */
  	fsk_rx_set_put_bit(fs, my_v18_tdd_put_async_byte, ti);    /* override */
+ 
