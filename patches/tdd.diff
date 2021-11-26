@@ -1,5 +1,23 @@
 --- apps/app_tdd.c.orig	2021-11-26 11:41:57.041845942 +0000
-+++ apps/app_tdd.c	2021-11-26 12:04:05.341300762 +0000
++++ apps/app_tdd.c	2021-11-26 13:11:32.944708917 +0000
+@@ -53,7 +53,7 @@
+ 	</application>
+ 	<application name="TddTx" language="en_US">
+ 		<synopsis>
+-			Send <replaceable>message</replaceable> using TDD tones on the current channel.
++			Send message using TDD tones on the current channel.
+ 		</synopsis>
+ 		<syntax>
+ 			<parameter name="message" required="true" />
+@@ -78,7 +78,7 @@
+ 			</parameter>
+ 			<parameter name="Message" required="true">
+ 				<para>The message to be sent.</para>
+-				<para><note>NOTE:</note> TDD uses BAUDOT code which limits the characters that can be sent. Invalid characters are silently ignored.</para>
++				<note><para>NOTE: TDD uses BAUDOT code which limits the characters that can be sent. Invalid characters are silently ignored.</para></note>
+ 			</parameter>
+ 		</syntax>
+ 		<description>
 @@ -308,7 +308,7 @@
  		span_log(&s->logging, SPAN_LOG_FLOW, "baudot returned zero");
  	}
