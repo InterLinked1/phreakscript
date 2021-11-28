@@ -89,7 +89,7 @@
 			<parameter name="options">
 				<optionlist>
 					<option name="i">
-						<para>to play  filename as an indication tone from your
+						<para>to play <literal>filename</literal> as an indication tone from your
 						<filename>indications.conf</filename>.</para>
 					</option>
 					<option name="p">
@@ -115,6 +115,15 @@
 			that returns a non-zero number.</para>
 			<para>This application does not automatically answer the channel and should
 			be preceded by <literal>Progress</literal> or <literal>Answer</literal>.</para>
+			<example title="Simulated city dial tone">
+			same => n,DialTone(num,my-digit-map,custom/dialtone,custom/dialsounds/sound${RAND(1,6)},32,,,pr)
+			</example>
+			<example title="Precise dial tone">
+			same => n,DialTone(num,my-digit-map,dial,,32,,,ip)
+			</example>
+			<example title="Terminate dialing with # key">
+			same => n,DialTone(num,my-digit-map,dial,,32,,,ipt)
+			</example>
 		</description>
 		<see-also>
 			<ref type="application">DISA</ref>
