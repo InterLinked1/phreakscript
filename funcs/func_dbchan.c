@@ -119,7 +119,6 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 	int pruned = 0;
 	int epochparse = 0, found = 0;
 
-	ast_debug(4, "Something at level 4\n");
 	if (prune == 2) {
 		char *epochthreshold = strsep(&parse, ",");
 		epochparse = atoi(epochthreshold);
@@ -144,7 +143,7 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 			continue;
 		}
 		if (parallel && parallel[strlen(parallel) - 1] == '/') {
-			ast_log(LOG_WARNING, "%s: paralell family '%s' ends in a '/', truncated? Skipping...", cmd, parallel);
+			ast_log(LOG_WARNING, "%s: parallel family '%s' ends in a '/', truncated? Skipping...", cmd, parallel);
 			continue;
 		}
 		/* Remove leading and trailing slashes */
