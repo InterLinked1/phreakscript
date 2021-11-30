@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.7 (2021-11-27)
+# v0.1.8 (2021-11-29)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-11-29 0.1.8 PhreakScript: fix trace bugs and add error checking
 # 2021-11-26 0.1.7 PhreakScript: added docgen
 # 2021-11-26 0.1.6 Asterisk: app_tdd (Bug Fix): added patch to fix compiler warnings, decrease buffer threshold
 # 2021-11-25 0.1.5 PhreakScript: removed unnecessary file deletion in dev mode
@@ -1224,8 +1225,18 @@ elif [ "$cmd" = "validate" ]; then
 elif [ "$cmd" = "trace" ]; then
 	VERBOSE_LEVEL=10
 	debugtime=$EPOCHSECONDS
+	if [ "$debugtime" = "" ]; then
+		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
+	fi
+	if [ "$debugtime" = "" ]; then
+		echoerr "No debug time?"
+	fi
 	channel="debug_$debugtime.txt"
-	if [[ $DEBUG_LEVEL =~ ^-?[0-9]+$ ]]; then
+	if [ "$DEBUG_LEVEL" = "" ]; then
+		printf "%s\n" "Debug level defaulting to 0"
+		DEBUG_LEVEL=0
+	fi
+	if [ "$DEBUG_LEVEL" -eq "$DEBUG_LEVEL" ] 2> /dev/null; then
         if [ $DEBUG_LEVEL -lt 0 ]; then
 			echoerr "Invalid debug level: $DEBUG_LEVEL"
 			exit 2
@@ -1247,8 +1258,7 @@ elif [ "$cmd" = "trace" ]; then
 	asterisk -rx "core set verbose $VERBOSE_LEVEL"
 	printf "Starting trace (verbose %d, debug %d): %s\n" $VERBOSE_LEVEL $DEBUG_LEVEL "$debugtime"
 	printf "%s\n" "Starting CLI trace..."
-	printf '\a'
-	read -r -p "A CLI trace is now being collected. Reproduce the issue, then press ENTER to conclude the trace: "
+	read -r -p "A CLI trace is now being collected. Reproduce the issue, then press ENTER to conclude the trace: " x
 	printf "%s\n" "CLI trace terminated..."
 	asterisk -rx "logger remove channel $channel"
 	if [ ! -f /var/log/asterisk/$channel ]; then
@@ -1268,7 +1278,12 @@ elif [ "$cmd" = "trace" ]; then
 		fi
 	fi
 	url=`curl -X POST -F "body=@/var/log/asterisk/$channel" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
-	printf "Paste URL: %s\n" "${url}.txt"
+	if [ "$url" = "Invalid API key." ] ; then
+		echoerr "$url"
+		printf "%s\n" "Trace is in file /var/log/asterisk/$channel and will not be automatically uploaded"
+	else
+		printf "Paste URL: %s\n" "${url}.txt"
+	fi
 	rm /var/log/asterisk/$channel
 elif [ "$cmd" = "backtrace" ]; then
 	if [ -f /sbin/asterisk ]; then
