@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.8 (2021-11-29)
+# v0.1.10 (2021-12-04)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-04 0.1.10 Asterisk Test Suite: added sipp installation, bug fixes to PhreakScript directory check
+# 2021-11-30 0.1.9 Asterisk: add chan_sccp channel driver
 # 2021-11-29 0.1.8 PhreakScript: fix trace bugs and add error checking
 # 2021-11-26 0.1.7 PhreakScript: added docgen
 # 2021-11-26 0.1.6 Asterisk: app_tdd (Bug Fix): added patch to fix compiler warnings, decrease buffer threshold
@@ -73,7 +75,7 @@ FILE_NAME=$( basename $0 ) # grr... why is realpath not in the POSIX standard?
 FILE_PATH="$FILE_DIR/$FILE_NAME"
 PATCH_DIR=https://docs.phreaknet.org/script
 OS_DIST_INFO="(lsb_release -ds || cat /etc/*release || uname -om ) 2>/dev/null | head -n1 | cut -d'=' -f2"
-OS_DIST_INFO=$(eval "$OS_DIST_INFO")
+OS_DIST_INFO=$(eval "$OS_DIST_INFO" | tr -d '"')
 PAC_MAN="apt-get"
 AST_CONFIG_DIR="/etc/asterisk"
 AST_SOUNDS_DIR="/var/lib/asterisk/sounds/en"
@@ -87,6 +89,7 @@ AST_CC=1 # Country Code (default: 1 - NANPA)
 AST_USER=""
 WEAK_TLS=0
 CHAN_SIP=0
+CHAN_SCCP=0
 CHAN_DAHDI=0
 TEST_SUITE=0
 FORCE_INSTALL=0
@@ -118,6 +121,7 @@ phreakscript_info() {
 	fi
 	printf "%s" "PhreakScript "
 	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
+	echo "https://github.com/InterLinked1/phreakscript"
 	echo "(C) 2021 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
 	echo "To report bugs or request feature additions, please report at https://issues.interlinked.us (also see https://docs.phreaknet.org/#contributions) and/or post to the PhreakNet mailing list: https://groups.io/g/phreaknet" | fold -s -w 120
 }
@@ -166,10 +170,11 @@ Options:
    -f, --force        Force install or config
    -h, --help         Display usage
    -o, --flag-test    Option flag test
-   -s, --sip          Use chan_sip instead of or in addition to chan_pjsip
+   -s, --sip          Install chan_sip instead of or in addition to chan_pjsip
    -t, --testsuite    Compile with developer support for Asterisk test suite and unit tests
    -u, --user         User as which to run Asterisk (non-root)
    -w, --weaktls      Allow less secure TLS versions down to TLS 1.0 (default is 1.2+)
+       --sccp         Install chan_sccp channel driver (Cisco Skinny)
        --boilerplate  sounds: Also install boilerplate sounds
        --clli         config: CLLI code
        --debug        trace: Debug level (default is 0/OFF, max is 10)
@@ -229,7 +234,19 @@ install_testsuite_itself() { # $1 = $FORCE_INSTALL
 	cd ../..
 	apt-get install -y python-twisted
 	pip install twisted
+	# sipp
+	cd $AST_SOURCE_PARENT_DIR
+	git clone https://github.com/SIPp/sipp.git
+	cd sipp
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y cmake libsctp-dev libgsl-dev
+	fi
+	git checkout v3.6.0 ## This is the latest version we KNOW works.
+	./build.sh --prefix=/usr --with-openssl --with-pcap --with-rtpstream --with-sctp --with-gsl CFLAGS=-w
+	./sipp -v
+	make install
 	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
+	./runtests.py -l
 	printf "%s\n" "Asterisk Test Suite installation complete"
 }
 
@@ -245,7 +262,7 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	pip2 install pyyaml
 	pip2 install twisted
 	# in case we're not already in the right directory
-	AST_SRC_DIR=`ls -d */ | grep "asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
 	if [ "$AST_SRC_DIR" = "" ]; then
 		echoerr "Asterisk source not found. Aborting..."
 		return 1
@@ -401,6 +418,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 16633 "https://gerrit.asterisk.org/changes/asterisk~16633/revisions/1/patch?download" # app_read and app.c bug fix
 	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/2/patch?download" # func_json
 	gerrit_patch 16635 "https://gerrit.asterisk.org/changes/asterisk~16635/revisions/1/patch?download" # chan_iax2 dynamic RSA out dialing
+	gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
 
 	# never going to be merged upstream:
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/3/patch?download" # chan_sip: Add custom parameters
@@ -585,7 +603,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostw -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,weaktls,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostw -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,weaktls,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -612,6 +630,7 @@ while true; do
 		-t | --testsuite ) TEST_SUITE=1; shift ;;
 		-u | --user ) AST_USER=$2; shift 2;;
 		-w | --weaktls ) WEAK_TLS=1; shift ;;
+		--sccp ) CHAN_SCCP=1; shift ;;
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
 		--disa ) PHREAKNET_DISA=$2; shift 2;;
@@ -757,6 +776,9 @@ elif [ "$cmd" = "install" ]; then
 		echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz"
 		exit 1
 	fi
+	if [ "$CHAN_SCCP" = "1" ]; then
+		git clone https://github.com/chan-sccp/chan-sccp.git chan-sccp
+	fi
 	AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
 	if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
 		if [ "$FORCE_INSTALL" = "1" ]; then
@@ -771,6 +793,12 @@ elif [ "$cmd" = "install" ]; then
 	rm $AST_SOURCE_NAME.tar.gz
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
 		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
+		exit 2
+	fi
+	AST_SRC_DIR2=`ls -d */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
+	if [ "$AST_SRC_DIR" != "$AST_SRC_DIR2" ]; then
+		echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
 		exit 2
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
@@ -891,6 +919,21 @@ elif [ "$cmd" = "install" ]; then
 		chown -R $AST_USER /etc/asterisk/ /usr/lib/asterisk /var/spool/asterisk/ /var/lib/asterisk/ /var/run/asterisk/ /var/log/asterisk /usr/sbin/asterisk
 	fi
 
+	if [ "$CHAN_SCCP" = "1" ]; then
+		cd $AST_SOURCE_PARENT_DIR
+		cd chan-sccp
+		if [ $? -eq 0 ]; then
+			git fetch
+			git pull
+			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
+			make -j2 && make install && make reload
+			if [ $? -ne 0 ]; then
+				echoerr "Failed to install chan_sccp"
+				exit 2
+			fi
+		fi
+	fi
+
 	# Development Mode (Asterisk Test Suite)
 	if [ "$TEST_SUITE" = "1" ]; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
@@ -960,7 +1003,7 @@ elif [ "$cmd" = "installts" ]; then
 	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "docgen" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d */ | grep "asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
 	cd $AST_SRC_DIR
 	if [ $? -ne 0 ]; then
 		echoerr "Couldn't find Asterisk source directory?"
@@ -982,7 +1025,7 @@ elif [ "$cmd" = "docgen" ]; then
 	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
 elif [ "$cmd" = "pubdocs" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d */ | grep "asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
 	apt-get install -y python-dev python-virtualenv python-lxml
 	pip install pystache
 	pip install premailer
@@ -1277,10 +1320,11 @@ elif [ "$cmd" = "trace" ]; then
 			fi
 		fi
 	fi
+	printf "%s\n" "Attempting to automatically upload trace to InterLinked Paste..."
 	url=`curl -X POST -F "body=@/var/log/asterisk/$channel" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
 	if [ "$url" = "Invalid API key." ] ; then
 		echoerr "$url"
-		printf "%s\n" "Trace is in file /var/log/asterisk/$channel and will not be automatically uploaded"
+		printf "%s\n" "Trace is in file /var/log/asterisk/$channel but will NOT be automatically uploaded!"
 	else
 		printf "Paste URL: %s\n" "${url}.txt"
 	fi
@@ -1292,7 +1336,7 @@ elif [ "$cmd" = "backtrace" ]; then
 		/var/lib/asterisk/scripts/ast_coredumper core
 	fi
 	if [ ! -f /tmp/core-full.txt ]; then
-		echoerr "Core dumped failed to get backtrace, aborting..."
+		echoerr "Core dump failed to get backtrace, aborting..."
 		exit 2
 	fi
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
