@@ -18,6 +18,7 @@ PhreakScript installs:
       - ``MallocTrim``
       - ``SendFrame``
       - ``StreamSilence``
+      - ``ReceiveMF``
       - ``ToneSweep``
       - ``ToneScan``
       - ``DialTone``
