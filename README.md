@@ -8,6 +8,7 @@ PhreakScript installs:
 - DAHDI Tools 3.1.0 (with optional DAHDI install flag)
 - many additional features and stability improvements (see change log for full details)
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
+   - Adds fax timing and parameter control to `chan_sip`
    - Fixes ulaw/gsm codec translation bug
    - Fixes infinite loop Dial bug
    - Adds the following applications:
