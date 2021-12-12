@@ -14,7 +14,7 @@ PhreakScript installs:
    - Adds the following applications:
       - ``Assert``
       - ``ReturnIf``
-      - ``If``, ``EndIf``, ``ExecIf``
+      - ``If``, ``EndIf``, ``ExitIf``
       - ``SendMail``
       - ``MallocTrim``
       - ``SendFrame``
