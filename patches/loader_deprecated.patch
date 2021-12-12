@@ -1,12 +1,16 @@
---- main/loader.c.orig	2021-12-10 02:47:15.745414797 +0000
-+++ main/loader.c	2021-12-10 02:47:26.833540041 +0000
-@@ -2484,7 +2484,8 @@
+--- main/loader.c.orig	2021-12-12 02:31:08.947096630 +0000
++++ main/loader.c	2021-12-12 02:32:17.263866627 +0000
+@@ -2484,7 +2484,12 @@
  		}
  
  		if (ast_str_strlen(warning_msg)) {
 -			ast_log(LOG_WARNING, "%s\n", ast_str_buffer(warning_msg));
 +			int notserious = (!strcmp(mod_name, "res_adsi") || !strcmp(mod_name, "app_adsiprog") || !strcmp(mod_name, "app_getcpeid")); /* these are being maintained and there are being kept in the tree indefinitely, so don't alarm people unnecessarily */
-+			ast_log(notserious ? LOG_NOTICE : LOG_WARNING, "%s\n", ast_str_buffer(warning_msg));
++			if (notserious) {
++				ast_log(LOG_NOTICE, "%s\n", ast_str_buffer(warning_msg));
++			} else {
++				ast_log(LOG_WARNING, "%s\n", ast_str_buffer(warning_msg));
++			}
  		}
  
  		ast_free(mod_name);
