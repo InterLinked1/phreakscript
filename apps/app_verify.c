@@ -36,6 +36,7 @@
 #include "asterisk.h"
 
 #include <curl/curl.h>
+#include <regex.h>
 
 #include "asterisk/lock.h"
 #include "asterisk/file.h"
@@ -145,13 +146,15 @@ struct call_verify {
 	char remote_var[AST_MAX_CONTEXT];		/*!< Variable in which verification status arrives to us */
 	char via_remote_var[AST_MAX_CONTEXT];	/*!< Variable in which upstream node identification arrives */
 	char token_remote_var[AST_MAX_CONTEXT];	/*!< Variable in which token may arrive */
-	char setinvars[PATH_MAX];			/*!< Variables to set on incoming call */
-	char setoutvars[PATH_MAX];			/*!< Variables to set on outgoing call */
+	char setinvars[PATH_MAX];				/*!< Variables to set on incoming call */
+	char setoutvars[PATH_MAX];				/*!< Variables to set on outgoing call */
 	int sanitychecks;						/*!< Whether or not to do sanity checks on the alleged calling number */
 	int extendtrust;						/*!< Whether to verify through/via calls */
 	int allowdisathru;						/*!< Whether to allow DISA thru calls */
 	int allowpstnthru;						/*!< Whether to allow PSTN thru calls */
 	int allowtoken;							/*!< Whether to allow verification tokens */
+	int flagprivateip;						/*!< Whether to flag private IP addresses as malicious */
+	char outregex[PATH_MAX];				/*!< Regex to use to verify outgoing URIs */
 	char exceptioncontext[PATH_MAX];		/*!< Action to take upon failure */
 	char failureaction[PATH_MAX];			/*!< Action to take upon failure */
 	char failurefile[PATH_MAX];				/*!< File for failure playback */
@@ -244,6 +247,8 @@ static void profile_set_param(struct call_verify *v, const char *param, const ch
 	VERIFY_LOAD_INT_PARAM(sanitychecks, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
 	VERIFY_LOAD_INT_PARAM(extendtrust, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
 	VERIFY_LOAD_INT_PARAM(allowtoken, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
+	VERIFY_LOAD_INT_PARAM(flagprivateip, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
+	VERIFY_LOAD_STR_PARAM(outregex, val[0]);
 	VERIFY_LOAD_STR_PARAM(exceptioncontext, val[0]);
 	VERIFY_LOAD_STR_PARAM(failureaction, !strcasecmp(val, "nothing") || !strcasecmp(val, "hangup") || !strcasecmp(val, "playback") || !strcasecmp(val, "redirect"));
 	VERIFY_LOAD_STR_PARAM(failurefile, val[0]);
@@ -345,6 +350,7 @@ static int reload_verify(int reload)
 		v->allowtoken = 0;
 		v->threshold = 0;
 		v->sanitychecks = 0;
+		v->flagprivateip = 1;
 		ast_copy_string(v->verifymethod, "reverse", sizeof(v->verifymethod));
 		ast_copy_string(v->requestmethod, "curl", sizeof(v->requestmethod));
 		/* Search Config */
@@ -578,7 +584,7 @@ static int hostname_to_ip(char *hostname , char *ip)
 		h = (struct sockaddr_in *) p->ai_addr;
 		strcpy(ip, ast_inet_ntoa(h->sin_addr));
 	}
-	
+
 	freeaddrinfo(servinfo);
 	return 0;
 }
@@ -678,9 +684,9 @@ static int v_success(char *name, int in)
 	}
 
 	ast_mutex_lock(&v->lock);
-	
+
 	in ? v->insuccess++ : v->outsuccess++;
-	
+
 	ast_mutex_unlock(&v->lock);
 
 	return 0;
@@ -694,7 +700,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	char *vresult, *argstr, *callerid;
 	struct ast_str *strbuf = NULL;
 	int success = 0;
-	
+
 	int curl, direct, extendtrust, allowtoken, sanitychecks, threshold;
 	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX];
 
@@ -771,7 +777,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	}
 	ast_debug(1, "Verifying call against number '%s'\n", callerid);
 	ast_channel_unlock(chan);
-	
+
 	if (direct) {
 		if (!curl) {
 			ast_log(LOG_WARNING, "Request method %s is incompatible with verification method %s\n", "direct", "enum");
@@ -894,7 +900,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		if (!*dialstring) {
 			goto fail; /* call came from a number we can't call back, so abort now */
 		}
-		parse_iax2_dial_string(dialstring, strbuf);
+		parse_iax2_dial_string(dialstring, strbuf); /* this is a destructive operation on dialstring, but we don't need it anymore so no need for ast_strdupa */
 		peer = ast_strdupa(ast_str_buffer(strbuf));
 		ast_debug(1, "Calling host is '%s'\n", peer);
 		ast_str_reset(strbuf);
@@ -1020,9 +1026,9 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 	char *cnam, *currentcode;
 	int success = 1;
 	int len;
-	
-	int allowtoken, allowdisathru, allowpstnthru;
-	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], setoutvars[PATH_MAX], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[AST_MAX_CONTEXT], obtaintokenrequest[PATH_MAX], via_number[AST_MAX_CONTEXT], clli[AST_MAX_CONTEXT], region[AST_MAX_CONTEXT];
+
+	int allowtoken, allowdisathru, allowpstnthru, flagprivateip;
+	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], setoutvars[PATH_MAX], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[AST_MAX_CONTEXT], obtaintokenrequest[PATH_MAX], via_number[AST_MAX_CONTEXT], clli[AST_MAX_CONTEXT], region[AST_MAX_CONTEXT], outregex[PATH_MAX];
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(profile);
@@ -1038,10 +1044,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 		return -1;
 	}
 
-	if (!chan || strcmp(ast_channel_tech(chan)->type, "IAX2")) {
-		ast_log(LOG_ERROR, "Unsupported channel technology: %s (%s only supports IAX2)\n", ast_channel_tech(chan)->type, app);
-		return -1;
-	}
+	/* don't restrict to IAX2 channels, because it's not technically one yet */
 
 	AST_RWLIST_RDLOCK(&verifys);
 	AST_LIST_TRAVERSE(&verifys, v, entry) {
@@ -1063,6 +1066,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 	allowtoken = v->allowtoken;
 	allowdisathru = v->allowdisathru;
 	allowpstnthru = v->allowpstnthru;
+	flagprivateip = v->flagprivateip;
 	VERIFY_STRDUP(name);
 	VERIFY_STRDUP(verifyrequest);
 	VERIFY_STRDUP(via_remote_var);
@@ -1074,6 +1078,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(via_number);
 	VERIFY_STRDUP(clli);
 	VERIFY_STRDUP(region);
+	VERIFY_STRDUP(outregex);
 	ast_mutex_unlock(&v->lock);
 
 	VERIFY_ASSERT_VAR_EXISTS(remote_var);
@@ -1162,11 +1167,8 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 		ast_trim_blanks(ast_channel_caller(chan)->id.name.str);
 	}
 
-	if (!ast_strlen_zero(args.lookup)) {
-		struct ast_str *strbuf = NULL;
-		char ip[64];
-		char *peer;
-		int malicious = 0;
+	if (!ast_strlen_zero(args.lookup) || *setoutvars) {
+		struct ast_str *strbuf = NULL; /* use the same both strbuf for both lookup check and setoutvars */
 
 		if (!(strbuf = ast_str_create(512))) {
 			ast_log(LOG_ERROR, "Could not allocate memory for response.\n");
@@ -1174,38 +1176,55 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 			return -1;
 		}
 
-		parse_iax2_dial_string(args.lookup, strbuf); /* get the host */
-		peer = ast_strdupa(ast_str_buffer(strbuf));
-		ast_free(strbuf);
-		if (hostname_to_ip(peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
-			ast_debug(1, "Failed to resolve hostname '%s'\n", peer);
-			malicious = 1;
-		} else if (is_private_ipv4(ip)) { /* make sure it's not a private IPv4 address */
-			ast_debug(1, "Hostname '%s' resolves to private or invalid IP address: %s\n", peer, ip);
-			malicious = 1;
-		}
-		if (malicious) {
-			pbx_builtin_setvar_helper(chan, "OUTVERIFYSTATUS", "MALICIOUS");
-			success = 0;
-		}
-	}
+		if (!ast_strlen_zero(args.lookup)) {
+			char ip[64];
+			char *peer, *lookup;
+			int malicious = 0;
 
-	if (*setoutvars) {
-		struct ast_str *strbuf = NULL;
-		if (!(strbuf = ast_str_create(512))) {
-			ast_log(LOG_ERROR, "Could not allocate memory for response.\n");
-			pbx_builtin_setvar_helper(chan, "OUTVERIFYSTATUS", "FAILURE");
-			return -1;
-		}
-		assign_vars(chan, strbuf, setoutvars);
-		ast_free(strbuf);
-	}
+			lookup = ast_strdupa(args.lookup);
 
-	if (success) {
-		if (success) { /* technically, might fail if it's gone? So we need to iterate again and check... */
-			if (v_success(name, 0)) {
-				return -1;
+			parse_iax2_dial_string(lookup, strbuf); /* get the host */
+			peer = ast_strdupa(ast_str_buffer(strbuf));
+			if (hostname_to_ip(peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
+				ast_debug(1, "Failed to resolve hostname '%s'\n", peer);
+				malicious = 1;
+			} else if (flagprivateip && is_private_ipv4(ip)) { /* make sure it's not a private IPv4 address */
+				ast_debug(1, "Hostname '%s' resolves to private or invalid IP address: %s\n", peer, ip);
+				malicious = 1;
+			} else if (strncasecmp(args.lookup, "IAX2/", 5)) {
+				ast_debug(1, "Detected non-IAX2 channel technology for lookup: %s\n", args.lookup);
+				malicious = 1;
+			} else if (*outregex) {
+#define BUFLEN2 256
+				char buf[BUFLEN2];
+				int errcode;
+				regex_t regexbuf;
+
+				if ((errcode = regcomp(&regexbuf, outregex, REG_EXTENDED | REG_NOSUB))) {
+					regerror(errcode, &regexbuf, buf, BUFLEN2);
+					ast_log(LOG_WARNING, "Malformed input %s(%s): %s\n", "REGEX", outregex, buf);
+				} else if (regexec(&regexbuf, args.lookup, 0, NULL, 0)) {
+					ast_debug(1, "URI '%s' does not match with regex '%s'\n", args.lookup, outregex);
+					malicious = 1;
+				}
+				regfree(&regexbuf);
 			}
+			if (malicious) {
+				pbx_builtin_setvar_helper(chan, "OUTVERIFYSTATUS", "MALICIOUS");
+				success = 0;
+			}
+			ast_str_reset(strbuf);
+		}
+
+		if (*setoutvars) {
+			assign_vars(chan, strbuf, setoutvars);
+		}
+		ast_free(strbuf);
+	}
+
+	if (success) { /* technically, might fail if it's gone? So we need to iterate again and check... */
+		if (v_success(name, 0)) {
+			return -1;
 		}
 		pbx_builtin_setvar_helper(chan, "OUTVERIFYSTATUS", "PROCEED");
 	}
@@ -1299,6 +1318,8 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 			ast_cli(a->fd, FORMAT, "Allow DISA Thru", AST_CLI_YESNO(v->allowdisathru));
 			ast_cli(a->fd, FORMAT, "Allow PSTN Thru", AST_CLI_YESNO(v->allowpstnthru));
 			ast_cli(a->fd, FORMAT, "Allow Token", AST_CLI_YESNO(v->allowtoken));
+			ast_cli(a->fd, FORMAT, "Flag Private IP Addresses", AST_CLI_YESNO(v->flagprivateip));
+			ast_cli(a->fd, FORMAT, "Outgoing Regex", v->outregex);
 			ast_cli(a->fd, FORMAT, "Exception Context", v->exceptioncontext);
 			ast_cli(a->fd, FORMAT, "Failure Action", v->failureaction);
 			ast_cli(a->fd, FORMAT, "Failure Playback File", v->failurefile);
@@ -1373,7 +1394,7 @@ static int load_module(void)
 
 	res = ast_register_application_xml(app, verify_exec);
 	res |= ast_register_application_xml(app2, outverify_exec);
-	
+
 	return res;
 }
 
