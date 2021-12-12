@@ -154,6 +154,7 @@ struct call_verify {
 	int allowpstnthru;						/*!< Whether to allow PSTN thru calls */
 	int allowtoken;							/*!< Whether to allow verification tokens */
 	int flagprivateip;						/*!< Whether to flag private IP addresses as malicious */
+	char successregex[PATH_MAX];			/*!< Regex to use for direct verification to determine success */
 	char outregex[PATH_MAX];				/*!< Regex to use to verify outgoing URIs */
 	char exceptioncontext[PATH_MAX];		/*!< Action to take upon failure */
 	char failureaction[PATH_MAX];			/*!< Action to take upon failure */
@@ -248,6 +249,7 @@ static void profile_set_param(struct call_verify *v, const char *param, const ch
 	VERIFY_LOAD_INT_PARAM(extendtrust, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
 	VERIFY_LOAD_INT_PARAM(allowtoken, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
 	VERIFY_LOAD_INT_PARAM(flagprivateip, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
+	VERIFY_LOAD_STR_PARAM(successregex, val[0]);
 	VERIFY_LOAD_STR_PARAM(outregex, val[0]);
 	VERIFY_LOAD_STR_PARAM(exceptioncontext, val[0]);
 	VERIFY_LOAD_STR_PARAM(failureaction, !strcasecmp(val, "nothing") || !strcasecmp(val, "hangup") || !strcasecmp(val, "playback") || !strcasecmp(val, "redirect"));
@@ -702,7 +704,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	int success = 0;
 
 	int curl, direct, extendtrust, allowtoken, sanitychecks, threshold;
-	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX];
+	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX];
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(profile);
@@ -762,6 +764,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(code_good);
 	VERIFY_STRDUP(code_fail);
 	VERIFY_STRDUP(code_spoof);
+	VERIFY_STRDUP(successregex);
 	ast_mutex_unlock(&v->lock);
 
 	if (!(strbuf = ast_str_create(512))) {
@@ -787,6 +790,21 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			vresult = ast_str_buffer(strbuf);
 			if (*code_good && !strncmp(code_good, vresult, strlen(code_good))) { /* if the result starts with the code_good value, then it's a success. There could be other stuff afterwards. */
 				success = 1;
+			} else if (*successregex) {
+#define BUFLEN2 256
+				char buf[BUFLEN2];
+				int errcode;
+				regex_t regexbuf;
+
+				if ((errcode = regcomp(&regexbuf, successregex, REG_EXTENDED | REG_NOSUB))) {
+					regerror(errcode, &regexbuf, buf, BUFLEN2);
+					ast_log(LOG_WARNING, "Malformed input %s(%s): %s\n", "REGEX", successregex, buf);
+				} else if (!regexec(&regexbuf, vresult, 0, NULL, 0)) {
+					success = 1;
+				} else {
+					ast_debug(1, "Code '%s' does not match with regex '%s'\n", vresult, successregex);
+				}
+				regfree(&regexbuf);
 			}
 			ast_verb(3, "Verification result for %s is '%s'\n", name, vresult ? vresult : "(null)");
 			verify_set_var(chan, local_var, vresult);
@@ -1195,7 +1213,6 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 				ast_debug(1, "Detected non-IAX2 channel technology for lookup: %s\n", args.lookup);
 				malicious = 1;
 			} else if (*outregex) {
-#define BUFLEN2 256
 				char buf[BUFLEN2];
 				int errcode;
 				regex_t regexbuf;
@@ -1319,6 +1336,7 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 			ast_cli(a->fd, FORMAT, "Allow PSTN Thru", AST_CLI_YESNO(v->allowpstnthru));
 			ast_cli(a->fd, FORMAT, "Allow Token", AST_CLI_YESNO(v->allowtoken));
 			ast_cli(a->fd, FORMAT, "Flag Private IP Addresses", AST_CLI_YESNO(v->flagprivateip));
+			ast_cli(a->fd, FORMAT, "Success Regex", v->successregex);
 			ast_cli(a->fd, FORMAT, "Outgoing Regex", v->outregex);
 			ast_cli(a->fd, FORMAT, "Exception Context", v->exceptioncontext);
 			ast_cli(a->fd, FORMAT, "Failure Action", v->failureaction);
