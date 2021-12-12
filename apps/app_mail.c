@@ -38,6 +38,8 @@
 #include "asterisk/pbx.h"
 #include "asterisk/module.h"
 #include "asterisk/app.h"
+#include "asterisk/file.h"
+#include "asterisk/utils.h"
 
 /*** DOCUMENTATION
 	<application name="SendMail" language="en_US">
@@ -56,9 +58,21 @@
 			</parameter>
 			<parameter name="options" required="true">
 				<optionlist>
-				<option name="A">
-					<para>Pipe-separated list of attachments, using the full path. The
-					file name will be used as the name of the attachment.</para>
+				<option name="A" argsep=":">
+					<argument name="filepath">
+						<para>The full path to the file to attach.</para>
+					</argument>
+					<argument name="filename">
+						<para>The name of the attached file. The default name
+						is the base file name of the attached file.</para>
+					</argument>
+					<argument name="mimetype">
+						<para>The MIME format of the attachment. There is no default
+						Content-Type header for attachments so some mail clients may
+						not respond well to this. You should include the MIME type if you
+						know what it is (e.g. <literal>text/plain</literal>).</para>
+					</argument>
+					<para>Pipe-separated list of attachments, using the full path.</para>
 				</option>
 				<option name="d">
 					<para>Delete successfully attached files once the email is sent.</para>
@@ -100,165 +114,11 @@
 
 static char *app = "SendMail";
 
-#define	VOICEMAIL_FILE_MODE	0666
-#define BASELINELEN 72
-#define BASEMAXINLINE 256
 #define SENDMAIL "/usr/sbin/sendmail -t"
 #define ENDL "\n"
+#define	MAIL_FILE_MODE	0666
 
 static int my_umask;
-
-struct baseio {
-	int iocp;
-	int iolen;
-	int linelength;
-	int ateof;
-	unsigned char iobuf[BASEMAXINLINE];
-};
-
-/*!
- * \brief utility used by inchar(), for base_encode()
- */
-static int inbuf(struct baseio *bio, FILE *fi)
-{
-	int l;
-
-	if (bio->ateof)
-		return 0;
-
-	if ((l = fread(bio->iobuf, 1, BASEMAXINLINE, fi)) != BASEMAXINLINE) {
-		bio->ateof = 1;
-		if (l == 0) {
-			/* Assume EOF */
-			return 0;
-		}
-	}
-
-	bio->iolen = l;
-	bio->iocp = 0;
-
-	return 1;
-}
-
-/*!
- * \brief utility used by base_encode()
- */
-static int inchar(struct baseio *bio, FILE *fi)
-{
-	if (bio->iocp>=bio->iolen) {
-		if (!inbuf(bio, fi))
-			return EOF;
-	}
-
-	return bio->iobuf[bio->iocp++];
-}
-
-/*!
- * \brief utility used by base_encode()
- */
-static int ochar(struct baseio *bio, int c, FILE *so)
-{
-	if (bio->linelength >= BASELINELEN) {
-		if (fputs(ENDL, so) == EOF) {
-			return -1;
-		}
-
-		bio->linelength = 0;
-	}
-
-	if (putc(((unsigned char) c), so) == EOF) {
-		return -1;
-	}
-
-	bio->linelength++;
-
-	return 1;
-}
-
-/*!
- * \brief Performs a base 64 encode algorithm on the contents of a File
- * \param filename The path to the file to be encoded. Must be readable, file is opened in read mode.
- * \param so A FILE handle to the output file to receive the base 64 encoded contents of the input file, identified by filename.
- *
- * TODO: shouldn't this (and the above 3 support functions) be put into some kind of external utility location, such as funcs/func_base64.c ?
- *
- * \return zero on success, -1 on error.
- */
-static int base_encode(char *filename, FILE *so)
-{
-	static const unsigned char dtable[] = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K',
-		'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
-		'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0',
-		'1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'};
-	int i, hiteof = 0;
-	FILE *fi;
-	struct baseio bio;
-
-	memset(&bio, 0, sizeof(bio));
-	bio.iocp = BASEMAXINLINE;
-
-	if (!(fi = fopen(filename, "rb"))) {
-		ast_log(AST_LOG_WARNING, "Failed to open file: %s: %s\n", filename, strerror(errno));
-		return -1;
-	}
-
-	while (!hiteof){
-		unsigned char igroup[3], ogroup[4];
-		int c, n;
-
-		memset(igroup, 0, sizeof(igroup));
-
-		for (n = 0; n < 3; n++) {
-			if ((c = inchar(&bio, fi)) == EOF) {
-				hiteof = 1;
-				break;
-			}
-
-			igroup[n] = (unsigned char) c;
-		}
-
-		if (n > 0) {
-			ogroup[0]= dtable[igroup[0] >> 2];
-			ogroup[1]= dtable[((igroup[0] & 3) << 4) | (igroup[1] >> 4)];
-			ogroup[2]= dtable[((igroup[1] & 0xF) << 2) | (igroup[2] >> 6)];
-			ogroup[3]= dtable[igroup[2] & 0x3F];
-
-			if (n < 3) {
-				ogroup[3] = '=';
-
-				if (n < 2)
-					ogroup[2] = '=';
-			}
-
-			for (i = 0; i < 4; i++)
-				ochar(&bio, ogroup[i], so);
-		}
-	}
-
-	fclose(fi);
-
-	if (fputs(ENDL, so) == EOF) {
-		return 0;
-	}
-
-	return 1;
-}
-
-/* same as mkstemp, but return a FILE * */
-static FILE *vm_mkftemp(char *template)
-{
-	FILE *p = NULL;
-	int pfd = mkstemp(template);
-	chmod(template, VOICEMAIL_FILE_MODE & ~my_umask);
-	if (pfd > -1) {
-		p = fdopen(pfd, "w+");
-		if (!p) {
-			close(pfd);
-			pfd = -1;
-		}
-	}
-	return p;
-}
 
 static void make_email_file(FILE *p, char *subject, char *body, char *toaddress, char *toname, char *fromaddress, char *fromname, char *attachments, int delete, int interpret)
 {
@@ -318,11 +178,12 @@ static void make_email_file(FILE *p, char *subject, char *body, char *toaddress,
 	}
 	attachmentsbuf = ast_strdupa(attachments);
 	while ((attachment = strsep(&attachmentsbuf, "|"))) {
-		char *fullname, *friendlyname;
+		char *fullname, *friendlyname, *mimetype;
 		snprintf(filename, sizeof(filename), "%s", basename(attachment));
 
-		friendlyname = attachment;
-		fullname = strsep(&friendlyname, ":");
+		mimetype = attachment;
+		fullname = strsep(&mimetype, ":");
+		friendlyname = strsep(&mimetype, ":");
 
 		if (ast_strlen_zero(friendlyname)) {
 			friendlyname = filename; /* no specified name, so use the full base file name */
@@ -335,14 +196,15 @@ static void make_email_file(FILE *p, char *subject, char *body, char *toaddress,
 		ast_debug(5, "Creating attachment: %s (named %s)\n", fullname, friendlyname);
 		fprintf(p, ENDL "--%s" ENDL, bound);
 
-		/* Eww. We want formats to tell us their own MIME type */
-		//char *mime_type = (!strcasecmp(format, "ogg")) ? "application/" : "audio/x-";
+		if (!ast_strlen_zero(mimetype)) {
+			/* is Content-Type name just the file name? Or maybe there's more to it than that? */
+			fprintf(p, "Content-Type: %s; name=\"%s\"" ENDL, mimetype, friendlyname);
+		}
 
-		//fprintf(p, "Content-Type: %s%s; name=\"%s\"" ENDL, mime_type, format, filename);
 		fprintf(p, "Content-Transfer-Encoding: base64" ENDL);
 		fprintf(p, "Content-Description: File attachment." ENDL);
 		fprintf(p, "Content-Disposition: attachment; filename=\"%s\"" ENDL ENDL, friendlyname);
-		base_encode(fullname, p);
+		ast_base64_encode_file_path(fullname, p, ENDL);
 		if (delete) {
 			unlink(fullname);
 		}
@@ -351,12 +213,12 @@ static void make_email_file(FILE *p, char *subject, char *body, char *toaddress,
 }
 
 enum {
-	OPT_ATTACHMENTS =       (1 << 0),
-	OPT_FROM_ADDRESS =      (1 << 1),
-	OPT_FROM_NAME =         (1 << 2),
-	OPT_TO_NAME =           (1 << 3),
+	OPT_ATTACHMENTS =        (1 << 0),
+	OPT_FROM_ADDRESS =       (1 << 1),
+	OPT_FROM_NAME =          (1 << 2),
+	OPT_TO_NAME =            (1 << 3),
 	OPT_DELETE_ATTACHMENTS = (1 << 4),
-	OPT_ESCAPE =         (1 << 5),
+	OPT_ESCAPE =             (1 << 5),
 };
 
 enum {
@@ -470,15 +332,14 @@ static int mail_exec(struct ast_channel *chan, const char *data)
 
 	/* Make a temporary file instead of piping directly to sendmail, in case the mail
 	   command hangs */
-	if ((p = vm_mkftemp(tmp)) == NULL) {
+	if ((p = ast_file_mkftemp(tmp, MAIL_FILE_MODE & ~my_umask)) == NULL) {
 		ast_log(LOG_WARNING, "Unable to launch '%s' (can't create temporary file)\n", mailcmd);
 		pbx_builtin_setvar_helper(chan, "MAILSTATUS", "FAILURE");
 		return 0;
 	}
 	make_email_file(p, subject, body, toaddress, toname, fromaddress, fromname, attachments, delete, interpret);
 	fclose(p);
-	//snprintf(tmp2, sizeof(tmp2), "( %s < %s ; rm -f %s ) &", mailcmd, tmp, tmp);
-	snprintf(tmp2, sizeof(tmp2), "( %s < %s ; cp %s /tmp/test.txt ) &", mailcmd, tmp, tmp);
+	snprintf(tmp2, sizeof(tmp2), "( %s < %s ; rm -f %s ) &", mailcmd, tmp, tmp);
 	res = ast_safe_system(tmp2);
 	if ((res < 0) && (errno != ECHILD)) {
 		ast_log(LOG_WARNING, "Unable to execute '%s'\n", (char *)data);
