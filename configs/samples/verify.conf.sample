@@ -128,7 +128,12 @@ curltimeout = 5
 ; "reverse", not "direct". Avoid using this option if possible, and only
 ; use as a last resort.
 ;
-;exceptioncontext = yes
+;exceptioncontext = my-exceptions
+;
+; Regular expression for use with "direct" method to determine if a verification
+; was successful or not. This does not apply to "reverse".
+;
+;successregex = 0$
 ;
 ; Whether or not to flag calls to private IP addresses (Class A, B, or C), APIPA,
 ; or localhost, as malicious. ${OUTVERIFYSTATUS} will be set to MALICIOUS if a
