@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.10 (2021-12-04)
+# v0.1.13 (2021-12-11)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,9 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-11 0.1.13 PhreakScript: update backtrace
+# 2021-12-09 0.1.12 Asterisk: updates to target 18.9.0
+# 2021-12-05 0.1.11 PhreakScript: allow overriding installed version
 # 2021-12-04 0.1.10 Asterisk Test Suite: added sipp installation, bug fixes to PhreakScript directory check
 # 2021-11-30 0.1.9 Asterisk: add chan_sccp channel driver
 # 2021-11-29 0.1.8 PhreakScript: fix trace bugs and add error checking
@@ -69,6 +72,7 @@
 
 # Script environment variables
 AST_SOURCE_NAME="asterisk-18-current"
+AST_ALT_VER=""
 MIN_ARGS=1
 FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 FILE_NAME=$( basename $0 ) # grr... why is realpath not in the POSIX standard?
@@ -173,6 +177,7 @@ Options:
    -s, --sip          Install chan_sip instead of or in addition to chan_pjsip
    -t, --testsuite    Compile with developer support for Asterisk test suite and unit tests
    -u, --user         User as which to run Asterisk (non-root)
+   -v, --version      Specific version of Asterisk to install (M.m.b e.g. 18.8.0)
    -w, --weaktls      Allow less secure TLS versions down to TLS 1.0 (default is 1.2+)
        --sccp         Install chan_sccp channel driver (Cisco Skinny)
        --boilerplate  sounds: Also install boilerplate sounds
@@ -294,7 +299,11 @@ gerrit_patch() {
 	git apply $1.diff
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Gerrit patch... this should be reported..."
-		exit 2
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			sleep 2
+		else
+			exit 2
+		fi
 	fi
 	rm $1.diff.base64 $1.diff
 }
@@ -410,14 +419,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
 	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
 	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
-	phreak_tree_patch "apps/app_tdd.c" "tdd.diff" # Fix C90 mixed code and declarations, decrease buffer threshold from 256 to 8 (more realtime)
+	phreak_tree_patch "main/loader.c" "loader_deprecated.diff" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 
 	## Gerrit patches for merged in master branch (will be removed once released in next version)
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
-	gerrit_patch 16630 "https://gerrit.asterisk.org/changes/asterisk~16630/revisions/1/patch?download" # sig_analog compiler fix
-	gerrit_patch 16633 "https://gerrit.asterisk.org/changes/asterisk~16633/revisions/1/patch?download" # app_read and app.c bug fix
 	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/2/patch?download" # func_json
-	gerrit_patch 16635 "https://gerrit.asterisk.org/changes/asterisk~16635/revisions/1/patch?download" # chan_iax2 dynamic RSA out dialing
 	gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
 
 	# never going to be merged upstream:
@@ -603,7 +609,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostw -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,weaktls,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostu:v:w -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -629,6 +635,7 @@ while true; do
 		-s | --sip ) CHAN_SIP=1; shift ;;
 		-t | --testsuite ) TEST_SUITE=1; shift ;;
 		-u | --user ) AST_USER=$2; shift 2;;
+		-v | --version ) AST_ALT_VER=$2; shift 2;;
 		-w | --weaktls ) WEAK_TLS=1; shift ;;
 		--sccp ) CHAN_SCCP=1; shift ;;
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
@@ -770,10 +777,25 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	# Get latest Asterisk LTS version
 	cd $AST_SOURCE_PARENT_DIR
+	if [ "$AST_ALT_VER" != "" ]; then
+		AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
+		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER..."
+		echoerr "***************************** WARNING *****************************"
+		printf "%s\n" "PhreakScript IS NOT TESTED WITH OLDER VERSIONS OF ASTERISK!!!"
+		printf "%s\n" "Proceed at your own risk..."
+		sleep 1
+	fi
 	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
-	wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
+		wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+	else
+		wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
+	fi
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz"
+		if [ "$AST_ALT_VER" != "" ]; then
+			printf "It seems Asterisk version %s does not exist...\n" "$AST_ALT_VER"
+		fi
 		exit 1
 	fi
 	if [ "$CHAN_SCCP" = "1" ]; then
@@ -840,6 +862,8 @@ elif [ "$cmd" = "install" ]; then
 	else
 		menuselect/menuselect --disable chan_sip menuselect.makeopts # remove this in version 21
 	fi
+	# in 19+, ADSI is not built by default. We should always build and enable it.
+	menuselect/menuselect --enable res_adsi --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
 	# Expand TLS support from 1.2 to 1.0 for older ATAs, if needed
 	if [ "$WEAK_TLS" = "1" ]; then
 		sed -i 's/TLSv1.2/TLSv1.0/g' /etc/ssl/openssl.cnf
@@ -1288,7 +1312,7 @@ elif [ "$cmd" = "trace" ]; then
 			exit 2
 		else
 			if [ $DEBUG_LEVEL -gt 0 ]; then
-				asterisk -rx "logger add channel $channel notice,warning,error,verbose,debug"
+				asterisk -rx "logger add channel $channel notice,warning,error,verbose,debug,dtmf"
 				asterisk -rx "core set debug $DEBUG_LEVEL"
 			else
 				asterisk -rx "logger add channel $channel notice,warning,error,verbose"
@@ -1299,7 +1323,7 @@ elif [ "$cmd" = "trace" ]; then
 		exit 2
 	fi
 	asterisk -rx "core set verbose $VERBOSE_LEVEL"
-	printf "Starting trace (verbose %d, debug %d): %s\n" $VERBOSE_LEVEL $DEBUG_LEVEL "$debugtime"
+	printf "Starting trace (verbose %d, debug %d): %s\n" "$VERBOSE_LEVEL" "$DEBUG_LEVEL" "$debugtime"
 	printf "%s\n" "Starting CLI trace..."
 	read -r -p "A CLI trace is now being collected. Reproduce the issue, then press ENTER to conclude the trace: " x
 	printf "%s\n" "CLI trace terminated..."
@@ -1331,11 +1355,12 @@ elif [ "$cmd" = "trace" ]; then
 	rm /var/log/asterisk/$channel
 elif [ "$cmd" = "backtrace" ]; then
 	if [ -f /sbin/asterisk ]; then
-		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk
+		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
 	else
-		/var/lib/asterisk/scripts/ast_coredumper core
+		/var/lib/asterisk/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
 	fi
-	if [ ! -f /tmp/core-full.txt ]; then
+	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
+	if [ ! -f $corefullpath ]; then
 		echoerr "Core dump failed to get backtrace, aborting..."
 		exit 2
 	fi
@@ -1351,7 +1376,7 @@ elif [ "$cmd" = "backtrace" ]; then
 			fi
 		fi
 	fi
-	url=`curl -X POST -F "body=@/tmp/core-full.txt" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
+	url=`curl -X POST -F "body=@$corefullpath" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
 	printf "Paste URL: %s\n" "${url}.txt"
 	rm /tmp/core-*.txt
 elif [ "$cmd" = "examples" ]; then
@@ -1375,6 +1400,7 @@ elif [ "$cmd" = "examples" ]; then
 	printf "\n%s\n\n"	"Debugging commands:"
 	printf "%s\n"		"phreaknet trace                   Perform a trace with verbosity 10 and no debug level"
 	printf "%s\n"		"phreaknet trace --debug 1         Perform a trace with verbosity 10 and debug level 1"
+	printf "%s\n"		"phreaknet backtrace      		   Process, extract, and upload a core dump"
 	printf "\n%s\n\n"	"Maintenance commands:"
 	printf "%s\n"		"phreaknet update                  Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n"		"phreaknet update --upstream=URL   Update PhreakScript using URL as the upstream source (for testing)."
