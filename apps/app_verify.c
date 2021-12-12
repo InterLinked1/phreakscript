@@ -3,8 +3,6 @@
  *
  * Copyright (C) 2021, Naveen Albert <asterisk@phreaknet.org>
  *
- * This code is released by the author with no restrictions on usage.
- *
  * See http://www.asterisk.org for more information about
  * the Asterisk project. Please do not directly contact
  * any of the maintainers of this project for assistance;
