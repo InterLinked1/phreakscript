@@ -1349,9 +1349,38 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 #undef FORMAT
 }
 
+/*! \brief CLI command to reset verification stats */
+static char *handle_reset_stats(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	struct call_verify *v;
+
+	switch(cmd) {
+	case CLI_INIT:
+		e->command = "verify reset stats";
+		e->usage =
+			"Usage: verify reset stats\n"
+			"       Resets call verification statistics.\n";
+		return NULL;
+	case CLI_GENERATE:
+		return NULL;
+	}
+
+	AST_RWLIST_RDLOCK(&verifys);
+	AST_LIST_TRAVERSE(&verifys, v, entry) {
+		v->in = 0;
+		v->insuccess = 0;
+		v->out = 0;
+		v->outsuccess = 0;
+	}
+	AST_RWLIST_UNLOCK(&verifys);
+
+	return CLI_SUCCESS;
+}
+
 static struct ast_cli_entry verify_cli[] = {
 	AST_CLI_DEFINE(handle_show_profiles, "Display statistics about verification profiles"),
 	AST_CLI_DEFINE(handle_show_profile, "Displays information about a verification profile"),
+	AST_CLI_DEFINE(handle_reset_stats, "Resets call verification statistics for all profiles"),
 };
 
 static int unload_module(void)
