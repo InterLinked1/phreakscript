@@ -23,6 +23,8 @@ PhreakScript installs:
       - ``ToneSweep``
       - ``ToneScan``
       - ``DialTone``
+      - ``Verify``
+      - ``OutVerify``
       - ``SIPAddParameter``
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
