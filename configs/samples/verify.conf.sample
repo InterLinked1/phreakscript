@@ -130,6 +130,25 @@ curltimeout = 5
 ;
 ;exceptioncontext = yes
 ;
+; Whether or not to flag calls to private IP addresses (Class A, B, or C), APIPA,
+; or localhost, as malicious. ${OUTVERIFYSTATUS} will be set to MALICIOUS if a
+; private/local IP address is detected. Only IPv4 is supported currently. Default
+; is "yes".
+;
+;flagprivateip = yes
+;
+; Regular expression to use to validate lookups, if provided to the OutVerify
+; application. Below is an example rule that can be used:
+; tech: ensures tech is IAX2
+; username: ensures alphanumeric username exists
+; secret: allows alphanumeric secret to exist
+; outkey: allows alphanumeric outkey to exist
+; host: ensures at least 1 "." in the host (that it isn't a reference to a local peer with username/password), allows a numeric port
+; extension: requires alphanumeric - plus *, #, ^, :, (, ) - extension
+; context: allows an alphanumeric (plus underscore) context
+;
+;outregex = ^[iI][aA][xX]2\/[a-zA-Z0-9_\-]+(:[a-zA-Z0-9]+)?+@([a-zA-Z0-9_\-]+\.)+[a-zA-Z0-9_\-]+(:[0-9]+)?+\/([A-Za-z0-9*#^:\(\)])+(@[a-zA-Z0-9_\-]+)?$
+;
 ; Maximum number of unsuccessfully verified calls to accept before subsequent calls
 ; are dropped upon arrival. Default is 0, e.g. any call that fails to verify will
 ; be dropped. In reality, you may want to set this to a more conservative value
