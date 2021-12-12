@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.13 (2021-12-11)
+# v0.1.14 (2021-12-12)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-12 0.1.14 Asterisk: add app_verify, PhreakScript: fix double compiling with test framework
 # 2021-12-11 0.1.13 PhreakScript: update backtrace
 # 2021-12-09 0.1.12 Asterisk: updates to target 18.9.0
 # 2021-12-05 0.1.11 PhreakScript: allow overriding installed version
@@ -212,10 +213,21 @@ install_prereq() {
 	fi
 }
 
-install_testsuite_itself() { # $1 = $FORCE_INSTALL
+install_testsuite_itself() {
+	apt-get clean
+	apt-get update -y
+	apt-get upgrade -y
+	apt-get install -y liblua5.1-0-dev lua5.3 git python python-setuptools
+
+	# Python 2 support is going away in Debian
+	curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py # https://stackoverflow.com/a/64240018/6110631
+	python get-pip.py
+	pip2 install pyyaml
+	pip2 install twisted
+
 	cd $AST_SOURCE_PARENT_DIR
 	if [ -d "testsuite" ]; then
-		if [ "$1" = "1" ]; then
+		if [ "$FORCE_INSTALL" = "1" ]; then
 			printf "%s\n" "Reinstalling testsuite..."
 			rm -rf testsuite
 		else
@@ -256,16 +268,7 @@ install_testsuite_itself() { # $1 = $FORCE_INSTALL
 }
 
 install_testsuite() { # $1 = $FORCE_INSTALL
-	apt-get clean
-	apt-get update -y
-	apt-get upgrade -y
-	apt-get install -y liblua5.1-0-dev lua5.3 git python python-setuptools
 	cd $AST_SOURCE_PARENT_DIR
-	# Python 2 support is going away in Debian
-	curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py # https://stackoverflow.com/a/64240018/6110631
-	python get-pip.py
-	pip2 install pyyaml
-	pip2 install twisted
 	# in case we're not already in the right directory
 	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
 	if [ "$AST_SRC_DIR" = "" ]; then
@@ -278,7 +281,7 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	menuselect/menuselect --enable DONT_OPTIMIZE BETTER_BACKTRACES TEST_FRAMEWORK menuselect.makeopts
 	make
 	make install
-	install_testsuite_itself "$1"
+	install_testsuite_itself
 }
 
 gerrit_patch() {
@@ -405,6 +408,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_softmodem.c"
 	phreak_tree_module "apps/app_streamsilence.c"
 	phreak_tree_module "apps/app_tonetest.c"
+	phreak_tree_module "apps/app_verify.c"
+	phreak_tree_module "configs/samples/verify.conf.sample"
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_evalexten.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
@@ -419,7 +424,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
 	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
 	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
-	phreak_tree_patch "main/loader.c" "loader_deprecated.diff" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
+	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 
 	## Gerrit patches for merged in master branch (will be removed once released in next version)
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
@@ -427,7 +432,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
 
 	# never going to be merged upstream:
-	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/3/patch?download" # chan_sip: Add custom parameters
+	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
 
 	## Menuselect updates
 	make menuselect.makeopts
@@ -864,6 +869,12 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	# in 19+, ADSI is not built by default. We should always build and enable it.
 	menuselect/menuselect --enable res_adsi --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
+	# Disable things that were deprecated in 16 and were already removed in 19. These will not exist in the next LTS, so if anyone is using them, make 'em aware of it.
+	menuselect/menuselect --disable res_monitor --disable app_url --disable app_image --disable app_ices --disable chan_oss --disable app_dahdiras --disable app_nbscat menuselect.makeopts
+	# Disable the built-in skinny and mgcp modules, since there are better alternatives, and they're deprecated as of 19
+	menuselect/menuselect --disable chan_skinny --disable chan_mgcp menuselect.makeopts
+	# Who's actually using this?
+	menuselect/menuselect --disable app_osplookup menuselect.makeopts
 	# Expand TLS support from 1.2 to 1.0 for older ATAs, if needed
 	if [ "$WEAK_TLS" = "1" ]; then
 		sed -i 's/TLSv1.2/TLSv1.0/g' /etc/ssl/openssl.cnf
@@ -963,7 +974,7 @@ elif [ "$cmd" = "install" ]; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
 			apt-get install gdb # for astcoredumper
 		fi
-		install_testsuite "$FORCE_INSTALL"
+		install_testsuite_itself
 	fi
 
 	/etc/init.d/asterisk status
@@ -1382,29 +1393,30 @@ elif [ "$cmd" = "backtrace" ]; then
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."
-	printf "%s\n\n" 	"phreaknet update                  Update PhreakScript. No Asterisk or configuration modification will occur."
+	printf "%s\n\n" 	"phreaknet update                   Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n\n" 	"Installation commands:"
-	printf "%s\n"		"phreaknet install                 Install the latest version of Asterisk."
-	printf "%s\n"		"phreaknet install --cc=44         Install the latest version of Asterisk, with country code 44."
-	printf "%s\n"		"phreaknet install --force         Reinstall the latest version of Asterisk."
-	printf "%s\n"		"phreaknet install --dahdi         Install the latest version of Asterisk, with DAHDI."
-	printf "%s\n"		"phreaknet install --sip --weaktls Install Asterisk with chan_sip built AND support for TLS 1.0."
-	printf "%s\n"		"phreaknet installts               Install Asterisk Test Suite and Unit Test support (developers only)."
-	printf "%s\n"		"phreaknet pulsar                  Install revertive pulsing pulsar AGI, with bug fixes"
-	printf "%s\n"		"phreaknet sounds --boilerplate    Install Pat Fleet sounds and basic boilerplate old city tone audio."
+	printf "%s\n"		"phreaknet install                  Install the latest version of Asterisk."
+	printf "%s\n"		"phreaknet install --cc=44          Install the latest version of Asterisk, with country code 44."
+	printf "%s\n"		"phreaknet install --force          Reinstall the latest version of Asterisk."
+	printf "%s\n"		"phreaknet install --dahdi          Install the latest version of Asterisk, with DAHDI."
+	printf "%s\n"		"phreaknet install --sip --weaktls  Install Asterisk with chan_sip built AND support for TLS 1.0."
+	printf "%s\n"		"phreaknet install --version 18.9.0 Install Asterisk version 18.9.0 as the base version of Asterisk."
+	printf "%s\n"		"phreaknet installts                Install Asterisk Test Suite and Unit Test support (developers only)."
+	printf "%s\n"		"phreaknet pulsar                   Install revertive pulsing pulsar AGI, with bug fixes"
+	printf "%s\n"		"phreaknet sounds --boilerplate     Install Pat Fleet sounds and basic boilerplate old city tone audio."
 	printf "%s\n"		"phreaknet config --force --api-key=<KEY> --clli=<CLLI> --disa=<DISA>"
-	printf "%s\n"		"                                  Download and initialize boilerplate PhreakNet configuration"
-	printf "%s\n"		"phreaknet keygen                  Upload existing RSA public key to PhreakNet"
-	printf "%s\n"		"phreaknet keygen --rotate         Create or rotate PhreakNet RSA keypair, then upload public key to PhreakNet"
-	printf "%s\n"		"phreaknet validate                Validate your dialplan configuration and check for errors"
+	printf "%s\n"		"                                   Download and initialize boilerplate PhreakNet configuration"
+	printf "%s\n"		"phreaknet keygen                   Upload existing RSA public key to PhreakNet"
+	printf "%s\n"		"phreaknet keygen --rotate          Create or rotate PhreakNet RSA keypair, then upload public key to PhreakNet"
+	printf "%s\n"		"phreaknet validate                 Validate your dialplan configuration and check for errors"
 	printf "\n%s\n\n"	"Debugging commands:"
-	printf "%s\n"		"phreaknet trace                   Perform a trace with verbosity 10 and no debug level"
-	printf "%s\n"		"phreaknet trace --debug 1         Perform a trace with verbosity 10 and debug level 1"
-	printf "%s\n"		"phreaknet backtrace      		   Process, extract, and upload a core dump"
+	printf "%s\n"		"phreaknet trace                    Perform a trace with verbosity 10 and no debug level"
+	printf "%s\n"		"phreaknet trace --debug 1          Perform a trace with verbosity 10 and debug level 1"
+	printf "%s\n"		"phreaknet backtrace      		    Process, extract, and upload a core dump"
 	printf "\n%s\n\n"	"Maintenance commands:"
-	printf "%s\n"		"phreaknet update                  Update PhreakScript. No Asterisk or configuration modification will occur."
-	printf "%s\n"		"phreaknet update --upstream=URL   Update PhreakScript using URL as the upstream source (for testing)."
-	printf "%s\n"		"phreaknet patch                   Apply the latest PhreakNet configuration patches."
+	printf "%s\n"		"phreaknet update                   Update PhreakScript. No Asterisk or configuration modification will occur."
+	printf "%s\n"		"phreaknet update --upstream=URL    Update PhreakScript using URL as the upstream source (for testing)."
+	printf "%s\n"		"phreaknet patch                    Apply the latest PhreakNet configuration patches."
 	printf "\n"
 elif [ "$cmd" = "info" ]; then
 	phreakscript_info
