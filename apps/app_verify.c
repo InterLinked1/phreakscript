@@ -625,27 +625,6 @@ static int is_private_ipv4(char *ip)
 	return 0;
 }
 
-/*! \todo remove and replace with ast_get_extension_data when merged */
-static int get_extension_data(char *name, int namesize, struct ast_channel *c,
-	const char *context, const char *exten, int priority)
-{
-	struct ast_exten *e;
-	struct pbx_find_info q = { .stacklen = 0 }; /* the rest is set in pbx_find_context */
-	ast_rdlock_contexts();
-	e = pbx_find_extension(c, NULL, &q, context, exten, priority, NULL, "", E_MATCH);
-	ast_unlock_contexts();
-	if (e) {
-		if (name) {
-			const char *tmp = ast_get_extension_app_data(e);
-			if (tmp) {
-				ast_copy_string(name, tmp, namesize);
-			}
-		}
-		return 0;
-	}
-	return -1;
-}
-
 static void assign_vars(struct ast_channel *chan, struct ast_str *strbuf, char *vars)
 {
 	char *var, *tmp = vars;
@@ -943,7 +922,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 #define BUFLEN 64
 			char tmpbuf[64]; /* in reality, we only need to store a 1 or a 0 */
 			char *host, *tmp;
-			if (get_extension_data(tmpbuf, BUFLEN, chan, exceptioncontext, viaverify ? via : callerid, 1)) {
+			if (ast_get_extension_data(tmpbuf, BUFLEN, chan, exceptioncontext, viaverify ? via : callerid, 1)) {
 				ast_debug(1, "Failed to find extension match for %s in context %s\n", viaverify ? via : callerid, exceptioncontext);
 			} else {
 				/* no variable substitution, since that's not necessary */
