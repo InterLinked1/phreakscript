@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.14 (2021-12-12)
+# v0.1.16 (2021-12-13)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-13 0.1.16 Asterisk: patch updates, compiler fixes
+# 2021-12-12 0.1.15 Asterisk: add ReceiveText application
 # 2021-12-12 0.1.14 Asterisk: add app_verify, PhreakScript: fix double compiling with test framework
 # 2021-12-11 0.1.13 PhreakScript: update backtrace
 # 2021-12-09 0.1.12 Asterisk: updates to target 18.9.0
@@ -411,7 +413,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_verify.c"
 	phreak_tree_module "configs/samples/verify.conf.sample"
 	phreak_tree_module "funcs/func_dbchan.c"
-	phreak_tree_module "funcs/func_evalexten.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_ochannel.c"
 
@@ -426,12 +427,20 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 
-	## Gerrit patches for merged in master branch (will be removed once released in next version)
-	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
+	## Gerrit patches: merged, remove in 18.10
 	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/2/patch?download" # func_json
 	gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
+	gerrit_patch 17510 "https://gerrit.asterisk.org/changes/asterisk~17510/revisions/1/patch?download" # app_sendtext: Add ReceiveText
+	gerrit_patch 17470 "https://gerrit.asterisk.org/changes/asterisk~17470/revisions/9/patch?download" # variable substitution for extensions
 
-	# never going to be merged upstream:
+	## Gerrit patches: remove once merged
+	gerrit_patch 17654 "https://gerrit.asterisk.org/changes/asterisk~17654/revisions/1/patch?download" # critical compiler fix
+	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
+	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/2/patch?download" # app_sf
+	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
+	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/17/patch?download" # func_evalexten
+
+	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
 
 	## Menuselect updates
@@ -900,6 +909,9 @@ elif [ "$cmd" = "install" ]; then
 		nice $AST_MAKE # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 	fi
 	if [ $? -ne 0 ]; then
+		if [ "$TEST_SUITE" = "1" ]; then
+			/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
+		fi
 		exit 2
 	fi
 	# Only generate config if this is the first time
