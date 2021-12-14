@@ -17,9 +17,9 @@ PhreakScript installs:
       - ``If``, ``EndIf``, ``ExitIf``
       - ``SendMail``
       - ``MallocTrim``
-      - ``SendFrame``
       - ``StreamSilence``
-      - ``ReceiveMF``
+      - ``SendSF``
+      - ``ReceiveSF``
       - ``ToneSweep``
       - ``ToneScan``
       - ``DialTone``
