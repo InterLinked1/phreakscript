@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.16 (2021-12-13)
+# v0.1.17 (2021-12-14)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-14 0.1.17: Asterisk: update func_evalexten, PhreakScript: added gerrit command
 # 2021-12-13 0.1.16 Asterisk: patch updates, compiler fixes
 # 2021-12-12 0.1.15 Asterisk: add ReceiveText application
 # 2021-12-12 0.1.14 Asterisk: add app_verify, PhreakScript: fix double compiling with test framework
@@ -165,6 +166,7 @@ Commands:
    validate      Run dialplan validation and diagnostics and look for problems
    trace         Capture a CLI trace and upload to InterLinked Paste
    backtrace     Use astcoredumper to process a backtrace and upload to InterLinked Paste
+   gerrit        Manually install a custom patch set from Gerrit
 
    *** Miscellaneous ***
    docgen        Generate Asterisk user documentation
@@ -438,7 +440,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
 	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/2/patch?download" # app_sf
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
-	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/17/patch?download" # func_evalexten
+	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/20/patch?download" # func_evalexten
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
@@ -446,6 +448,15 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Menuselect updates
 	make menuselect.makeopts
 	menuselect/menuselect --enable app_memory menuselect.makeopts # app_memory doesn't compile by default
+}
+
+phreak_gerrit_off() {
+	gerritid=`echo "$1" | cut -d'~' -f2 | cut -d'/' -f1`
+	if [ "${#gerritid}" -ne 5 ]; then
+		echoerr "Invalid Gerrit review (id $gerritid)"
+		exit 2
+	fi
+	gerrit_patch "$gerritid" "$1"
 }
 
 freebsd_port_patch() {
@@ -1048,6 +1059,9 @@ elif [ "$cmd" = "installts" ]; then
 		exit 2
 	fi
 	install_testsuite "$FORCE_INSTALL"
+elif [ "$cmd" = "gerrit" ]; then
+	read -r -p "Gerrit Patchset: " gurl
+	phreak_gerrit_off "$gurl"
 elif [ "$cmd" = "docgen" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
