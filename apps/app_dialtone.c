@@ -41,7 +41,7 @@
 /*** DOCUMENTATION
 	<application name="DialTone" language="en_US">
 		<synopsis>
-			Reads a telephone number from a user, terminating dialing against a digit map.
+			Reads a telephone number from a user digit by digit, terminating dialing against a digit map.
 		</synopsis>
 		<syntax>
 			<parameter name="variable" required="true">
@@ -88,9 +88,15 @@
 			</parameter>
 			<parameter name="options">
 				<optionlist>
+					<option name="d">
+						<para>Echo back digits to caller as they are entered, as DTMF.</para>
+					</option>
 					<option name="i">
 						<para>to play <literal>filename</literal> as an indication tone from your
 						<filename>indications.conf</filename>.</para>
+					</option>
+					<option name="m">
+						<para>Echo back digits to caller as they are entered, as MF.</para>
 					</option>
 					<option name="p">
 						<para>Parse digit map by performing variable substitution.</para>
@@ -140,10 +146,14 @@ enum dialtone_option_flags {
 	OPT_REEVALUATE = (1 << 1),
 	OPT_TERMINATE =  (1 << 2),
 	OPT_PARSE =      (1 << 3),
+	OPT_ECHO_DTMF =  (1 << 4),
+	OPT_ECHO_MF =    (1 << 5),
 };
 
 AST_APP_OPTIONS(dialtone_app_options, {
+	AST_APP_OPTION('d', OPT_ECHO_DTMF),
 	AST_APP_OPTION('i', OPT_INDICATION),
+	AST_APP_OPTION('m', OPT_ECHO_MF),
 	AST_APP_OPTION('p', OPT_PARSE),
 	AST_APP_OPTION('r', OPT_REEVALUATE),
 	AST_APP_OPTION('t', OPT_TERMINATE),
@@ -151,57 +161,20 @@ AST_APP_OPTIONS(dialtone_app_options, {
 
 static char *app = "DialTone";
 
-static int get_extension_data(char *name, int namesize, struct ast_channel *c,
-	const char *context, const char *exten, int priority)
-{
-	struct ast_exten *e;
-	struct pbx_find_info q = { .stacklen = 0 }; /* the rest is set in pbx_find_context */
-	ast_rdlock_contexts();
-	e = pbx_find_extension(c, NULL, &q, context, exten, priority, NULL, "", E_MATCH);
-	ast_unlock_contexts();
-	if (e) {
-		if (name) {
-			const char *tmp = ast_get_extension_app_data(e);
-			if (tmp) {
-				ast_copy_string(name, tmp, namesize);
-			}
-		}
-		return 0;
-	}
-	return -1;
-}
-
 static int digit_map_match(struct ast_channel *chan, char *context, char *digits, int parse)
 {
 	char tmpbuf[BUFFER_LEN];
 	int pri = 1, res;
 
-	if (get_extension_data(tmpbuf, BUFFER_LEN, chan, context, digits, pri)) {
+	if (ast_get_extension_data(tmpbuf, BUFFER_LEN, chan, context, digits, pri)) {
 		ast_debug(1, "Digit map result: could not find extension %s in context %s\n", digits, context);
 		return 0; /* if extension DOESN'T exist, then definitely not a match */
 	}
 	if (parse) {
 		char buf[BUFFER_LEN];
-		const char *realcontext, *realexten;
-		int realpriority;
 
-		/* get_extension_data and core logic of func_evalexten should be made ast_ public APIs. This is ALL duplicated logic. */
-		ast_channel_lock(chan);
-		realcontext = ast_strdupa(ast_channel_context(chan));
-		realexten = ast_strdupa(ast_channel_exten(chan));
-		realpriority = ast_channel_priority(chan);
-		/* Substitute variables now, using the location of the evaluated extension */
-		/* strdupa required or we'll just overwrite what we read when we set these */
-		ast_channel_context_set(chan, context);
-		ast_channel_exten_set(chan, digits);
-		ast_channel_priority_set(chan, pri);
-		ast_channel_unlock(chan);
-		pbx_substitute_variables_helper(chan, tmpbuf, buf, BUFFER_LEN);
-		ast_channel_lock(chan);
-		ast_channel_context_set(chan, realcontext);
-		ast_channel_exten_set(chan, realexten);
-		ast_channel_priority_set(chan, realpriority);
-		ast_channel_unlock(chan);
+		pbx_substitute_variables_helper_full_location(chan, (chan) ? ast_channel_varshead(chan) : NULL, tmpbuf, buf, BUFFER_LEN, NULL, context, digits, pri);
+
 		res = atoi(buf);
 		ast_debug(1, "Substituted %s -> %s -> %d\n", tmpbuf, buf, res);
 	} else {
@@ -226,6 +199,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 	char *tmpdigit, *subsequentaudio = NULL;
 	char *terminator = "";
 	int parse = 0;
+	int echodtmf = 0, echomf = 0;
 
 	AST_DECLARE_APP_ARGS(arglist,
 		AST_APP_ARG(variable);
@@ -287,6 +261,12 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 	if (ast_test_flag(&flags, OPT_PARSE)) {
 		parse = 1;
 	}
+	if (ast_test_flag(&flags, OPT_ECHO_DTMF)) {
+		echodtmf = 1;
+	}
+	if (ast_test_flag(&flags, OPT_ECHO_MF)) {
+		echomf = 1;
+	}
 	if (ast_test_flag(&flags, OPT_REEVALUATE)) {
 		const char *context = NULL, *exten = NULL;
 		int ipri;
@@ -309,7 +289,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 		ipri = ast_channel_priority(chan);
 		ast_channel_unlock(chan);
 
-		if (get_extension_data(tmpbuf, BUFFER_LEN, chan, context, exten, ipri)) {
+		if (ast_get_extension_data(tmpbuf, BUFFER_LEN, chan, context, exten, ipri)) {
 			ast_log(LOG_WARNING, "Cannot reevaluate audio: %s\n", arglist.filename2);
 			return -1;
 		}
@@ -317,6 +297,12 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 		AST_STANDARD_APP_ARGS(extendata, tmpbuf);
 
 		subsequentaudio = ast_strdupa(extendata.filename2); /* this is what we wanted */
+	}
+	if (!to && ast_strlen_zero(arglist.filename)) {
+		ast_log(LOG_WARNING, "No timeout provided, but no initial filename specified. This is unlikely to be the desired behavior!\n");
+	}
+	if (!to && ast_strlen_zero(subsequentaudio)) {
+		ast_log(LOG_WARNING, "No timeout provided, but no subsequent filename(s) specified. This is unlikely to be the desired behavior!\n");
 	}
 	ast_stopstream(chan);
 	if (x && digit_map_match(chan, arglist.context, tmp, parse)) { /* leading digits were passed in, so check the digit map before doing anything */
@@ -326,13 +312,14 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 		do {
 			if (ts) {
 				ts = ast_tone_zone_sound_unref(ts); /* unref first ts, ref second ts (etc.) */
+				/* note, ts will be null here, there is no need to manually set it to NULL */
 			}
 			if (!ts && ast_test_flag(&flags, OPT_INDICATION)) {
 				if ((!x && !ast_strlen_zero(arglist.filename)) || (x && !ast_strlen_zero(subsequentaudio))) {
 					ts = ast_get_indication_tone(ast_channel_zone(chan), x ? subsequentaudio : arglist.filename);
 				}
 			}
-			if (ts && ((!x && !ast_strlen_zero(arglist.filename)) || (x && !ast_strlen_zero(subsequentaudio)))) {
+			if (ts && ((!x && !ast_strlen_zero(arglist.filename)) || (x && !ast_strlen_zero(subsequentaudio)))) { /* read using indications */
 				res = ast_playtones_start(chan, 0, ts->data, 0);
 				res = ast_waitfordigit(chan, to ? to : (ast_channel_pbx(chan) ? ast_channel_pbx(chan)->rtimeoutms : 6000));
 				ast_playtones_stop(chan);
@@ -342,10 +329,11 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 				}
 				tmp[x++] = res;
 				if (strchr(terminator, tmp[x-1])) {
+					ast_debug(1, "Received terminator, ending digit collection\n");
 					tmp[x-1] = '\0';
 					done = 1;
 				}
-			} else {
+			} else { /* read using a file */
 				char buf[BUFFER_LEN];
 				char *audio = subsequentaudio;
 				if (ast_test_flag(&flags, OPT_REEVALUATE)) {
@@ -356,6 +344,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 				/* default timeout is NO timeout for audio files. But 0 does not mean 0 timeout, so get really close (1ms) */
 				res = ast_app_getdata_terminator(chan, x ? audio : arglist.filename, tmpdigit, 1, to ? to : 1, terminator);
 				if (res != AST_GETDATA_COMPLETE) {
+					ast_debug(1, "Received terminator, ending digit collection\n");
 					done = 1;
 				}
 				x++;
@@ -363,6 +352,19 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 			if (tmp[x - 1]) {
 				tmpdigit = tmp + x - 1;
 				ast_verb(4, "User dialed digit '%s'\n", tmpdigit);
+			}
+			if (!done) { /* if no digit dialed, don't echo */
+				if (echodtmf) {
+					ast_debug(1, "Echoing '%s' as DTMF\n", tmp + x - 1);
+					res = ast_dtmf_stream(chan, NULL, tmp + x - 1, 250, 100);
+				} else if (echomf) {
+					ast_debug(1, "Echoing '%s' as MF\n", tmp + x - 1);
+					res = ast_mf_stream(chan, NULL, NULL, tmp + x - 1, 250, 65, 120, 60, 0);
+				}
+				if (res < 0) {
+					ast_debug(1, "Channel went away during digit echoing\n");
+					return -1;
+				}
 			}
 		} while (!done && !digit_map_match(chan, arglist.context, tmp, parse) && x < maxdigits);
 	}
