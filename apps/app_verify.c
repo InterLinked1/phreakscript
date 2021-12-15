@@ -147,7 +147,7 @@
 				<configOption name="verifyrequest">
 					<synopsis>Request to make for verification requests.</synopsis>
 					<description>
-						<para>URL for "curl" lookups or arguments to ENUMLOOKUP function for "enum" lookups. Parameter for number should be replaced with  the VERIFYARG1 argument for substitution during verification. Dialplan variables may be used.</para>
+						<para>URL for "curl" lookups or arguments to ENUMLOOKUP function for "enum" lookups. Parameter for number should be replaced with <literal>${VERIFYARG1}</literal> for substitution during verification. Dialplan variables may be used.</para>
 					</description>
 				</configOption>
 				<configOption name="local_var">
@@ -1414,7 +1414,7 @@ static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_c
 	}
 
 	ast_cli(a->fd, FORMAT, "Name", "Total In", "Success In", "% In Verified", "Total Out", "Success Out", "% Out Verified");
-	ast_cli(a->fd, FORMAT, "--------", "--------", "----------", "-------------", "---------", "----------", "-------------");
+	ast_cli(a->fd, FORMAT, "--------", "--------", "----------", "-------------", "---------", "-----------", "--------------");
 	AST_RWLIST_RDLOCK(&verifys);
 	AST_LIST_TRAVERSE(&verifys, v, entry) {
 		ast_cli(a->fd, FORMAT2, v->name, v->in, v->insuccess, (int) (v->in == 0 ? 0 : (100.0 * v->insuccess) / v->in),
