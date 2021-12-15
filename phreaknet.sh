@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.17 (2021-12-14)
+# v0.1.18 (2021-12-15)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-15 0.1.18 PhreakScript: added runtests, Asterisk: update func_evalexten
 # 2021-12-14 0.1.17: Asterisk: update func_evalexten, PhreakScript: added gerrit command
 # 2021-12-13 0.1.16 Asterisk: patch updates, compiler fixes
 # 2021-12-12 0.1.15 Asterisk: add ReceiveText application
@@ -166,6 +167,9 @@ Commands:
    validate      Run dialplan validation and diagnostics and look for problems
    trace         Capture a CLI trace and upload to InterLinked Paste
    backtrace     Use astcoredumper to process a backtrace and upload to InterLinked Paste
+
+   *** Development & Testing ***
+   runtests      Run differential PhreakNet tests
    gerrit        Manually install a custom patch set from Gerrit
 
    *** Miscellaneous ***
@@ -217,6 +221,65 @@ install_prereq() {
 	fi
 }
 
+run_testsuite_test() {
+	testcount=$(($testcount + 1))
+	./runtests.py --test=tests/$1
+	if [ $? -ne 0 ]; then # test failed
+		lastrun=`ls -d logs/apps/dialtone/* | tail -1` # get the directory containing the logs from the most recently run test
+		echo $lastrun
+		ls "$lastrun/ast1/var/log/asterisk/full.txt"
+		grep "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt # this should provide a good idea of what failed (or at least, what didn't succeed)
+	else # test succeeded
+		testsuccess=$(($testsuccess + 1))
+	fi
+}
+
+run_testsuite_tests() {
+	testcount=0
+	testsuccess=0
+	if [ ! -d "$AST_SOURCE_PARENT_DIR/testsuite" ]; then
+		echoerr "Directory $AST_SOURCE_PARENT_DIR/testsuite does not exist!"
+		exit 1
+	fi
+	cd $AST_SOURCE_PARENT_DIR/testsuite
+	run_testsuite_test "apps/dialtone"
+	printf "%d of %d test(s) passed\n" $testsuccess $testcount
+	if [ $testcount -ne $testsuccess ]; then
+		exit 1
+	fi
+	exit 0
+}
+
+install_phreak_testsuite_test() { # $1 = test path
+	parent=`dirname "$1"`
+	base=`basename "$1"`
+	if [ ! -d "testsuite/tests/$parent" ]; then
+		echoerr "Directory testsuite/tests/$parent does not exist!"
+		exit 2
+	fi
+	if [ ! -f "testsuite/tests/$parent/tests.yaml" ]; then
+		echoerr "File tests/$parent/tests.yaml does not exist!"
+		exit 2
+	fi
+	cp -r "phreakscript/testsuite/tests/$1" "testsuite/tests/$parent"
+	echo "    - test: '$base'" >> "testsuite/tests/$parent/tests.yaml" # rather than have a patch for this file, which could be subject to frequent change and result in a finicky patch that's likely to fail, simply append it to the list of tests to run
+	printf "%s\n" "Installed test: %s" "$1"
+}
+
+add_phreak_testsuite() {
+	printf "%s\n" "Applying PhreakNet test suite additions"
+	cd ..
+	git clone https://github.com/InterLinked1/phreakscript.git
+	cd phreakscript
+	git config pull.rebase false # this is the default. do this solely to avoid those annoying "Pulling without specifying" warnings...
+	git pull # in case it already existed, update the repo
+	cd ..
+
+	install_phreak_testsuite_test "apps/dialtone"
+	
+	printf "%s\n" "Finished patching testsuite"
+}
+
 install_testsuite_itself() {
 	apt-get clean
 	apt-get update -y
@@ -266,9 +329,19 @@ install_testsuite_itself() {
 	./build.sh --prefix=/usr --with-openssl --with-pcap --with-rtpstream --with-sctp --with-gsl CFLAGS=-w
 	./sipp -v
 	make install
+	cd ..
+	cd testsuite
 	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
 	./runtests.py -l
+	add_phreak_testsuite
 	printf "%s\n" "Asterisk Test Suite installation complete"
+}
+
+configure_devmode() {
+	./configure --enable-dev-mode
+	make menuselect.makeopts
+	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK menuselect.makeopts
+	menuselect/menuselect --enable-category MENUSELECT_TESTS menuselect.makeopts
 }
 
 install_testsuite() { # $1 = $FORCE_INSTALL
@@ -280,9 +353,7 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 		return 1
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
-	./configure --enable-dev-mode
-	make menuselect.makeopts
-	menuselect/menuselect --enable DONT_OPTIMIZE BETTER_BACKTRACES TEST_FRAMEWORK menuselect.makeopts
+	configure_devmode
 	make
 	make install
 	install_testsuite_itself
@@ -440,7 +511,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
 	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/2/patch?download" # app_sf
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
-	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/20/patch?download" # func_evalexten
+	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
@@ -876,7 +947,7 @@ elif [ "$cmd" = "install" ]; then
 		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW --enable MOH-OPSOUND-ULAW --enable EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
 	fi
 	if [ "$TEST_SUITE" = "1" ]; then
-		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK menuselect.makeopts
+		configure_devmode
 	fi
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		menuselect/menuselect --enable chan_dahdi menuselect.makeopts
@@ -919,12 +990,23 @@ elif [ "$cmd" = "install" ]; then
 	else
 		nice $AST_MAKE # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 	fi
+
 	if [ $? -ne 0 ]; then
 		if [ "$TEST_SUITE" = "1" ]; then
 			/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
 	fi
+	if [ "$TEST_SUITE" = "1" ]; then
+		$AST_MAKE full # some XML syntax warnings aren't shown unless make full is run
+	fi
+	if [ $? -ne 0 ]; then
+		if [ "$TEST_SUITE" = "1" ]; then
+			/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
+		fi
+		exit 2
+	fi
+
 	# Only generate config if this is the first time
 	# Install Asterisk
 	if [ ! -d "$AST_CONFIG_DIR" ]; then
@@ -1062,6 +1144,8 @@ elif [ "$cmd" = "installts" ]; then
 elif [ "$cmd" = "gerrit" ]; then
 	read -r -p "Gerrit Patchset: " gurl
 	phreak_gerrit_off "$gurl"
+elif [ "$cmd" = "runtests" ]; then
+	run_testsuite_tests
 elif [ "$cmd" = "docgen" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
