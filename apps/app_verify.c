@@ -135,19 +135,19 @@
 				<configOption name="verifymethod" default="reverse">
 					<synopsis>Method to use for verification.</synopsis>
 					<description>
-						<para>Can be "reverse" to manually compute verification using reverse lookups or "direct" to query an authoritative central server via HTTP for the result.</para>
+						<para>Can be <literal>reverse</literal> to manually compute verification using reverse lookups or <literal>direct</literal> to query an authoritative central server via HTTP for the result.</para>
 					</description>
 				</configOption>
 				<configOption name="requestmethod" default="curl">
 					<synopsis>Method to use for making verification requests.</synopsis>
 					<description>
-						<para>Can be "curl" for HTTP lookups or "enum" for ENUM lookups. Must be "curl" if verifymethod is "direct".</para>
+						<para>Can be <literal>curl</literal> for HTTP lookups or "enum" for ENUM lookups. Must be <literal>curl</literal> if <literal>verifymethod</literal> is <literal>direct</literal>.</para>
 					</description>
 				</configOption>
 				<configOption name="verifyrequest">
 					<synopsis>Request to make for verification requests.</synopsis>
 					<description>
-						<para>URL for "curl" lookups or arguments to ENUMLOOKUP function for "enum" lookups. Parameter for number should be replaced with ${VERIFYARG1} for substitution during verification. Dialplan variables may be used.</para>
+						<para>URL for "curl" lookups or arguments to ENUMLOOKUP function for "enum" lookups. Parameter for number should be replaced with  the VERIFYARG1 argument for substitution during verification. Dialplan variables may be used.</para>
 					</description>
 				</configOption>
 				<configOption name="local_var">
@@ -165,13 +165,13 @@
 				<configOption name="remote_var">
 					<synopsis>Name of remote variable containing upstream verification result.</synopsis>
 					<description>
-						<para>Name of remote variable (probably an IAXVAR) in which the verification result is attested by the upstream node. If extendtrust is yes and verification succeeds, the contents of this variable will be used to populate local_var.  Must be universal across a telephony domain.</para>
+						<para>Name of remote variable (probably an IAXVAR) in which the verification result is attested by the upstream node. If extendtrust is <literal>yes</literal> and verification succeeds, the contents of this variable will be used to populate <literal>local_var</literal>.  Must be universal across a telephony domain.</para>
 					</description>
 				</configOption>
 				<configOption name="via_remote_var">
 					<synopsis>Name of remote variable containing upstream node identifier.</synopsis>
 					<description>
-						<para>Name of remote variable (probably an IAXVAR) in which the node identifier for the upstream node, if present, may be found. Needed for tandem-through verification (see extendtrust option). Must be universal across a telephony domain.</para>
+						<para>Name of remote variable (probably an IAXVAR) in which the node identifier for the upstream node, if present, may be found. Needed for tandem-through verification (see <literal>extendtrust</literal> option). Must be universal across a telephony domain.</para>
 					</description>
 				</configOption>
 				<configOption name="setinvars">
@@ -192,7 +192,7 @@
 				<configOption name="extendtrust" default="yes">
 					<synopsis>Whether or not to allow thru calls to be verified by verifying the upstream node.</synopsis>
 					<description>
-						<para>Whether or not to allow thru calls (i.e. not originating on the upstream node) to be verified by instead verifying the node which is passing the call off. This must be set to "yes" if calls can pass through multiple nodes between originating and termination.</para>
+						<para>Whether or not to allow thru calls (i.e. not originating on the upstream node) to be verified by instead verifying the node which is passing the call off. This must be set to <literal>yes</literal> if calls can pass through multiple nodes between originating and termination.</para>
 					</description>
 				</configOption>
 				<configOption name="allowdisathru" default="yes">
@@ -216,19 +216,19 @@
 				<configOption name="exceptioncontext">
 					<synopsis>Name of dialplan context containing exceptions.</synopsis>
 					<description>
-						<para>Name of dialplan context containing extension pattern matches for numbers which may not be verifiable using reverse IP address lookups. The extension must return a comma-separated list of IP addresses which the specified numbers can validate against, at priority 1 for the extension. Only applies with "reverse", not "direct". Avoid using this option if possible, and only use as a last resort.</para>
+						<para>Name of dialplan context containing extension pattern matches for numbers which may not be verifiable using reverse IP address lookups. The extension must return a comma-separated list of IP addresses which the specified numbers can validate against, at priority 1 for the extension. Only applies with <literal>verifymethod</literal> set to <literal>reverse</literal>, not <literal>direct</literal>. Avoid using this option if possible, and only use as a last resort.</para>
 					</description>
 				</configOption>
 				<configOption name="successregex" regex="yes">
-					<synopsis>Regular expression for use with "direct" method to determine if a verification was successful or not.</synopsis>
+					<synopsis>Regular expression to determine if a verification was successful or not.</synopsis>
 					<description>
-						<para>This does not apply to "reverse".</para>
+						<para>This is effective only with <literal>direct</literal> <literal>verifymethod</literal> method. This does not apply to <literal>reverse</literal>.</para>
 					</description>
 				</configOption>
 				<configOption name="flagprivateip" default="yes">
 					<synopsis>Whether or not to flag calls to private IP addresses as malicious destinations.</synopsis>
 					<description>
-						<para>When set to "yes", flags private (Class A, B, or C), APIPA, or localhost addresses, as malicious. ${OUTVERIFYSTATUS} will be set to MALICIOUS if a private/local IP address is detected. Only IPv4 is supported currently.</para>
+						<para>When set to "yes", flags private (Class A, B, or C), APIPA, or localhost addresses, as malicious. <literal>OUTVERIFYSTATUS</literal> will be set to MALICIOUS if a private/local IP address is detected. Only IPv4 is supported currently.</para>
 					</description>
 				</configOption>
 				<configOption name="outregex" regex="yes">
@@ -249,25 +249,25 @@
 				<configOption name="failureaction" default="nothing">
 					<synopsis>Action to take when a call fails verification.</synopsis>
 					<description>
-						<para>Note that if the failure threshold specified in the "threshold" option is reached, any subsequent calls will be immediately dropped to prevent a spam attack, regardless of this setting. Valid options are "nothing", which will take no action, "hangup" which will end the call, "playback" which will play a recording and then hang up, and "redirect" which will redirect the call to another dialplan extension.</para>
+						<para>Note that if the failure threshold specified in the "threshold" option is reached, any subsequent calls will be immediately dropped to prevent a spam attack, regardless of this setting. Valid options are <literal>nothing</literal>, which will take no action, <literal>hangup</literal> which will end the call, <literal>playback</literal> which will play a recording and then hang up, and <literal>redirect</literal> which will redirect the call to another dialplan extension.</para>
 					</description>
 				</configOption>
 				<configOption name="failurefile">
-					<synopsis>File or ampersand-separated files to play when failureaction = playback.</synopsis>
+					<synopsis>File or ampersand-separated files to play when verification fails.</synopsis>
 					<description>
-						<para>As with Playback, do not specify the file extension(s).</para>
+						<para>Effective when <literal>failureaction</literal> is set to <literal>playback</literal>. As with Playback, do not specify the file extension(s).</para>
 					</description>
 				</configOption>
 				<configOption name="region">
 					<synopsis>Region identifier (e.g. 2 characters) to use for tagging PSTN calls that enter and leave this node.</synopsis>
 					<description>
-						<para>Tagging format is "${CALLERID(name)} via ${clli} ${region} PSTN".</para>
+						<para>Tagging format is "CALLERID(name) via clli region PSTN".</para>
 					</description>
 				</configOption>
 				<configOption name="clli">
 					<synopsis>String node identifier (e.g. CLLI) to use for tagging calls that leave this node.</synopsis>
 					<description>
-						<para>Tagging format is "${CALLERID(name)} via ${clli}" for normal thru calls and "${CALLERID(name)} via ${clli} PSTN" for PSTN calls.</para>
+						<para>Tagging format is "CALLERID(name) via clli" for normal thru calls and "CALLERID(name) via clli PSTN" for PSTN calls.</para>
 					</description>
 				</configOption>
 				<configOption name="code_good">
