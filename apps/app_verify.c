@@ -132,50 +132,80 @@
 			</configObject>
 			<configObject name="profile">
 				<synopsis>Defined profiles for app_verify to use with call verification.</synopsis>
-				<configOption name="verifymethod">
-					<synopsis>Method to use for verification. Can be "reverse" to manually compute verification using reverse lookups or "direct" to query an authoritative central server via HTTP for the result. Default is "reverse".</synopsis>
+				<configOption name="verifymethod" default="reverse">
+					<synopsis>Method to use for verification.</synopsis>
+					<description>
+						<para>Can be "reverse" to manually compute verification using reverse lookups or "direct" to query an authoritative central server via HTTP for the result.</para>
+					</description>
 				</configOption>
-				<configOption name="requestmethod">
-					<synopsis>Method to use for making verification requests. Can be "curl" for HTTP lookups or "enum" for ENUM lookups. Default is "curl". Must be "curl" if verifymethod is "direct".</synopsis>
+				<configOption name="requestmethod" default="curl">
+					<synopsis>Method to use for making verification requests.</synopsis>
+					<description>
+						<para>Can be "curl" for HTTP lookups or "enum" for ENUM lookups. Must be "curl" if verifymethod is "direct".</para>
+					</description>
 				</configOption>
-				<configOption name="verifyrequest" default="no">
-					<synopsis>Request to make for verification requests. URL for "curl" lookups or arguments to ENUMLOOKUP function for "enum" lookups. Parameter for number should be replaced with ${VERIFYARG1} for substitution during verification. Dialplan variables may be used.</synopsis>
+				<configOption name="verifyrequest">
+					<synopsis>Request to make for verification requests.</synopsis>
+					<description>
+						<para>URL for "curl" lookups or arguments to ENUMLOOKUP function for "enum" lookups. Parameter for number should be replaced with ${VERIFYARG1} for substitution during verification. Dialplan variables may be used.</para>
+					</description>
 				</configOption>
 				<configOption name="local_var">
-					<synopsis>Name of variable in which to store the verification result. Be sure to prefix with double underscore if the variable should carry through Dial. To make the variable persist through Dial, be sure to prefix with double underscore if desired.</synopsis>
+					<synopsis>Name of variable in which to store the verification result.</synopsis>
+					<description>
+						<para>Name of variable in which to store the verification result. Be sure to prefix with double underscore if the variable should carry through Dial. To make the variable persist through Dial, be sure to prefix with double underscore if desired.</para>
+					</description>
 				</configOption>
 				<configOption name="via_number">
-					<synopsis>Number on this node which can be used against us in a reverse lookup for positive identification. A lookup for this number in the telephony domain must resolve to this node. Any such number will suffice.</synopsis>
+					<synopsis>Number on this node for reverse identification.</synopsis>
+					<description>
+						<para>Number on this node which can be used against us in a reverse lookup for positive identification. A lookup for this number in the telephony domain must resolve to this node. Any such number will suffice.</para>
+					</description>
 				</configOption>
 				<configOption name="remote_var">
-					<synopsis>Name of remote variable (probably an IAXVAR) in which the verification result is attested by the upstream node. If extendtrust is yes and verification succeeds, the contents of this variable will be used to populate local_var.  Must be universal across a telephony domain.</synopsis>
+					<synopsis>Name of remote variable containing upstream verification result.</synopsis>
+					<description>
+						<para>Name of remote variable (probably an IAXVAR) in which the verification result is attested by the upstream node. If extendtrust is yes and verification succeeds, the contents of this variable will be used to populate local_var.  Must be universal across a telephony domain.</para>
+					</description>
 				</configOption>
 				<configOption name="via_remote_var">
-					<synopsis>Name of remote variable (probably an IAXVAR) in which the node identifier for the upstream node, if present, may be found. Needed for tandem-through verification (see extendtrust option). Must be universal across a telephony domain.</synopsis>
+					<synopsis>Name of remote variable containing upstream node identifier.</synopsis>
+					<description>
+						<para>Name of remote variable (probably an IAXVAR) in which the node identifier for the upstream node, if present, may be found. Needed for tandem-through verification (see extendtrust option). Must be universal across a telephony domain.</para>
+					</description>
 				</configOption>
 				<configOption name="setinvars">
-					<synopsis>Variable assignments to make after verification of an incoming call has completed. This will apply to all calls, successful or not. This can allow for loading other remote variables into local variables (e.g. storing IAXVARs in channel variables). It can also allow for variable parameter operations, if you know that certain fields will need to be manipulated. The format here is the same as MSet's, but assignments will be done left to right, so later operations can depend on earlier operations completing. Values containing commas MUST be surrounded in single quotes.</synopsis>
+					<synopsis>Variable assignments to make after verification of an incoming call has completed.</synopsis>
+					<description>
+						<para>Variable assignments to make after verification of an incoming call has completed. This will apply to all calls, successful or not. This can allow for loading other remote variables into local variables (e.g. storing IAXVARs in channel variables). It can also allow for variable parameter operations, if you know that certain fields will need to be manipulated. The format here is the same as MSet's, but assignments will be done left to right, so later operations can depend on earlier operations completing. Values containing commas MUST be surrounded in single quotes.</para>
+					</description>
 				</configOption>
 				<configOption name="setoutvars">
 					<synopsis>Opposite of setinvars: variable assignments made after OutVerify has completed.</synopsis>
 				</configOption>
-				<configOption name="device_state_filter">
-					<synopsis>Optional regulnts for.</synopsis>
+				<configOption name="sanitychecks" default="yes">
+					<synopsis>Whether or not to perform basic sanity checks.</synopsis>
+					<description>
+						<para>Whether or not to perform basic sanity checks on the alleged calling number for "reverse" verification scenarios. This should be used if there is any possibility of invalid numbers resolving to *anything*. If it is guaranteed that invalid numbers will always return an empty lookup, this can be disabled. attested verified.</para>
+					</description>
 				</configOption>
-				<configOption name="sanitychecks">
-					<synopsis>Whether or not to perform basic sanity checks on the alleged calling number for "reverse" verification scenarios. This should be used if there is any possibility of invalid numbers resolving to *anything*. If it is guaranteed that invalid numbers will always return an empty lookup, this can be disabled. attested verified. Default is "yes".</synopsis>
+				<configOption name="extendtrust" default="yes">
+					<synopsis>Whether or not to allow thru calls to be verified by verifying the upstream node.</synopsis>
+					<description>
+						<para>Whether or not to allow thru calls (i.e. not originating on the upstream node) to be verified by instead verifying the node which is passing the call off. This must be set to "yes" if calls can pass through multiple nodes between originating and termination.</para>
+					</description>
 				</configOption>
-				<configOption name="extendtrust">
-					<synopsis>Whether or not to allow thru calls (i.e. not originating on the upstream node) to be verified by instead verifying the node which is passing the call off. This must be set to "yes" if calls can pass through multiple nodes between originating and termination. Default is "yes".</synopsis>
+				<configOption name="allowdisathru" default="yes">
+					<synopsis>Whether or not to allow thru-dialing out of the node.</synopsis>
 				</configOption>
-				<configOption name="allowdisathru">
-					<synopsis>Whether or not to allow thru-dialing out of the node. Default is yes.</synopsis>
+				<configOption name="allowpstnthru" default="yes">
+					<synopsis>Whether or not to allow PSTN calls to leave the node.</synopsis>
 				</configOption>
-				<configOption name="allowpstnthru">
-					<synopsis>Whether or not to allow PSTN calls to leave the node. Default is yes.</synopsis>
-				</configOption>
-				<configOption name="allowtoken">
-					<synopsis>Whether or not to allow token verification. Only supported for "reverse" verification. "direct" must encompass tokens in the verify request. Useful for scenarios where the outgoing IP of a node does not match the incoming IP of a node. This applies to both allowing tokens for incoming calls and requesting tokens for outgoing calls. Request must return the same value as via_remote_var for success. Default is no.</synopsis>
+				<configOption name="allowtoken" default="no">
+					<synopsis>Whether or not to allow token verification.</synopsis>
+					<description>
+						<para>Only supported for "reverse" verification. "direct" must encompass tokens in the verify request. Useful for scenarios where the outgoing IP of a node does not match the incoming IP of a node. This applies to both allowing tokens for incoming calls and requesting tokens for outgoing calls. Request must return the same value as via_remote_var for success.</para>
+					</description>
 				</configOption>
 				<configOption name="validatetokenrequest">
 					<synopsis>Request to make for token verification. Only supported for "reverse" verifications. Must be an HTTP endpoint. Dialplan variables may be used.</synopsis>
@@ -184,37 +214,67 @@
 					<synopsis>Name of remote variable (probably an IAXVAR) in which a verification token may be stored. Must be universal across a telephony domain.</synopsis>
 				</configOption>
 				<configOption name="exceptioncontext">
-					<synopsis>Name of dialplan context containing extension pattern matches for numbers which may not be verifiable using reverse IP address lookups. The extension must return a comma-separated list of IP addresses which the specified numbers can validate against, at priority 1 for the extension. Only applies with "reverse", not "direct". Avoid using this option if possible, and only use as a last resort.</synopsis>
+					<synopsis>Name of dialplan context containing exceptions.</synopsis>
+					<description>
+						<para>Name of dialplan context containing extension pattern matches for numbers which may not be verifiable using reverse IP address lookups. The extension must return a comma-separated list of IP addresses which the specified numbers can validate against, at priority 1 for the extension. Only applies with "reverse", not "direct". Avoid using this option if possible, and only use as a last resort.</para>
+					</description>
 				</configOption>
-				<configOption name="successregex">
-					<synopsis>Regular expression for use with "direct" method to determine if a verification was successful or not. This does not apply to "reverse".</synopsis>
+				<configOption name="successregex" regex="yes">
+					<synopsis>Regular expression for use with "direct" method to determine if a verification was successful or not.</synopsis>
+					<description>
+						<para>This does not apply to "reverse".</para>
+					</description>
 				</configOption>
-				<configOption name="flagprivateip">
-					<synopsis>Whether or not to flag calls to private IP addresses (Class A, B, or C), APIPA, or localhost, as malicious. ${OUTVERIFYSTATUS} will be set to MALICIOUS if a private/local IP address is detected. Only IPv4 is supported currently. Default is "yes".</synopsis>
+				<configOption name="flagprivateip" default="yes">
+					<synopsis>Whether or not to flag calls to private IP addresses as malicious destinations.</synopsis>
+					<description>
+						<para>When set to "yes", flags private (Class A, B, or C), APIPA, or localhost addresses, as malicious. ${OUTVERIFYSTATUS} will be set to MALICIOUS if a private/local IP address is detected. Only IPv4 is supported currently.</para>
+					</description>
 				</configOption>
-				<configOption name="outregex">
+				<configOption name="outregex" regex="yes">
 					<synopsis>Regular expression to use to validate lookups, if provided to the OutVerify application.</synopsis>
 				</configOption>
-				<configOption name="threshold">
-					<synopsis>Maximum number of unsuccessfully verified calls to accept before subsequent calls are dropped upon arrival. Default is 0, e.g. any call that fails to verify will be dropped. In reality, you may want to set this to a more conservative value to allow for some legitimate accident calls to get through. The greater this value, the more vulnerable the node is to a spam attack. This option is only effective if failgroup is specified, since the group is used to keep track of concurrent calls.</synopsis>
+				<configOption name="threshold" default="0">
+					<synopsis>Maximum number of unsuccessfully verified calls to accept before subsequent calls are dropped upon arrival.</synopsis>
+					<description>
+						<para>Default is 0, e.g. any call that fails to verify will be dropped. In reality, you may want to set this to a more conservative value to allow for some legitimate accident calls to get through. The greater this value, the more vulnerable the node is to a spam attack. This option is only effective if failgroup is specified, since the group is used to keep track of concurrent calls.</para>
+					</description>
 				</configOption>
 				<configOption name="failgroup">
-					<synopsis>Group category to which to assign calls that fail verification. The group will be the name of this verification section, e.g. same as Set(GROUP(failgroup)=example).</synopsis>
+					<synopsis>Group category to which to assign calls that fail verification.</synopsis>
+					<description>
+						<para>The group will be the name of this verification section, e.g. same as Set(GROUP(failgroup)=example).</para>
+					</description>
 				</configOption>
-				<configOption name="failureaction">
-					<synopsis>Action to take when a call fails verification. Note that if the failure threshold specified in the "threshold" option is reached, any subsequent calls will be immediately dropped to prevent a spam attack, regardless of this setting. Valid options are "nothing", which will take no action, "hangup" which will end the call, "playback" which will play a recording and then hang up, and "redirect" which will redirect the call to another dialplan extension. Default is "nothing".</synopsis>
+				<configOption name="failureaction" default="nothing">
+					<synopsis>Action to take when a call fails verification.</synopsis>
+					<description>
+						<para>Note that if the failure threshold specified in the "threshold" option is reached, any subsequent calls will be immediately dropped to prevent a spam attack, regardless of this setting. Valid options are "nothing", which will take no action, "hangup" which will end the call, "playback" which will play a recording and then hang up, and "redirect" which will redirect the call to another dialplan extension.</para>
+					</description>
 				</configOption>
 				<configOption name="failurefile">
-					<synopsis>File or ampersand-separated files to play when failureaction = playback. As with Playback, do not specify the file extension(s).</synopsis>
+					<synopsis>File or ampersand-separated files to play when failureaction = playback.</synopsis>
+					<description>
+						<para>As with Playback, do not specify the file extension(s).</para>
+					</description>
 				</configOption>
 				<configOption name="region">
-					<synopsis>Region identifier (e.g. 2 characters) to use for tagging PSTN calls that enter and leave this node. Tagging format is "${CALLERID(name)} via ${clli} ${region} PSTN".</synopsis>
+					<synopsis>Region identifier (e.g. 2 characters) to use for tagging PSTN calls that enter and leave this node.</synopsis>
+					<description>
+						<para>Tagging format is "${CALLERID(name)} via ${clli} ${region} PSTN".</para>
+					</description>
 				</configOption>
 				<configOption name="clli">
-					<synopsis>String node identifier (e.g. CLLI) to use for tagging calls that leave this node. Tagging format is "${CALLERID(name)} via ${clli}" for normal thru calls and "${CALLERID(name)} via ${clli} PSTN" for PSTN calls.</synopsis>
+					<synopsis>String node identifier (e.g. CLLI) to use for tagging calls that leave this node.</synopsis>
+					<description>
+						<para>Tagging format is "${CALLERID(name)} via ${clli}" for normal thru calls and "${CALLERID(name)} via ${clli} PSTN" for PSTN calls.</para>
+					</description>
 				</configOption>
 				<configOption name="code_good">
-					<synopsis>Codes to assign to calls we attempt to verify. These codes MUST be the same across a telephony domain. For multiple networks, these codes should be unique (e.g. prefix with a network-specific number).</synopsis>
+					<synopsis>Codes to assign to calls we attempt to verify.</synopsis>
+					<description>
+						<para>These codes MUST be the same across a telephony domain. For multiple networks, these codes should be unique (e.g. prefix with a network-specific number).</para>
+					</description>
 				</configOption>
 				<configOption name="code_fail">
 					<synopsis>Code to assign to local_var for unsuccessfully verified calls.</synopsis>
