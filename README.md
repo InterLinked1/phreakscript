@@ -3,7 +3,7 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 18.8 (latest LTS release of Asterisk)
+- Asterisk 18.9.0 (latest LTS release of Asterisk)
 - next branch of DAHDI Linux (newer than 3.1.0, with optional DAHDI install flag)
 - DAHDI Tools 3.1.0 (with optional DAHDI install flag)
 - many additional features and stability improvements (see change log for full details)
