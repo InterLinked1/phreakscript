@@ -15,8 +15,9 @@ curltimeout = 5
 ;[sample]
 ;
 ; Method to use for verification. Can be "reverse" to manually compute
-; verification using reverse lookups or "direct" to query an authoritative
-; central server via HTTP for the result. Default is "reverse".
+; verification using reverse lookups, "direct" to query an authoritative
+; central server via HTTP for the result, "regex" to use regular expression,
+; or "pattern" to evaluate as dialplan extension. Default is "reverse".
 ;
 ;verifymethod = reverse
 ;
@@ -32,6 +33,12 @@ curltimeout = 5
 ; during verification. Dialplan variables may be used.
 ;
 ;verifyrequest = https://example.com/v1/?number=${VERIFYARG1}
+;
+; Name of dialplan context for verification when using verifymethod
+; of pattern. Format of dialplan context is the same as with the
+; EVAL_EXTEN function in the dialplan.
+;
+;verifycontext = my-context
 ;
 ; Name of variable in which to store the verification result. Be sure
 ; to prefix with double underscore if the variable should carry through
@@ -130,8 +137,11 @@ curltimeout = 5
 ;
 ;exceptioncontext = my-exceptions
 ;
-; Regular expression for use with "direct" method to determine if a verification
-; was successful or not. This does not apply to "reverse".
+; Regular expression to determine if a verification was successful or not.
+; This does not apply to the "reverse" method. For the "direct" and "pattern"
+; methods, this is used against the verification code to determine if it
+; constitutes success. For the "regex" method, this is used against the calling
+; number to determine if it should be considered a valid number.
 ;
 ;successregex = 0$
 ;
