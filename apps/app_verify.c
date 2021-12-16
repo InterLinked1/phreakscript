@@ -29,6 +29,10 @@
  * \verbinclude verify.conf.sample
  */
 
+/*!
+ * \todo Add STIR/SHAKEN integration at some point
+*/
+
 /*** MODULEINFO
 	<support_level>extended</support_level>
  ***/
@@ -135,19 +139,39 @@
 				<configOption name="verifymethod" default="reverse">
 					<synopsis>Method to use for verification.</synopsis>
 					<description>
-						<para>Can be <literal>reverse</literal> to manually compute verification using reverse lookups or <literal>direct</literal> to query an authoritative central server via HTTP for the result.</para>
+						<para>Can be <literal>reverse</literal>, <literal>direct</literal>, <literal>regex</literal>, or <literal>pattern</literal>.</para>
+						<enumlist>
+							<enum name="reverse"><para>
+								manually compute verification using reverse lookups
+							</para></enum>
+							<enum name="direct"><para>
+								query an authoritative central server via HTTP for the result
+							</para></enum>
+							<enum name="regex"><para>
+								perform no verification but simply validate against the number format in a specified regular expression
+							</para></enum>
+							<enum name="pattern"><para>
+								evaluate the calling number as an extension in the specified dialplan context
+							</para></enum>
+						</enumlist>
 					</description>
 				</configOption>
 				<configOption name="requestmethod" default="curl">
 					<synopsis>Method to use for making verification requests.</synopsis>
 					<description>
-						<para>Can be <literal>curl</literal> for HTTP lookups or "enum" for ENUM lookups. Must be <literal>curl</literal> if <literal>verifymethod</literal> is <literal>direct</literal>.</para>
+						<para>Can be <literal>curl</literal> for HTTP lookups or "enum" for ENUM lookups. Must be <literal>curl</literal> if <literal>verifymethod</literal> is <literal>direct</literal>. Does not apply when <literal>verifymethod</literal> is set to <literal>regex</literal>.</para>
 					</description>
 				</configOption>
 				<configOption name="verifyrequest">
 					<synopsis>Request to make for verification requests.</synopsis>
 					<description>
 						<para>URL for "curl" lookups or arguments to ENUMLOOKUP function for "enum" lookups. Parameter for number should be replaced with <literal>${VERIFYARG1}</literal> for substitution during verification. Dialplan variables may be used.</para>
+					</description>
+				</configOption>
+				<configOption name="verifycontext">
+					<synopsis>Context to use for verification.</synopsis>
+					<description>
+						<para>Dialplan context containing patterns to match calling numbers. Only applies when <literal>verifymethod</literal> is <literal>pattern</literal>. Extensions should return the verification code at priority 1. Variables and functions may be used. The format of the dialplan context is the same as with using <literal>EVAL_EXTEN</literal> in the dialplan.</para>
 					</description>
 				</configOption>
 				<configOption name="local_var">
@@ -222,7 +246,8 @@
 				<configOption name="successregex" regex="yes">
 					<synopsis>Regular expression to determine if a verification was successful or not.</synopsis>
 					<description>
-						<para>This is effective only with <literal>direct</literal> <literal>verifymethod</literal> method. This does not apply to <literal>reverse</literal>.</para>
+						<para>This is effective only with <literal>direct</literal>, <literal>regex</literal>, or <literal>pattern</literal> <literal>verifymethod</literal> methods. This does not apply to <literal>reverse</literal>.</para>
+						<para>For the "direct" and "pattern" methods, this is used against the verification code to determine if it constitutes success. For the "regex" method, this is used against the calling number to determine if it should be considered a valid number.</para>
 					</description>
 				</configOption>
 				<configOption name="flagprivateip" default="yes">
@@ -306,6 +331,7 @@ struct call_verify {
 	char verifymethod[PATH_MAX];			/*!< Algorithm to use for verification: direct or reverse */
 	char requestmethod[PATH_MAX];			/*!< Request method: curl or enum */
 	char verifyrequest[PATH_MAX];			/*!< Request URL or ENUM lookup */
+	char verifycontext[AST_MAX_CONTEXT];	/*!< Dialplan context for verification */
 	char validatetokenrequest[PATH_MAX];	/*!< HTTP lookup for token verification */
 	char obtaintokenrequest[PATH_MAX];		/*!< HTTP lookup for obtaining a verification token */
 	char local_var[AST_MAX_CONTEXT];		/*!< Variable in which to store verification status */
@@ -400,9 +426,10 @@ static int contains_whitespace(const char *str)
 /*! \brief Set parameter in profile from configuration file */
 static void profile_set_param(struct call_verify *v, const char *param, const char *val, int linenum, int failunknown)
 {
-	VERIFY_LOAD_STR_PARAM(verifymethod, !strcasecmp(val, "direct") || !strcasecmp(val, "reverse"));
+	VERIFY_LOAD_STR_PARAM(verifymethod, !strcasecmp(val, "direct") || !strcasecmp(val, "reverse") || !strcasecmp(val, "regex") || !strcasecmp(val, "pattern"));
 	VERIFY_LOAD_STR_PARAM(requestmethod, !strcasecmp(val, "curl") || !strcasecmp(val, "enum"));
 	VERIFY_LOAD_STR_PARAM(verifyrequest, val[0]);
+	VERIFY_LOAD_STR_PARAM(verifycontext, val[0]);
 	VERIFY_LOAD_STR_PARAM(validatetokenrequest, val[0]);
 	VERIFY_LOAD_STR_PARAM(obtaintokenrequest, val[0]);
 	VERIFY_LOAD_STR_PARAM(local_var, val[0] && !contains_whitespace(val)); /* could cause bad things to happen if we try setting a var name with spaces */
@@ -849,8 +876,8 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	struct ast_str *strbuf = NULL;
 	int success = 0;
 
-	int curl, direct, extendtrust, allowtoken, sanitychecks, threshold;
-	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX];
+	int curl, method, extendtrust, allowtoken, sanitychecks, threshold;
+	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX];
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(profile);
@@ -888,7 +915,15 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 
 	ast_mutex_lock(&v->lock);
 	v->in++;
-	direct = !strcasecmp(v->verifymethod, "direct") ? 1 : 0;
+	if (!strcasecmp(v->verifymethod, "direct")) {
+		method = 2;
+	} else if (!strcasecmp(v->verifymethod, "regex")) {
+		method = 3;
+	} else if (!strcasecmp(v->verifymethod, "pattern")) {
+		method = 4;
+	} else {
+		method = 1; /* reverse */
+	}
 	curl = !strcasecmp(v->requestmethod, "curl") ? 1 : 0;
 	extendtrust = v->extendtrust;
 	allowtoken = v->allowtoken;
@@ -896,6 +931,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	threshold = v->threshold;
 	VERIFY_STRDUP(name);
 	VERIFY_STRDUP(verifyrequest);
+	VERIFY_STRDUP(verifycontext);
 	VERIFY_STRDUP(via_remote_var);
 	VERIFY_STRDUP(local_var);
 	VERIFY_STRDUP(remote_var);
@@ -927,7 +963,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	ast_debug(1, "Verifying call against number '%s'\n", callerid);
 	ast_channel_unlock(chan);
 
-	if (direct) {
+	if (method == 2) {
 		if (!curl) {
 			ast_log(LOG_WARNING, "Request method %s is incompatible with verification method %s\n", "direct", "enum");
 			return -1;
@@ -954,6 +990,61 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			}
 			ast_verb(3, "Verification result for %s is '%s'\n", name, vresult ? vresult : "(null)");
 			verify_set_var(chan, local_var, vresult);
+		}
+	} else if (method == 3) { /* regex */
+		char buf[BUFLEN2];
+		int errcode;
+		regex_t regexbuf;
+
+		if (!*successregex) {
+			ast_log(LOG_WARNING, "Verify method is 'regex', but 'successregex' not set!\n");
+			return -1;
+		}
+
+		if ((errcode = regcomp(&regexbuf, successregex, REG_EXTENDED | REG_NOSUB))) {
+			regerror(errcode, &regexbuf, buf, BUFLEN2);
+			ast_log(LOG_WARNING, "Malformed input %s(%s): %s\n", "REGEX", successregex, buf);
+		} else if (!regexec(&regexbuf, callerid, 0, NULL, 0)) {
+			verify_set_var(chan, local_var, code_good);
+			ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, *code_good ? code_good : "(null)");
+		} else {
+			verify_set_var(chan, local_var, code_fail);
+			ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *code_fail ? code_fail : "(null)");
+		}
+		regfree(&regexbuf);
+	} else if (method == 4) { /* dialplan pattern */
+		char tmpbuf[BUFLEN2]; /* in reality, we only need to store a 1 or a 0 */
+		if (!*verifycontext) {
+			ast_log(LOG_WARNING, "Verify method is 'pattern', but 'verifycontext' not set!\n");
+			return -1;
+		}
+		if (ast_get_extension_data(tmpbuf, BUFLEN2, chan, verifycontext, callerid, 1)) {
+			ast_log(LOG_WARNING, "Failed to find extension match for %s in context %s. Autofallthrough to bad call.\n", callerid, verifycontext);
+			/* it's probably a safe bet that if we couldn't find a pattern, it's a bad call. At least, fail safe to flagging as bad. */
+			verify_set_var(chan, local_var, code_fail);
+			ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *code_fail ? code_fail : "(null)");
+		} else {
+			verify_set_var(chan, local_var, tmpbuf);
+			do {
+				char buf[BUFLEN2];
+				int errcode;
+				regex_t regexbuf;
+
+				if (!*successregex) {
+					ast_log(LOG_WARNING, "Verify method is 'regex', but 'successregex' not set!\n");
+					return -1;
+				}
+
+				if ((errcode = regcomp(&regexbuf, successregex, REG_EXTENDED | REG_NOSUB))) {
+					regerror(errcode, &regexbuf, buf, BUFLEN2);
+					ast_log(LOG_WARNING, "Malformed input %s(%s): %s\n", "REGEX", successregex, buf);
+				} else if (!regexec(&regexbuf, tmpbuf, 0, NULL, 0)) {
+					ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, *tmpbuf ? tmpbuf : "(null)");
+				} else {
+					ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *tmpbuf ? tmpbuf : "(null)");
+				}
+				regfree(&regexbuf);
+			} while (0);
 		}
 	} else { /* reverse */
 		char remote_result[64] = { 0 };
@@ -1087,7 +1178,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		}
 		if (!success && *exceptioncontext && !ast_strlen_zero(exceptioncontext)) { /* check if there are any exceptions specified in the extension context */
 #define BUFLEN 64
-			char tmpbuf[64]; /* in reality, we only need to store a 1 or a 0 */
+			char tmpbuf[BUFLEN]; /* in reality, we only need to store a 1 or a 0 */
 			char *host, *tmp;
 			if (ast_get_extension_data(tmpbuf, BUFLEN, chan, exceptioncontext, viaverify ? via : callerid, 1)) {
 				ast_debug(1, "Failed to find extension match for %s in context %s\n", viaverify ? via : callerid, exceptioncontext);
@@ -1398,8 +1489,8 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 /*! \brief CLI command to list verification profiles */
 static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
-#define FORMAT  "%-20s %-8s %-10s %-13s %-9s %-11s %-14s\n"
-#define FORMAT2 "%-20s %8d %10d %13d %9d %11d %14d\n"
+#define FORMAT  "%-20s %-7s %-8s %-10s %-13s %-9s %-11s %-14s\n"
+#define FORMAT2 "%-20s %-7s %8d %10d %13d %9d %11d %14d\n"
 	struct call_verify *v;
 
 	switch(cmd) {
@@ -1413,11 +1504,11 @@ static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_c
 		return NULL;
 	}
 
-	ast_cli(a->fd, FORMAT, "Name", "Total In", "Success In", "% In Verified", "Total Out", "Success Out", "% Out Verified");
-	ast_cli(a->fd, FORMAT, "--------", "--------", "----------", "-------------", "---------", "-----------", "--------------");
+	ast_cli(a->fd, FORMAT, "Name", "Method", "Total In", "Success In", "% In Verified", "Total Out", "Success Out", "% Out Verified");
+	ast_cli(a->fd, FORMAT, "--------", "-------", "--------", "----------", "-------------", "---------", "-----------", "--------------");
 	AST_RWLIST_RDLOCK(&verifys);
 	AST_LIST_TRAVERSE(&verifys, v, entry) {
-		ast_cli(a->fd, FORMAT2, v->name, v->in, v->insuccess, (int) (v->in == 0 ? 0 : (100.0 * v->insuccess) / v->in),
+		ast_cli(a->fd, FORMAT2, v->name, v->verifymethod, v->in, v->insuccess, (int) (v->in == 0 ? 0 : (100.0 * v->insuccess) / v->in),
 			v->out, v->outsuccess, (int) (v->out == 0 ? 0 : (100.0 * v->outsuccess) / v->out));
 	}
 	AST_RWLIST_UNLOCK(&verifys);
@@ -1467,6 +1558,7 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 			ast_cli(a->fd, FORMAT, "Verification Method", v->verifymethod);
 			ast_cli(a->fd, FORMAT, "Request Method", v->requestmethod);
 			ast_cli(a->fd, FORMAT, "Verification Request", v->verifyrequest);
+			ast_cli(a->fd, FORMAT, "Verification Context", v->verifycontext);
 			ast_cli(a->fd, FORMAT, "Validate Token Request", v->validatetokenrequest);
 			ast_cli(a->fd, FORMAT, "Obtain Token Request", v->obtaintokenrequest);
 			ast_cli(a->fd, FORMAT, "Verify Variable Name", v->local_var);
