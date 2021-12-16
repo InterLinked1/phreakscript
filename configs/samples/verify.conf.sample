@@ -162,7 +162,7 @@ curltimeout = 5
 ; extension: requires alphanumeric - plus *, #, ^, :, (, ) - extension
 ; context: allows an alphanumeric (plus underscore) context
 ;
-;outregex = ^[iI][aA][xX]2\/[a-zA-Z0-9_\-]+(:[a-zA-Z0-9]+)?+@([a-zA-Z0-9_\-]+\.)+[a-zA-Z0-9_\-]+(:[0-9]+)?+\/([A-Za-z0-9*#^:\(\)])+(@[a-zA-Z0-9_\-]+)?$
+;outregex = ^[iI][aA][xX]2\/[a-zA-Z0-9_\-]+(:[a-zA-Z0-9]+)?+(:\[[a-zA-Z0-9.]+\])?+@([a-zA-Z0-9_\-]+\.)+[a-zA-Z0-9_\-]+(:[0-9]+)?+\/([A-Za-z0-9*#^:\(\)])+(@[a-zA-Z0-9_\-]+)?$
 ;
 ; Maximum number of unsuccessfully verified calls to accept before subsequent calls
 ; are dropped upon arrival. Default is 0, e.g. any call that fails to verify will
