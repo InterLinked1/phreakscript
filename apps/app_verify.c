@@ -77,7 +77,8 @@
 			in a dialplan variable. Verification is performed in conjunction with
 			pre-specified parameters and allows spoofed or fradulent calls in a
 			peer-to-peer trunking system to be screened out.</para>
-			<para>This application may only be used with IAX2 channels.</para>
+			<para>This application may only be used with IAX2 channels,
+			except for simple verify methods regex and pattern.</para>
 		</description>
 	</application>
 	<application name="OutVerify" language="en_US">
@@ -101,6 +102,7 @@
 			in accordance with rules in <literal>verify.conf</literal> to help
 			prevent certain risky or malicious calls from being completed.</para>
 			<para>This application may only be used with IAX2 channels.</para>
+			<para>This application sets the following variable:</para>
 			<variablelist>
 				<variable name="OUTVERIFYSTATUS">
 					<value name="PROCEED">
@@ -142,16 +144,16 @@
 						<para>Can be <literal>reverse</literal>, <literal>direct</literal>, <literal>regex</literal>, or <literal>pattern</literal>.</para>
 						<enumlist>
 							<enum name="reverse"><para>
-								manually compute verification using reverse lookups
+								Manually compute verification using reverse lookups. Only supported with IAX2.
 							</para></enum>
 							<enum name="direct"><para>
-								query an authoritative central server via HTTP for the result
+								Query an authoritative central server via HTTP for the result. Only supported with IAX2.
 							</para></enum>
 							<enum name="regex"><para>
-								perform no verification but simply validate against the number format in a specified regular expression
+								Perform no verification but simply validate against the number format in a specified regular expression.
 							</para></enum>
 							<enum name="pattern"><para>
-								evaluate the calling number as an extension in the specified dialplan context
+								Evaluate the calling number as an extension in the specified dialplan context.
 							</para></enum>
 						</enumlist>
 					</description>
@@ -893,11 +895,6 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		return -1;
 	}
 
-	if (!chan || strcmp(ast_channel_tech(chan)->type, "IAX2")) {
-		ast_log(LOG_ERROR, "Unsupported channel technology: %s (%s only supports IAX2)\n", ast_channel_tech(chan)->type, app);
-		return -1;
-	}
-
 	AST_RWLIST_RDLOCK(&verifys);
 	AST_LIST_TRAVERSE(&verifys, v, entry) {
 		if (!strcasecmp(v->name, args.profile)) {
@@ -949,6 +946,11 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(successregex);
 	ast_mutex_unlock(&v->lock);
 
+	if (!chan || (strcmp(ast_channel_tech(chan)->type, "IAX2") && method <= 2)) {
+		ast_log(LOG_ERROR, "Unsupported channel technology: %s (%s only supports IAX2)\n", ast_channel_tech(chan)->type, app);
+		return -1;
+	}
+
 	if (!(strbuf = ast_str_create(512))) {
 		ast_log(LOG_ERROR, "Could not allocate memory for response.\n");
 		return -1;
@@ -972,11 +974,15 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			vresult = ast_str_buffer(strbuf);
 			if (*code_good && !strncmp(code_good, vresult, strlen(code_good))) { /* if the result starts with the code_good value, then it's a success. There could be other stuff afterwards. */
 				success = 1;
-			} else if (*successregex) {
+			}
+			/* if both are specified, we should do both */
+			if (*successregex) {
 #define BUFLEN2 256
 				char buf[BUFLEN2];
 				int errcode;
 				regex_t regexbuf;
+
+				success = 0;
 
 				if ((errcode = regcomp(&regexbuf, successregex, REG_EXTENDED | REG_NOSUB))) {
 					regerror(errcode, &regexbuf, buf, BUFLEN2);
@@ -1007,6 +1013,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		} else if (!regexec(&regexbuf, callerid, 0, NULL, 0)) {
 			verify_set_var(chan, local_var, code_good);
 			ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, *code_good ? code_good : "(null)");
+			success = 1;
 		} else {
 			verify_set_var(chan, local_var, code_fail);
 			ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *code_fail ? code_fail : "(null)");
@@ -1040,6 +1047,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 					ast_log(LOG_WARNING, "Malformed input %s(%s): %s\n", "REGEX", successregex, buf);
 				} else if (!regexec(&regexbuf, tmpbuf, 0, NULL, 0)) {
 					ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, *tmpbuf ? tmpbuf : "(null)");
+					success = 1;
 				} else {
 					ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *tmpbuf ? tmpbuf : "(null)");
 				}
