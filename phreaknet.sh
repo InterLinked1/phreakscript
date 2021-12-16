@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.18 (2021-12-15)
+# v0.1.19 (2021-12-15)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-16 0.1.19 PhreakScript: added support for building chan_sip with Cisco Call Manager phone support
 # 2021-12-15 0.1.18 PhreakScript: added runtests, Asterisk: update func_evalexten
 # 2021-12-14 0.1.17: Asterisk: update func_evalexten, PhreakScript: added gerrit command
 # 2021-12-13 0.1.16 Asterisk: patch updates, compiler fixes
@@ -77,6 +78,8 @@
 
 # Script environment variables
 AST_SOURCE_NAME="asterisk-18-current"
+CISCO_CM_SIP="cisco-usecallmanager-18.7.0"
+
 AST_ALT_VER=""
 MIN_ARGS=1
 FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
@@ -98,6 +101,7 @@ AST_CC=1 # Country Code (default: 1 - NANPA)
 AST_USER=""
 WEAK_TLS=0
 CHAN_SIP=0
+SIP_CISCO=0
 CHAN_SCCP=0
 CHAN_DAHDI=0
 TEST_SUITE=0
@@ -188,6 +192,7 @@ Options:
    -u, --user         User as which to run Asterisk (non-root)
    -v, --version      Specific version of Asterisk to install (M.m.b e.g. 18.8.0)
    -w, --weaktls      Allow less secure TLS versions down to TLS 1.0 (default is 1.2+)
+       --cisco        Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         Install chan_sccp channel driver (Cisco Skinny)
        --boilerplate  sounds: Also install boilerplate sounds
        --clli         config: CLLI code
@@ -705,7 +710,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostu:v:w -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostu:v:w -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -733,6 +738,7 @@ while true; do
 		-u | --user ) AST_USER=$2; shift 2;;
 		-v | --version ) AST_ALT_VER=$2; shift 2;;
 		-w | --weaktls ) WEAK_TLS=1; shift ;;
+		--cisco ) SIP_CISCO=1; shift ;;
 		--sccp ) CHAN_SCCP=1; shift ;;
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
@@ -920,6 +926,16 @@ elif [ "$cmd" = "install" ]; then
 		exit 2
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
+		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
+		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/cisco-usecallmanager-18.7.0.patch" -O /tmp/$CISCO_CM_SIP.patch
+		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
+		if [ $? -ne 0 ]; then
+			echoerr "WARNING: Call Manager patch may have failed to apply correctly"
+		fi
+		rm /tmp/$CISCO_CM_SIP.patch
+		CFLAGS="-DENABLE_SRTP_AES_GCM -DENABLE_SRTP_AES_256" ./configure
+	fi
 	# Install Pre-Reqs
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		printf "%s %d" "libvpb1 libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
