@@ -8,9 +8,9 @@ PhreakScript installs:
 - DAHDI Tools 3.1.0 (with optional DAHDI install flag)
 - many additional features and stability improvements (see change log for full details)
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
-   - Adds fax timing and parameter control to `chan_sip`
-   - Fixes ulaw/gsm codec translation bug
-   - Fixes infinite loop Dial bug
+   - Optional build enhancements
+      - `chan_sccp` (improved community Skinny/SCCP channel driver)
+      - Cisco Call Manager support for `chan_sip`
    - Adds the following applications:
       - ``Assert``
       - ``ReturnIf``
@@ -25,6 +25,7 @@ PhreakScript installs:
       - ``DialTone``
       - ``Verify``
       - ``OutVerify``
+      - ``KeyPrefetch``
       - ``SIPAddParameter``
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
@@ -37,6 +38,10 @@ PhreakScript installs:
       - ``DB_CHANNEL_PRUNE_TIME``
       - ``JSON_DECODE``
       - ``SIP_PARAMETER``
+   - Miscellaneous improvements
+      - Adds fax timing and parameter control to `chan_sip`
+      - Fixes ulaw/gsm codec translation bug
+      - Fixes infinite loop Dial bug
 
 PhreakScript is also useful for:
 - automating installation and maintenance of Asterisk, Asterisk Test Suite, Asterisk Test Framework, DAHDI Linux, DAHDI Tools, and related resources
