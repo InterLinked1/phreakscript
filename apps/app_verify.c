@@ -31,7 +31,7 @@
 
 /*!
  * \todo Add STIR/SHAKEN integration at some point
-*/
+ */
 
 /*** MODULEINFO
 	<support_level>extended</support_level>
@@ -80,6 +80,9 @@
 			<para>This application may only be used with IAX2 channels,
 			except for simple verify methods regex and pattern.</para>
 		</description>
+		<see-also>
+			<ref type="application">OutVerify</ref>
+		</see-also>
 	</application>
 	<application name="OutVerify" language="en_US">
 		<synopsis>
@@ -126,6 +129,9 @@
 				</variable>
 			</variablelist>
 		</description>
+		<see-also>
+			<ref type="application">Verify</ref>
+		</see-also>
 	</application>
 	<configInfo name="app_verify" language="en_US">
 		<synopsis>Module to verify incoming and outgoing calls</synopsis>
@@ -1337,6 +1343,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(remote_var);
 	VERIFY_STRDUP(token_remote_var);
 	VERIFY_STRDUP(validatetokenrequest);
+	VERIFY_STRDUP(obtaintokenrequest);
 	VERIFY_STRDUP(setoutvars);
 	VERIFY_STRDUP(via_number);
 	VERIFY_STRDUP(clli);
@@ -1513,7 +1520,7 @@ static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_c
 	}
 
 	ast_cli(a->fd, FORMAT, "Name", "Method", "Total In", "Success In", "% In Verified", "Total Out", "Success Out", "% Out Verified");
-	ast_cli(a->fd, FORMAT, "--------", "-------", "--------", "----------", "-------------", "---------", "-----------", "--------------");
+	ast_cli(a->fd, FORMAT, "--------------------", "-------", "--------", "----------", "-------------", "---------", "-----------", "--------------");
 	AST_RWLIST_RDLOCK(&verifys);
 	AST_LIST_TRAVERSE(&verifys, v, entry) {
 		ast_cli(a->fd, FORMAT2, v->name, v->verifymethod, v->in, v->insuccess, (int) (v->in == 0 ? 0 : (100.0 * v->insuccess) / v->in),
