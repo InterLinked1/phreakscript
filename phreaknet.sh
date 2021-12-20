@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.19 (2021-12-15)
+# v0.1.21 (2021-12-20)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-20 0.1.21 Asterisk: update target usecallmanager
+# 2021-12-17 0.1.20 PhreakScript: add tests for verify, added backtrace enable
 # 2021-12-16 0.1.19 PhreakScript: added support for building chan_sip with Cisco Call Manager phone support
 # 2021-12-15 0.1.18 PhreakScript: added runtests, Asterisk: update func_evalexten
 # 2021-12-14 0.1.17: Asterisk: update func_evalexten, PhreakScript: added gerrit command
@@ -106,6 +108,7 @@ CHAN_SCCP=0
 CHAN_DAHDI=0
 TEST_SUITE=0
 FORCE_INSTALL=0
+ENABLE_BACKTRACES=0
 ASTKEYGEN=0
 DEFAULT_PATCH_DIR="/var/www/html/interlinked/sites/phreak/code/asterisk/patches" # for new patches
 PHREAKNET_CLLI=""
@@ -145,43 +148,47 @@ usage() {
 	echo "Usage: phreaknet [command] [options]
 Commands:
    *** Getting Started ***
-   about         About PhreakScript
-   help          Program usage
-   examples      Example usages
-   info          System info
+   about             About PhreakScript
+   help              Program usage
+   examples          Example usages
+   info              System info
 
    *** First Use / Installation ***
-   make          Add PhreakScript to path
-   install       Install or upgrade PhreakNet Asterisk
-   installts     Install Asterisk Test Suite
-   pulsar        Install Revertive Pulsing simulator
-   sounds        Install Pat Fleet sound library
+   make              Add PhreakScript to path
+   install           Install or upgrade PhreakNet Asterisk
+   installts         Install Asterisk Test Suite
+   pulsar            Install Revertive Pulsing simulator
+   sounds            Install Pat Fleet sound library
 
    *** Initial Configuration ***
-   config        Install PhreakNet boilerplate config
-   keygen        Install and update PhreakNet RSA keys
+   config            Install PhreakNet boilerplate config
+   keygen            Install and update PhreakNet RSA keys
 
    *** Maintenance ***
-   update        Update PhreakScript
-   upgrade       Upgrade PhreakNet Asterisk
-   patch         Patch PhreakNet Asterisk configuration
-   genpatch      Generate a PhreakPatch
+   update            Update PhreakScript
+   upgrade           Upgrade PhreakNet Asterisk
+   patch             Patch PhreakNet Asterisk configuration
+   genpatch          Generate a PhreakPatch
 
    *** Debugging ***
-   validate      Run dialplan validation and diagnostics and look for problems
-   trace         Capture a CLI trace and upload to InterLinked Paste
-   backtrace     Use astcoredumper to process a backtrace and upload to InterLinked Paste
+   validate          Run dialplan validation and diagnostics and look for problems
+   trace             Capture a CLI trace and upload to InterLinked Paste
+   enable-backtraces Enables backtraces to be extracted from the core dumper (new or existing installs)
+   backtrace         Use astcoredumper to process a backtrace and upload to InterLinked Paste
+   backtrace-only    Use astcoredumper to process a backtrace
+   valgrind          Run Asterisk under valgrind
 
    *** Development & Testing ***
-   runtests      Run differential PhreakNet tests
-   gerrit        Manually install a custom patch set from Gerrit
+   runtests          Run differential PhreakNet tests
+   gerrit            Manually install a custom patch set from Gerrit
 
    *** Miscellaneous ***
-   docgen        Generate Asterisk user documentation
-   pubdocs       Generate Asterisk user documentation (deprecated)
-   edit          Edit PhreakScript
+   docgen            Generate Asterisk user documentation
+   pubdocs           Generate Asterisk user documentation (deprecated)
+   edit              Edit PhreakScript
 
 Options:
+   -b, --backtraces   Enables getting backtraces
    -c, --cc           Country Code (default is 1)
    -d, --dahdi        Install DAHDI
    -f, --force        Force install or config
@@ -230,7 +237,7 @@ run_testsuite_test() {
 	testcount=$(($testcount + 1))
 	./runtests.py --test=tests/$1
 	if [ $? -ne 0 ]; then # test failed
-		lastrun=`ls -d logs/apps/dialtone/* | tail -1` # get the directory containing the logs from the most recently run test
+		lastrun=`ls -d logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
 		echo $lastrun
 		ls "$lastrun/ast1/var/log/asterisk/full.txt"
 		grep "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt # this should provide a good idea of what failed (or at least, what didn't succeed)
@@ -247,7 +254,10 @@ run_testsuite_tests() {
 		exit 1
 	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
+
 	run_testsuite_test "apps/dialtone"
+	run_testsuite_test "apps/verify"
+
 	printf "%d of %d test(s) passed\n" $testsuccess $testcount
 	if [ $testcount -ne $testsuccess ]; then
 		exit 1
@@ -281,6 +291,7 @@ add_phreak_testsuite() {
 	cd ..
 
 	install_phreak_testsuite_test "apps/dialtone"
+	install_phreak_testsuite_test "apps/verify"
 	
 	printf "%s\n" "Finished patching testsuite"
 }
@@ -710,7 +721,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o c:u:dfhostu:v:w -l cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -728,6 +739,7 @@ while true; do
 		break # for FreeBSD
 	fi
 	case "$1" in
+		-b | --backtraces ) ENABLE_BACKTRACES=1; shift ;;
         -c | --cc ) AST_CC=$2; shift 2;;
 		-d | --dahdi ) CHAN_DAHDI=1; shift ;;
 		-f | --force ) FORCE_INSTALL=1; shift ;;
@@ -790,12 +802,26 @@ elif [ "$cmd" = "install" ]; then
 		echoerr "PhreakScript install must be run as root. Aborting..."
 		exit 2
 	fi
+	freediskspace=`df --local --type=ext4 | head -2 | tail -1 | awk '{print $4}'` # free disk space, in KB
+	if [ ${#freediskspace} -gt 0 ]; then
+		if [ $freediskspace -lt 800000 ]; then # warn users if they're about to install Asterisk with insufficient disk space ( < 800,000 KB)
+			echoerr "WARNING: Free disk space is low: "
+			df --local --type=ext4 -h
+			if [ "$FORCE_INSTALL" = "1" ]; then
+				sleep 3
+			else
+				exit 1
+			fi
+		fi
+	fi
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
 	if [ -f "/etc/init.d/mysql" ]; then
-		printf "%s\n" "Restarting MySQL/MariaDB service..."
-		# mysql uses up a lot of CPU and memory, and will kill the compilation process
-		service mysql restart
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			printf "%s\n" "Restarting MySQL/MariaDB service..."
+			# mysql uses up a lot of CPU and memory, and will kill/really slow down the compilation process
+			service mysql restart
+		fi
 	fi
 	printf "%s\n" "Installing prerequisites..."
 	install_prereq
@@ -928,7 +954,7 @@ elif [ "$cmd" = "install" ]; then
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
 		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
-		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/cisco-usecallmanager-18.7.0.patch" -O /tmp/$CISCO_CM_SIP.patch
+		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/cisco-usecallmanager-18.9.0.patch" -O /tmp/$CISCO_CM_SIP.patch
 		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
 		if [ $? -ne 0 ]; then
 			echoerr "WARNING: Call Manager patch may have failed to apply correctly"
@@ -962,6 +988,9 @@ elif [ "$cmd" = "install" ]; then
 	if [ ! -d "$AST_SOUNDS_DIR" ]; then
 		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW --enable MOH-OPSOUND-ULAW --enable EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
 	fi
+	if [ "$ENABLE_BACKTRACES" = "1" ]; then
+		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
+	fi
 	if [ "$TEST_SUITE" = "1" ]; then
 		configure_devmode
 	fi
@@ -969,7 +998,7 @@ elif [ "$cmd" = "install" ]; then
 		menuselect/menuselect --enable chan_dahdi menuselect.makeopts
 	fi
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
-		echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Please move to chan_pjsip at your convenience."
+		echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Please migrate to chan_pjsip at your convenience."
 		menuselect/menuselect --enable chan_sip menuselect.makeopts
 	else
 		menuselect/menuselect --disable chan_sip menuselect.makeopts # remove this in version 21
@@ -1271,6 +1300,7 @@ elif [ "$cmd" = "config" ]; then
 	wget -q --show-progress https://docs.phreaknet.org/pjsip.conf -O /etc/asterisk/pjsip.conf --no-cache
 	wget -q --show-progress https://docs.phreaknet.org/musiconhold.conf -O /etc/asterisk/musiconhold.conf --no-cache
 	wget -q --show-progress https://docs.phreaknet.org/extensions.conf -O /etc/asterisk/extensions.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/verify.conf -O /etc/asterisk/verify.conf --no-cache
 	## Inject user config (CLLI code, API key)
 	sed -i "s/abcdefghijklmnopqrstuvwxyz/$INTERLINKED_APIKEY/g" /etc/asterisk/extensions.conf
 	sed -i "s/WWWWXXYYZZZ/$PHREAKNET_CLLI/g" /etc/asterisk/extensions.conf
@@ -1490,6 +1520,33 @@ elif [ "$cmd" = "trace" ]; then
 		printf "Paste URL: %s\n" "${url}.txt"
 	fi
 	rm /var/log/asterisk/$channel
+elif [ "$cmd" = "enable-backtraces" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
+	cd $AST_SRC_DIR
+	make menuselect.makeopts
+	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
+	printf "%s\n" "Backtraces have been enabled. Run 'make && make install' to recompile Asterisk."
+elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/Valgrind
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
+	cd /tmp
+	asterisk -rx "core stop now"
+	sleep 1
+	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp --log-fd=9 asterisk -vvvvcg 9 > asteriskvalgrind.txt
+	ls /tmp/asteriskvalgrind.txt
+elif [ "$cmd" = "backtrace-only" ]; then
+	if [ -f /sbin/asterisk ]; then
+		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
+	else
+		/var/lib/asterisk/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
+	fi
+	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
+	if [ ! -f $corefullpath ]; then
+		echoerr "Core dump failed to get backtrace, aborting..."
+		exit 2
+	fi
+	ls $corefullpath
 elif [ "$cmd" = "backtrace" ]; then
 	if [ -f /sbin/asterisk ]; then
 		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
