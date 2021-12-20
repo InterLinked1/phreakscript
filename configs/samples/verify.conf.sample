@@ -228,3 +228,14 @@ curltimeout = 5
 ; Code to assign to local_var for spoofed calls.
 ;
 ;code_spoof = 9
+;
+; Log level at which to optionally log incoming calls. Can include custom levels configured
+; in logger.conf.
+;
+;loglevel = NOTICE
+;
+; Log message. Can contain variables which will be evaluated at log time. The advantage of
+; specify a log message here is that it will be logged before an announcement plays, so a
+; message will appear in the log if desired, even if the caller hangs up early.
+;
+;logmsg = Asterisk: '${clidverif}' ${CALLERID(all)} @ "${CHANNEL(peerip)}" -> ${EXTEN}
