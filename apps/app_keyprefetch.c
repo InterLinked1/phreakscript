@@ -51,12 +51,12 @@
 			Obtains or updates a public key to accept for incoming IAX2 calls
 		</synopsis>
 		<syntax>
+			<parameter name="cat" required="true">
+				<para>Category in <literal>iax.conf</literal> which should accept downloaded inkeys.</para>
+			</parameter>
 			<parameter name="keyname" required="true">
 				<para>The name of the public key as it should be saved to the file system.</para>
 				<para>Do not include the extension (e.g. omit <literal>.pub</literal>).</para>
-			</parameter>
-			<parameter name="cat" required="true">
-				<para>Category in <literal>iax.conf</literal> which should accept downloaded inkeys.</para>
 			</parameter>
 			<parameter name="url" required="true">
 				<para>The HTTP (or HTTPS) endpoint to query for the public key. The HTTP request must
@@ -170,8 +170,8 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 	char *filepath;
 
 	AST_DECLARE_APP_ARGS(args,
-		AST_APP_ARG(keyname);
 		AST_APP_ARG(cat);
+		AST_APP_ARG(keyname);
 		AST_APP_ARG(url);
 		AST_APP_ARG(maxage);
 		AST_APP_ARG(options);
@@ -273,9 +273,15 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		}
 		public_key_file = fdopen(fd, "wb");
 
+#define GLOBAL_USERAGENT "asterisk-libcurl-agent/1.0"
+
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15);
+		curl_easy_setopt(curl, CURLOPT_USERAGENT, GLOBAL_USERAGENT);
 		curl_easy_setopt(curl, CURLOPT_URL, args.url);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, public_key_file);
 		curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errbuf);
+
+		ast_autoservice_start(chan);
 
 		if (curl_easy_perform(curl)) {
 			ast_log(LOG_ERROR, "%s\n", curl_errbuf);
@@ -286,6 +292,8 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 			pbx_builtin_setvar_helper(chan, "KEYPREFETCHSTATUS", "FAILURE");
 			goto done;
 		}
+
+		ast_autoservice_stop(chan);
 
 		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 		curl_easy_cleanup(curl);

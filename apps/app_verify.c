@@ -318,6 +318,12 @@
 				<configOption name="code_spoof">
 					<synopsis>Code to assign to local_var for spoofed calls.</synopsis>
 				</configOption>
+				<configOption name="loglevel">
+					<synopsis>Name of log level at which to log incoming calls (e.g. WARNING, custom, etc.)</synopsis>
+				</configOption>
+				<configOption name="logmsg">
+					<synopsis>Format of message to log. May contain variables which will be evaluated/substituted at log time.</synopsis>
+				</configOption>
 			</configObject>
 		</configFile>
 	</configInfo>
@@ -369,10 +375,12 @@ struct call_verify {
 	char code_requestfail[PATH_MAX];		/*!< Result for failed verification request */
 	char code_spoof[PATH_MAX];				/*!< Result for spoofed calls */
 	int threshold;							/*!< Threshold at which to reject calls that failed to verify */
+	char loglevel[AST_MAX_CONTEXT];			/*!< Log level */
+	char logmsg[PATH_MAX];					/*!< Log message */
 	AST_LIST_ENTRY(call_verify) entry;		/*!< Next Verify record */
 };
 
-#define DEFAULT_CURL_TIMEOUT 5000
+#define DEFAULT_CURL_TIMEOUT 5
 
 static int curltimeout = DEFAULT_CURL_TIMEOUT;		/*!< Curl Timeout */
 
@@ -464,6 +472,8 @@ static void profile_set_param(struct call_verify *v, const char *param, const ch
 	VERIFY_LOAD_STR_PARAM(code_fail, val[0]);
 	VERIFY_LOAD_STR_PARAM(code_requestfail, val[0]);
 	VERIFY_LOAD_STR_PARAM(code_spoof, val[0]);
+	VERIFY_LOAD_STR_PARAM(loglevel, val[0] && !contains_whitespace(val));
+	VERIFY_LOAD_STR_PARAM(logmsg, val[0]);
 
 	if (!strcasecmp(param, "threshold")) { /* this is parsing an actual number, not turning yes or no into a 1 or 0 */
 		if (ast_str_to_int(val, &v->threshold) || v->threshold < 0) {
@@ -508,10 +518,9 @@ static int reload_verify(int reload)
 
 	/* General section */
 	if (!ast_strlen_zero(tempstr = ast_variable_retrieve(cfg, "general", "curltimeout"))) {
-		if (!sscanf(tempstr, "%30d", &curltimeout)) {
+		if (ast_str_to_int(tempstr, &curltimeout)) {
+			ast_log(LOG_WARNING, "Invalid curl timeout: %s\n", tempstr);
 			curltimeout = DEFAULT_CURL_TIMEOUT;
-		} else {
-			curltimeout *= 1000;
 		}
 	}
 
@@ -606,6 +615,42 @@ static size_t curl_write_string_callback(void *contents, size_t size, size_t nme
 	ast_free(rawdata);
 
 	return realsize;
+}
+
+/* from app_verbose.c */
+static int verify_log(struct ast_channel *chan, char *level, char *msg)
+{
+	int lnum;
+	char extension[AST_MAX_EXTENSION + 5], context[AST_MAX_EXTENSION + 2];
+
+	if (!strcasecmp(level, "ERROR")) {
+		lnum = __LOG_ERROR;
+	} else if (!strcasecmp(level, "WARNING")) {
+		lnum = __LOG_WARNING;
+	} else if (!strcasecmp(level, "NOTICE")) {
+		lnum = __LOG_NOTICE;
+	} else if (!strcasecmp(level, "DEBUG")) {
+		lnum = __LOG_DEBUG;
+	} else if (!strcasecmp(level, "VERBOSE")) {
+		lnum = __LOG_VERBOSE;
+	} else if (!strcasecmp(level, "DTMF")) {
+		lnum = __LOG_DTMF;
+	} else {
+		lnum = ast_logger_get_dynamic_level(level);
+	}
+
+	if (lnum < 0) {
+		ast_log(LOG_ERROR, "Unknown log level: '%s'\n", level);
+		return -1;
+	}
+
+	snprintf(context, sizeof(context), "@ %s", ast_channel_context(chan));
+	snprintf(extension, sizeof(extension), "Ext. %s", ast_channel_exten(chan));
+
+	ast_log(lnum, extension, ast_channel_priority(chan), context, "%s\n", msg);
+	return 0;
+
+	return 0;
 }
 
 static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
@@ -885,7 +930,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	int success = 0;
 
 	int curl, method, extendtrust, allowtoken, sanitychecks, threshold;
-	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX];
+	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(profile);
@@ -950,6 +995,8 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(code_fail);
 	VERIFY_STRDUP(code_spoof);
 	VERIFY_STRDUP(successregex);
+	VERIFY_STRDUP(loglevel);
+	VERIFY_STRDUP(logmsg);
 	ast_mutex_unlock(&v->lock);
 
 	if (!chan || (strcmp(ast_channel_tech(chan)->type, "IAX2") && method <= 2)) {
@@ -1228,6 +1275,18 @@ done:
 
 	if (*setinvars) {
 		assign_vars(chan, strbuf, setinvars);
+	}
+
+	/* process custom logging. Caller could hang up before the announcement plays. So if instructed to log, do it now. Plus, use strbuf while we've still got it. */
+	if (*loglevel) {
+		if (!*logmsg) {
+			ast_log(LOG_WARNING, "No log message format specified for log level '%s'\n", loglevel);
+		} else {
+			ast_str_substitute_variables(&strbuf, 0, chan, logmsg); /* we don't actually know how big this will be, so use this instead of pbx_substitute_variables_helper */
+			ast_debug(1, "Logging format '%s' to level '%s'\n", logmsg, loglevel);
+			verify_log(chan, loglevel, ast_str_buffer(strbuf));
+			/* don't bother resetting strbuf, since it's about to disappear anyways */
+		}
 	}
 
 	ast_free(strbuf);
@@ -1602,6 +1661,8 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 			ast_cli(a->fd, FORMAT, "code_fail", v->code_fail);
 			ast_cli(a->fd, FORMAT, "code_requestfail", v->code_requestfail);
 			ast_cli(a->fd, FORMAT, "code_spoof", v->code_spoof);
+			ast_cli(a->fd, FORMAT, "Log Level", v->loglevel);
+			ast_cli(a->fd, FORMAT, "Log Msg Fmt", v->logmsg);
 			ast_cli(a->fd, "%s%d of %d%s incoming calls in profile '%s' have successfully passed verification\n",
 				ast_term_color(v->insuccess == 0 ? COLOR_RED : COLOR_GREEN, COLOR_BLACK),
 				v->insuccess, v->in, ast_term_reset(), v->name);
