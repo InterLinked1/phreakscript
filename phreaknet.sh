@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.21 (2021-12-20)
+# v0.1.22 (2021-12-24)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-24 0.1.22 PhreakScript: fix path issues, remove upgrade command
 # 2021-12-20 0.1.21 Asterisk: update target usecallmanager
 # 2021-12-17 0.1.20 PhreakScript: add tests for verify, added backtrace enable
 # 2021-12-16 0.1.19 PhreakScript: added support for building chan_sip with Cisco Call Manager phone support
@@ -166,7 +167,6 @@ Commands:
 
    *** Maintenance ***
    update            Update PhreakScript
-   upgrade           Upgrade PhreakNet Asterisk
    patch             Patch PhreakNet Asterisk configuration
    genpatch          Generate a PhreakPatch
 
@@ -179,7 +179,9 @@ Commands:
    valgrind          Run Asterisk under valgrind
 
    *** Development & Testing ***
+   docverify         Show documentation validation errors and details
    runtests          Run differential PhreakNet tests
+   runtest           Run any specified test (argument to command)
    gerrit            Manually install a custom patch set from Gerrit
 
    *** Miscellaneous ***
@@ -237,12 +239,29 @@ run_testsuite_test() {
 	testcount=$(($testcount + 1))
 	./runtests.py --test=tests/$1
 	if [ $? -ne 0 ]; then # test failed
-		lastrun=`ls -d logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
-		echo $lastrun
+		lastrun=`ls -d -v logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
 		ls "$lastrun/ast1/var/log/asterisk/full.txt"
-		grep "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt # this should provide a good idea of what failed (or at least, what didn't succeed)
+		grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
 	else # test succeeded
 		testsuccess=$(($testsuccess + 1))
+	fi
+}
+
+run_testsuite_test_only() {
+	cd $AST_SOURCE_PARENT_DIR/testsuite # required, full paths are not sufficient, we must cd into the dir...
+	if [ $? -ne 0 ]; then
+		exit 2
+	fi
+	if [ ! -d "$AST_SOURCE_PARENT_DIR/testsuite/tests/$1" ]; then
+		echoerr "No such directory: $AST_SOURCE_PARENT_DIR/testsuite/tests/$1"
+		exit 2
+	fi
+	echo "$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1"
+	$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
+	if [ $? -ne 0 ]; then # test failed
+		lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
+		ls "$lastrun/ast1/var/log/asterisk/full.txt"
+		grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
 	fi
 }
 
@@ -500,6 +519,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_streamsilence.c"
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
+	phreak_tree_module "apps/app_keyprefetch.c"
 	phreak_tree_module "configs/samples/verify.conf.sample"
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
@@ -945,7 +965,7 @@ elif [ "$cmd" = "install" ]; then
 		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
 		exit 2
 	fi
-	AST_SRC_DIR2=`ls -d */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR2=`ls -d -v */ | grep "^asterisk-" | tail -1`
 	AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
 	if [ "$AST_SRC_DIR" != "$AST_SRC_DIR2" ]; then
 		echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
@@ -1186,14 +1206,23 @@ elif [ "$cmd" = "installts" ]; then
 		exit 2
 	fi
 	install_testsuite "$FORCE_INSTALL"
+elif [ "$cmd" = "docverify" ]; then
+	/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # show the XML validation errors
+	/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml 2>&1 | grep "doc/core-en_US.xml:" | cut -d':' -f2 | cut -d'.' -f1 | xargs  -d "\n" -I{} sed "{}q;d" doc/core-en_US.xml # show the offending lines
 elif [ "$cmd" = "gerrit" ]; then
 	read -r -p "Gerrit Patchset: " gurl
 	phreak_gerrit_off "$gurl"
+elif [ "$cmd" = "runtest" ]; then
+	if [ ${#2} -eq 0 ]; then
+		echoerr "Missing argument."
+		exit 2
+	fi
+	run_testsuite_test_only "$2"
 elif [ "$cmd" = "runtests" ]; then
 	run_testsuite_tests
 elif [ "$cmd" = "docgen" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
 	cd $AST_SRC_DIR
 	if [ $? -ne 0 ]; then
 		echoerr "Couldn't find Asterisk source directory?"
@@ -1215,7 +1244,7 @@ elif [ "$cmd" = "docgen" ]; then
 	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
 elif [ "$cmd" = "pubdocs" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
 	apt-get install -y python-dev python-virtualenv python-lxml
 	pip install pystache
 	pip install premailer
@@ -1228,7 +1257,7 @@ elif [ "$cmd" = "pubdocs" ]; then
 	printf "%s\n" "Generating Confluence markup..."
 	if [ ! -f "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml" ]; then
 		echoerr "File does not exist: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml"
-		ls -d /usr/src/*/ | grep "asterisk-" | tail -1
+		ls -d -v /usr/src/*/ | grep "asterisk-" | tail -1
 		exit 2
 	fi
 	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
@@ -1441,17 +1470,6 @@ elif [ "$cmd" = "genpatch" ]; then
 	else
 		printf "%s\n" "Patch file is empty. Aborting."
 	fi
-elif [ "$cmd" = "upgrade" ]; then
-	printf "%s\n" "Updating verification subroutines..."
-	if [ -f "/etc/asterisk/verification.conf " ]; then # always update Verification Subroutines
-		wget https://docs.phreaknet.org/verification.conf -O /etc/asterisk/verification.conf --no-cache
-	elif [ -f "/etc/asterisk/dialplan/phreaknet/verification.conf " ]; then # always update Verification Subroutines
-		wget https://docs.phreaknet.org/verification.conf -O /etc/asterisk/dialplan/phreaknet/verification.conf --no-cache
-	else
-		wget https://docs.phreaknet.org/verification.conf -O /etc/asterisk/dialplan/verification.conf --no-cache
-	fi
-	# use diff/patch files for the rest, check what version we have and version # of each patch.
-	# echo updater
 elif [ "$cmd" = "edit" ]; then
 	exec nano $FILE_PATH
 elif [ "$cmd" = "validate" ]; then
@@ -1522,14 +1540,14 @@ elif [ "$cmd" = "trace" ]; then
 	rm /var/log/asterisk/$channel
 elif [ "$cmd" = "enable-backtraces" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
 	cd $AST_SRC_DIR
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
 	printf "%s\n" "Backtraces have been enabled. Run 'make && make install' to recompile Asterisk."
 elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/Valgrind
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
 	cd /tmp
 	asterisk -rx "core stop now"
 	sleep 1
