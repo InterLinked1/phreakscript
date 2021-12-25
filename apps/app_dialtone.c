@@ -118,7 +118,11 @@
 			<para>Reads a telephone number from a user into the
 			given <replaceable>variable</replaceable>. Dialing
 			concludes once an extension match is found in <literal>context</literal>
-			that returns a non-zero number.</para>
+			that returns a positive number.</para>
+			<para>If <literal>context</literal> returns a negative number, the absolute
+			value will be used to wait in silence for an additional digit. For example,
+			if the digit map returns -5, the application will wait 5 seconds in silence
+			for an additional digit and complete if it does not receive any.</para>
 			<para>This application does not automatically answer the channel and should
 			be preceded by <literal>Progress</literal> or <literal>Answer</literal>.</para>
 			<example title="Simulated city dial tone">
@@ -305,10 +309,11 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 		ast_log(LOG_WARNING, "No timeout provided, but no subsequent filename(s) specified. This is unlikely to be the desired behavior!\n");
 	}
 	ast_stopstream(chan);
-	if (x && digit_map_match(chan, arglist.context, tmp, parse)) { /* leading digits were passed in, so check the digit map before doing anything */
+	if (x && digit_map_match(chan, arglist.context, tmp, parse) > 0) { /* leading digits were passed in, so check the digit map before doing anything */
 		done = 1;
 	}
 	if (!done) {
+		int timeoutoverride = 0;
 		do {
 			if (ts) {
 				ts = ast_tone_zone_sound_unref(ts); /* unref first ts, ref second ts (etc.) */
@@ -333,6 +338,15 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 					tmp[x-1] = '\0';
 					done = 1;
 				}
+			} else if (timeoutoverride < 0) { /* wait in silence and see if there's another digit */
+				tmpdigit = tmp + x;
+				/* if digit map returned digit < 0, that is the timeout, e.g. -5 means 5 second timeout to wait for further digits, and otherwise complete */
+				res = ast_app_getdata_terminator(chan, "", tmpdigit, 1, timeoutoverride * -1000, terminator);
+				if (res != AST_GETDATA_COMPLETE) {
+					ast_debug(1, "Received terminator, ending digit collection\n");
+					done = 1;
+				}
+				x++;
 			} else { /* read using a file */
 				char buf[BUFFER_LEN];
 				char *audio = subsequentaudio;
@@ -353,7 +367,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 				tmpdigit = tmp + x - 1;
 				ast_verb(4, "User dialed digit '%s'\n", tmpdigit);
 			}
-			if (!done) { /* if no digit dialed, don't echo */
+			if (!done && (echodtmf || echomf)) { /* if no digit dialed, don't echo */
 				if (echodtmf) {
 					ast_debug(1, "Echoing '%s' as DTMF\n", tmp + x - 1);
 					res = ast_dtmf_stream(chan, NULL, tmp + x - 1, 250, 100);
@@ -366,7 +380,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 					return -1;
 				}
 			}
-		} while (!done && !digit_map_match(chan, arglist.context, tmp, parse) && x < maxdigits);
+		} while (!done && ((timeoutoverride = digit_map_match(chan, arglist.context, tmp, parse)) <= 0) && x < maxdigits);
 	}
 
 	if (!ast_strlen_zero(tmp)) {
