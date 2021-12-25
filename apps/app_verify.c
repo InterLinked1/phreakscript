@@ -1251,6 +1251,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 					if (!strcmp(peerip, host)) {
 						ast_debug(1, "Verified '%s' using manual exception for %s\n", viaverify ? via : callerid, peerip);
 						vresult = viaverify ? remote_result : code_good;
+						success = 1;
 						goto success;
 					}
 				}
@@ -1258,6 +1259,9 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			goto fail;
 		}
 success: /* only as a branch, if we fall through to here, that doesn't necessarily mean success */
+		if (!success) {
+			ast_log(LOG_WARNING, "Hit the success branch, but success flag not set. Please report this bug.\n"); /* should never happen! */
+		}
 		verify_set_var(chan, local_var, vresult);
 		ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, vresult ? vresult : "(null)");
 		goto done;
