@@ -1,0 +1,63 @@
+
+[default]
+exten => s,1,Answer()
+	same => n,Set(i=0)
+	same => n,While($[${INC(i)}<=5])
+	same => n,Originate(Local/${i}@red-boxer,exten,red-boxed,${i},1,,a)
+	same => n,EndWhile()
+	same => n,Hangup()
+
+[nothing]
+exten => 0,1,Answer()
+	same => n,Wait(8)
+	same => n,Hangup()
+
+[red-boxer]
+exten => 1,1,Answer(0.5)
+	same => n,Playback(silence/1) ; Wait doesn't work (makes sense, no audio frames...) but playing silence makes the detection perfect in this test.
+	same => n,Playback(<<astetcdir>>/5c)
+	same => n,Playback(silence/2) ; we need audio flowing for detection to finish
+	same => n,Wait(99)
+	same => n,Hangup()
+exten => _[245],1,Answer(0.5)
+	same => n,Playback(silence/1)
+	same => n,Playback(<<astetcdir>>/10c)
+	same => n,Playback(silence/2)
+	same => n,Wait(99)
+	same => n,Hangup()
+exten => 3,1,Answer(0.5)
+	same => n,Playback(silence/2)
+	same => n,Playback(<<astetcdir>>/25c)
+	same => n,Playback(silence/2)
+	same => n,Wait(99)
+	same => n,Hangup()
+
+[red-boxed]
+exten => 1,1,Answer()
+	same => n,WaitForDeposit(5,4,1)
+	same => n,GotoIf($[$["${WAITFORDEPOSITSTATUS}"="SUCCESS"]&$["${WAITFORDEPOSITAMOUNT}"="5"]]?success,1:fail,1)
+exten => 2,1,Answer()
+	same => n,WaitForDeposit(10,4,1)
+	same => n,GotoIf($[$["${WAITFORDEPOSITSTATUS}"="SUCCESS"]&$["${WAITFORDEPOSITAMOUNT}"="10"]]?success,1:fail,1)
+exten => 3,1,Answer()
+	same => n,WaitForDeposit(25,4,1) ; yes, believe it or not, in perfect DSP conditions, we can accurately detect all 25 cents of a quarter!
+	same => n,GotoIf($[$["${WAITFORDEPOSITSTATUS}"="SUCCESS"]&$["${WAITFORDEPOSITAMOUNT}"="25"]]?success,1:fail,1)
+exten => 4,1,Answer()
+	same => n,Set(COIN_DETECT(a(10)d(1)rg(successrx,1))=)
+	same => n,Wait(6) ; no audio is sent in the TX direction. Same characteristic as the first 3 tests.
+	same => n,UserEvent(CoinSuccess,Result: Fail ${COIN_DETECT(rx)},Reason: ${COIN_DETECT(rx)})
+	same => n,Hangup()
+exten => 5,1,Answer()
+	same => n,Set(COIN_DETECT(a(10)d(1)lrg(successrx,1))=) ; relax detection. Needed for correct operation with audio TX on the channel during detection. To ensure we don't overdetect, we delay completion by 1s.
+	same => n,Playback(silence/6) ; send audio in the TX direction. This taxes the DSP a LOT more! It won't behave the same as with no audio.
+	same => n,UserEvent(CoinSuccess,Result: Fail ${COIN_DETECT(rx)},Reason: ${COIN_DETECT(rx)})
+	same => n,Hangup()
+exten => successrx,1,GotoIf($["${COIN_DETECT(rx)}"="10"]?success,1)
+	same => n,UserEvent(CoinSuccess,Result: Fail ${COIN_DETECT(rx)},Reason: ${COIN_DETECT(rx)})
+	same => n,Hangup()
+exten => success,1,Answer(1)
+	same => n,UserEvent(CoinSuccess,Result: Fail)
+	same => n,Hangup()
+exten => fail,1,Answer(1)
+	same => n,UserEvent(CoinSuccess,Result: Fail ${WAITFORDEPOSITSTATUS} ${WAITFORDEPOSITAMOUNT},Reason: ${WAITFORDEPOSITAMOUNT})
+	same => n,Hangup()
