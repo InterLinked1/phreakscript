@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.22 (2021-12-24)
+# v0.1.23 (2021-12-26)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-26 0.1.23 PhreakScript: added Asterisk build info to trace, Asterisk: added app_loopplayback, func_numpeer
 # 2021-12-24 0.1.22 PhreakScript: fix path issues, remove upgrade command
 # 2021-12-20 0.1.21 Asterisk: update target usecallmanager
 # 2021-12-17 0.1.20 PhreakScript: add tests for verify, added backtrace enable
@@ -513,6 +514,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_if.c"
+	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
 	phreak_tree_module "apps/app_softmodem.c"
@@ -523,6 +525,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "configs/samples/verify.conf.sample"
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
+	phreak_tree_module "funcs/func_numpeer.c"
 	phreak_tree_module "funcs/func_ochannel.c"
 
 	## Third Party Modules
@@ -541,13 +544,15 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
 	gerrit_patch 17510 "https://gerrit.asterisk.org/changes/asterisk~17510/revisions/1/patch?download" # app_sendtext: Add ReceiveText
 	gerrit_patch 17470 "https://gerrit.asterisk.org/changes/asterisk~17470/revisions/9/patch?download" # variable substitution for extensions
-
-	## Gerrit patches: remove once merged
 	gerrit_patch 17654 "https://gerrit.asterisk.org/changes/asterisk~17654/revisions/1/patch?download" # critical compiler fix
 	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
+
+	## Gerrit patches: remove once merged
 	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/2/patch?download" # app_sf
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
+	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
+	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/1/patch?download" # CLI command to eval dialplan functions
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
@@ -1517,6 +1522,10 @@ elif [ "$cmd" = "trace" ]; then
 		echoerr "CLI log trace file not found, aborting..."
 		exit 2
 	fi
+	settings=`asterisk -rx 'core show settings'`
+	printf "\n" >> /var/log/asterisk/$channel
+	echo "------------------------------------------------------------------------" >> /var/log/asterisk/$channel
+	echo "$settings" >> /var/log/asterisk/$channel # append helpful system info.
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" /etc/asterisk | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
