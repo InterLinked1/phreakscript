@@ -17,6 +17,7 @@ PhreakScript installs:
       - ``If``, ``EndIf``, ``ExitIf``
       - ``SendMail``
       - ``MallocTrim``
+      - ``LoopPlayback``
       - ``StreamSilence``
       - ``SendSF``
       - ``ReceiveSF``
@@ -36,6 +37,9 @@ PhreakScript installs:
       - ``DB_CHANNEL``
       - ``DB_CHANNEL_PRUNE``
       - ``DB_CHANNEL_PRUNE_TIME``
+      - ``DB_MAXKEY``
+      - ``DB_MINKEY``
+      - ``DB_UNIQUE``
       - ``JSON_DECODE``
       - ``SIP_PARAMETER``
    - Miscellaneous improvements
