@@ -245,12 +245,15 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		}
 	}
 	if (!inkey) {
+		struct stat s;
+		unsigned int size;
 		FILE *public_key_file;
 		long http_code;
 		CURL **curl;
 		char *tmp_filename;
 		char curl_errbuf[CURL_ERROR_SIZE + 1];
 		int fd;
+		int failure;
 
 		ast_debug(1, "Planning to curl '%s' for public key\n", args.url);
 		needreload = 1;
@@ -302,13 +305,18 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		pbx_builtin_setvar_helper(chan, "KEYPREFETCHSTATUS", "UPDATED");
 		if (http_code / 100 != 2) {
 			ast_log(LOG_ERROR, "Failed to retrieve URL '%s': code %ld\n", args.url, http_code);
-			remove(tmp_filename);
-			newkey = 0;
-			needreload = 0;
-			pbx_builtin_setvar_helper(chan, "KEYPREFETCHSTATUS", "FAILURE");
-		}
-		if (rename(tmp_filename, filepath)) {
+			failure = 1;
+		} else if (stat(tmp_filename, &s)) {
+			ast_log(LOG_WARNING, "Inkey temp file '%s' not found on file system?\n", tmp_filename);
+			failure = 1;
+		} else if ((size = (unsigned int) s.st_size) == 0) {
+			ast_log(LOG_WARNING, "File '%s' is %d bytes, aborting\n", tmp_filename, size);
+			failure = 1;
+		} else if (rename(tmp_filename, filepath)) {
 			ast_log(LOG_ERROR, "Failed to rename temporary file %s to %s after CURL\n", tmp_filename, filepath);
+			failure = 1;
+		}
+		if (failure) {
 			remove(tmp_filename);
 			newkey = 0;
 			needreload = 0;
