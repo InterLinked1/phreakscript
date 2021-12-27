@@ -310,7 +310,9 @@ static int function_db_chan_prune_time(struct ast_channel *chan, const char *cmd
 static int db_extreme_helper(char *parse, char *buf, size_t len, int newest)
 {
 	struct ast_db_entry *dbe, *orig_dbe;
-	int winner, winnerfound = 0;
+	int winnerfound = 0;
+	/* winner should be a float, not an int, to work properly with decimals, e.g. DB_UNIQUE */
+	double winner; /* meh, a float might be sufficient, but the extra precision might be worth it */
 	char *family;
 	char *parsedup = ast_strdupa(parse);
 
@@ -346,16 +348,16 @@ static int db_extreme_helper(char *parse, char *buf, size_t len, int newest)
 			}
 			if (!winnerfound) {
 				winnerfound = 1;
-				winner = atoi(curkey);
-				ast_debug(1, "Winner is now %d (%s)\n", winner, curkey);
+				winner = atof(curkey);
+				ast_debug(1, "Winner is now %f (%s)\n", winner, curkey);
 			} else {
 				/* in reality, it'll probably be quicker to only keep track of the winning key,
 					and then iterate through a 2nd time just once to copy the name of the key,
 					as opposed to copying the key name each time there is a new winner */
-				int x = atoi(curkey);
+				double x = atof(curkey);
 				if (newest ? (x > winner) : (x < winner)) { /* do we want the newest or oldest key? */
 					winner = x;
-					ast_debug(1, "Winner is now %d (%s)\n", winner, curkey);
+					ast_debug(1, "Winner is now %f (%s)\n", winner, curkey);
 				}
 			}
 		}
