@@ -1,0 +1,58 @@
+testinfo:
+    summary: 'Ensure that func_dbchan functions correctly.'
+    description: |
+        'This tests func_dbchan for correct functionality.'
+
+test-modules:
+    test-object:
+        config-section: test-object-config
+        typename: 'test_case.TestCaseModule'
+    modules:
+        -
+            config-section: caller-originator
+            typename: 'pluggable_modules.Originator'
+        -
+            config-section: hangup-monitor
+            typename: 'pluggable_modules.HangupMonitor'
+        -
+            config-section: ami-config
+            typename: 'pluggable_modules.EventActionModule'
+
+test-object-config:
+    connect-ami: True
+
+caller-originator:
+    channel: 'Local/s@default'
+    context: 'nothing'
+    exten: '0'
+    priority: '1'
+    trigger: 'ami_connect'
+
+hangup-monitor:
+    ids: '0'
+
+ami-config:
+    -
+        ami-events:
+            conditions:
+                match:
+                    Event: 'UserEvent'
+                    UserEvent: 'DBChanSuccess'
+            requirements:
+                match:
+                    Result: 'Pass'
+            count: 1
+        stop_test:
+
+properties:
+    tags:
+        - dial
+        - funcs
+    dependencies:
+        - python: 'twisted'
+        - python: 'starpy'
+        - asterisk: 'app_dial'
+        - asterisk: 'app_userevent'
+        - asterisk: 'app_originate'
+        - asterisk: 'func_dbchan'
+        - asterisk: 'pbx_config'
