@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.23 (2021-12-26)
+# v0.1.24 (2021-12-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-27 0.1.24 PhreakScript: add tests for func_dbchan
 # 2021-12-26 0.1.23 PhreakScript: added Asterisk build info to trace, Asterisk: added app_loopplayback, func_numpeer
 # 2021-12-24 0.1.22 PhreakScript: fix path issues, remove upgrade command
 # 2021-12-20 0.1.21 Asterisk: update target usecallmanager
@@ -174,6 +175,7 @@ Commands:
    *** Debugging ***
    validate          Run dialplan validation and diagnostics and look for problems
    trace             Capture a CLI trace and upload to InterLinked Paste
+   pcap              Perform a packet capture, optionally against a specific IP address
    enable-backtraces Enables backtraces to be extracted from the core dumper (new or existing installs)
    backtrace         Use astcoredumper to process a backtrace and upload to InterLinked Paste
    backtrace-only    Use astcoredumper to process a backtrace
@@ -183,6 +185,7 @@ Commands:
    docverify         Show documentation validation errors and details
    runtests          Run differential PhreakNet tests
    runtest           Run any specified test (argument to command)
+   stresstest        Run any specified test multiple times in a row
    gerrit            Manually install a custom patch set from Gerrit
 
    *** Miscellaneous ***
@@ -248,7 +251,7 @@ run_testsuite_test() {
 	fi
 }
 
-run_testsuite_test_only() {
+run_testsuite_test_only() { # $2 = stress test
 	cd $AST_SOURCE_PARENT_DIR/testsuite # required, full paths are not sufficient, we must cd into the dir...
 	if [ $? -ne 0 ]; then
 		exit 2
@@ -258,11 +261,22 @@ run_testsuite_test_only() {
 		exit 2
 	fi
 	echo "$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1"
-	$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
-	if [ $? -ne 0 ]; then # test failed
-		lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
-		ls "$lastrun/ast1/var/log/asterisk/full.txt"
-		grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
+	iterations=1
+	if [ "$2" = "1" ]; then
+		iterations=7
+	fi
+	while [ $iterations -gt 0 ]; do # POSIX for loop
+		$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
+		if [ $? -ne 0 ]; then # test failed
+			lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
+			ls "$lastrun/ast1/var/log/asterisk/full.txt"
+			grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
+			exit 1
+		fi
+		iterations=$(( iterations - 1 ))
+	done
+	if [ "$2" = "1" ]; then
+		printf "Stress test passed: %s\n" "$1"
 	fi
 }
 
@@ -277,6 +291,7 @@ run_testsuite_tests() {
 
 	run_testsuite_test "apps/dialtone"
 	run_testsuite_test "apps/verify"
+	run_testsuite_test "funcs/func_dbchan"
 
 	printf "%d of %d test(s) passed\n" $testsuccess $testcount
 	if [ $testcount -ne $testsuccess ]; then
@@ -312,7 +327,8 @@ add_phreak_testsuite() {
 
 	install_phreak_testsuite_test "apps/dialtone"
 	install_phreak_testsuite_test "apps/verify"
-	
+	install_phreak_testsuite_test "funcs/func_dbchan"
+
 	printf "%s\n" "Finished patching testsuite"
 }
 
@@ -540,7 +556,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 
 	## Gerrit patches: merged, remove in 18.10
-	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/2/patch?download" # func_json
+	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/16/patch?download" # func_json
 	gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
 	gerrit_patch 17510 "https://gerrit.asterisk.org/changes/asterisk~17510/revisions/1/patch?download" # app_sendtext: Add ReceiveText
 	gerrit_patch 17470 "https://gerrit.asterisk.org/changes/asterisk~17470/revisions/9/patch?download" # variable substitution for extensions
@@ -548,11 +564,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
 
 	## Gerrit patches: remove once merged
-	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/2/patch?download" # app_sf
+	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/5/patch?download" # app_sf
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
-	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/1/patch?download" # CLI command to eval dialplan functions
+	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
@@ -607,6 +623,52 @@ download_if_missing() {
 		wget "$2"
 	else
 		printf "Audio file already present, not overwriting: %s\n" "$1"
+	fi
+}
+
+paste_post() { # $1 = file to upload
+	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
+		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" /etc/asterisk | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
+		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
+			echoerr "Failed to find InterLinked API key. For future use, please set your [global] variables, e.g. by running phreaknet config"
+			printf '\a' # alert the user
+			read -r -p "InterLinked API key: " INTERLINKED_APIKEY
+			if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
+				echoerr "InterLinked API key too short. Not going to attempt uploading paste..."
+				ls $1
+				exit 2
+			fi
+		fi
+	fi
+	url=`curl -X POST -F "body=@$1" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
+	printf "Paste URL: %s\n" "${url}.txt"
+}
+
+get_backtrace() { # $1 = "1" to upload
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install gdb # for astcoredumper
+	fi
+	if [ -f /sbin/asterisk ]; then
+		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
+	else
+		/var/lib/asterisk/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
+	fi
+	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
+	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
+		echoerr "No core dumps found"
+		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
+		exit 2
+	fi
+	if [ ! -f $corefullpath ]; then
+		echoerr "Core dump failed to get backtrace, aborting..."
+		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
+		exit 2
+	fi
+	if [ "$1" == "1" ]; then # backtrace
+		paste_post "$corefullpath"
+		rm /tmp/core-*.txt
+	else # backtrace-only
+		ls $corefullpath
 	fi
 }
 
@@ -1222,7 +1284,13 @@ elif [ "$cmd" = "runtest" ]; then
 		echoerr "Missing argument."
 		exit 2
 	fi
-	run_testsuite_test_only "$2"
+	run_testsuite_test_only "$2" 0
+elif [ "$cmd" = "stresstest" ]; then
+	if [ ${#2} -eq 0 ]; then
+		echoerr "Missing argument."
+		exit 2
+	fi
+	run_testsuite_test_only "$2" 1
 elif [ "$cmd" = "runtests" ]; then
 	run_testsuite_tests
 elif [ "$cmd" = "docgen" ]; then
@@ -1526,34 +1594,32 @@ elif [ "$cmd" = "trace" ]; then
 	printf "\n" >> /var/log/asterisk/$channel
 	echo "------------------------------------------------------------------------" >> /var/log/asterisk/$channel
 	echo "$settings" >> /var/log/asterisk/$channel # append helpful system info.
-	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
-		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" /etc/asterisk | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
-		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
-			echoerr "Failed to find InterLinked API key. For future use, please set your [global] variables, e.g. by running phreaknet config"
-			printf '\a'
-			read -r -p "InterLinked API key: " INTERLINKED_APIKEY
-			if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
-				echoerr "InterLinked API key too short. Not going to attempt uploading paste..."
-				exit 2
-			fi
-		fi
-	fi
-	printf "%s\n" "Attempting to automatically upload trace to InterLinked Paste..."
-	url=`curl -X POST -F "body=@/var/log/asterisk/$channel" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
-	if [ "$url" = "Invalid API key." ] ; then
-		echoerr "$url"
-		printf "%s\n" "Trace is in file /var/log/asterisk/$channel but will NOT be automatically uploaded!"
-	else
-		printf "Paste URL: %s\n" "${url}.txt"
-	fi
+	paste_post "/var/log/asterisk/$channel"
 	rm /var/log/asterisk/$channel
+elif [ "$cmd" = "pcap" ]; then
+	apt-get install -y tshark
+	debugtime=$EPOCHSECONDS
+	if [ "$debugtime" = "" ]; then
+		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
+	fi
+	ip=""
+	if [ ${#2} -gt 0 ]; then
+		ip=$2
+		printf "%s\n" "Starting packet capture for IP $ip - press CTRL+C to conclude"
+		tshark -f "not port 22 and host $ip" -i any -w /tmp/pcap_$debugtime.pcap
+	else
+		printf "%s\n" "Starting packet capture (all IPs) - press CTRL+C to conclude"
+		tshark -f "not port 22" -i any -w /tmp/pcap_$debugtime.pcap
+	fi
+	printf "Packet capture successfully saved to %s\n" "/tmp/pcap_$debugtime.pcap"
 elif [ "$cmd" = "enable-backtraces" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
 	cd $AST_SRC_DIR
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
-	printf "%s\n" "Backtraces have been enabled. Run 'make && make install' to recompile Asterisk."
+	make
+	make install
 elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/Valgrind
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
@@ -1563,43 +1629,9 @@ elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/
 	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp --log-fd=9 asterisk -vvvvcg 9 > asteriskvalgrind.txt
 	ls /tmp/asteriskvalgrind.txt
 elif [ "$cmd" = "backtrace-only" ]; then
-	if [ -f /sbin/asterisk ]; then
-		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
-	else
-		/var/lib/asterisk/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
-	fi
-	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
-	if [ ! -f $corefullpath ]; then
-		echoerr "Core dump failed to get backtrace, aborting..."
-		exit 2
-	fi
-	ls $corefullpath
+	get_backtrace 0
 elif [ "$cmd" = "backtrace" ]; then
-	if [ -f /sbin/asterisk ]; then
-		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
-	else
-		/var/lib/asterisk/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
-	fi
-	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
-	if [ ! -f $corefullpath ]; then
-		echoerr "Core dump failed to get backtrace, aborting..."
-		exit 2
-	fi
-	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
-		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" /etc/asterisk | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
-		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
-			echoerr "Failed to find InterLinked API key. For future use, please set your [global] variables, e.g. by running phreaknet config"
-			printf '\a'
-			read -r -p "InterLinked API key: " INTERLINKED_APIKEY
-			if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
-				echoerr "InterLinked API key too short. Not going to attempt uploading paste..."
-				exit 2
-			fi
-		fi
-	fi
-	url=`curl -X POST -F "body=@$corefullpath" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
-	printf "Paste URL: %s\n" "${url}.txt"
-	rm /tmp/core-*.txt
+	get_backtrace 1
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."
