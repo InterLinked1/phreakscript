@@ -109,7 +109,7 @@ static int number_to_device(char *buffer, size_t buflen, const char *number, int
 	}
 	if (cfg == CONFIG_STATUS_FILEINVALID) {
 		ast_debug(1, "Config file has invalid format: %s\n", cfgfile);
-		ast_config_destroy(cfg);
+		/* do not destroy config, that will crash */
 		return -1;
 	}
 
