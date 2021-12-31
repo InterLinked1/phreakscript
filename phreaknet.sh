@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.24 (2021-12-27)
+# v0.1.25 (2021-12-31)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-12-31 0.1.25 PhreakScript: added ulaw command, Asterisk: added func_frameintercept, app_fsk
 # 2021-12-27 0.1.24 PhreakScript: add tests for func_dbchan
 # 2021-12-26 0.1.23 PhreakScript: added Asterisk build info to trace, Asterisk: added app_loopplayback, func_numpeer
 # 2021-12-24 0.1.22 PhreakScript: fix path issues, remove upgrade command
@@ -162,6 +163,7 @@ Commands:
    installts         Install Asterisk Test Suite
    pulsar            Install Revertive Pulsing simulator
    sounds            Install Pat Fleet sound library
+   ulaw              Convert wav to ulaw (specific file or all in current directory)
 
    *** Initial Configuration ***
    config            Install PhreakNet boilerplate config
@@ -187,6 +189,7 @@ Commands:
    runtest           Run any specified test (argument to command)
    stresstest        Run any specified test multiple times in a row
    gerrit            Manually install a custom patch set from Gerrit
+   ccache            Globally install ccache to speed up recompilation
 
    *** Miscellaneous ***
    docgen            Generate Asterisk user documentation
@@ -547,6 +550,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Third Party Modules
 	printf "Adding new module: %s\n" "apps/app_tdd.c"
 	wget -q https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tdd.c --no-cache
+	wget -q https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_fsk.c --no-cache
 
 	## Add patches to existing modules
 	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
@@ -564,11 +568,12 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
 
 	## Gerrit patches: remove once merged
-	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/5/patch?download" # app_sf
+	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/6/patch?download" # app_sf
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
 	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
+	gerrit_patch 17716 "https://gerrit.asterisk.org/changes/asterisk~17716/revisions/3/patch?download" # func_frameintercept
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
@@ -1267,6 +1272,21 @@ elif [ "$cmd" = "sounds" ]; then
 		cd ringback
 		download_if_missing "ringback.ulaw" "https://audio.phreaknet.org/stock/ringback.ulaw"
 	fi
+elif [ "$cmd" = "ulaw" ]; then
+	if ! which sox > /dev/null; then
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install -y sox
+		fi
+	fi
+	if [ ${#2} -gt 0 ]; then # a specific file
+		withoutextension=`printf '%s\n' "$2" | sed -r 's|^(.*?)\.\w+$|\1|'` # see comment on https://stackoverflow.com/a/26753382
+		sox "$2" --rate 8000 --channels 1 --type ul $withoutextension.ulaw lowpass 3400 highpass 300
+	else
+		for f in *.wav; do
+			withoutextension=`printf '%s\n' "$f" | sed -r 's|^(.*?)\.\w+$|\1|'`
+			sox $f --rate 8000 --channels 1 --type ul $withoutextension.ulaw lowpass 3400 highpass 300
+		done
+	fi
 elif [ "$cmd" = "installts" ]; then
 	if [ $(id -u) -ne 0 ]; then
 		echoerr "PhreakScript installts must be run as root. Aborting..."
@@ -1632,6 +1652,26 @@ elif [ "$cmd" = "backtrace-only" ]; then
 	get_backtrace 0
 elif [ "$cmd" = "backtrace" ]; then
 	get_backtrace 1
+elif [ "$cmd" = "ccache" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	wget https://github.com/ccache/ccache/releases/download/v4.5.1/ccache-4.5.1.tar.gz
+	if [ $? -ne 0 ]; then
+		exit 1
+	fi
+	tar -zxvf ccache-4.5.1.tar.gz
+	cd ccache-4.5.1
+	cmake -DCMAKE_BUILD_TYPE=Release -DZSTD_FROM_INTERNET=ON -DHIREDIS_FROM_INTERNET=ON ..
+	make
+	make install
+	if [ $? -ne 0 ]; then
+		exit 1
+	fi
+	which ccache
+	ln -s ccache /usr/local/bin/gcc
+	ln -s ccache /usr/local/bin/g++
+	ln -s ccache /usr/local/bin/cc
+	ln -s ccache /usr/local/bin/c++
+	which gcc
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."
