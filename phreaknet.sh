@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # PhreakScript
-# (C) 2021 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.25 (2021-12-31)
+# (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
+# v0.1.26 (2021-01-01)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-01-01 0.1.26 PhreakScript: removed hardcoded paths
 # 2021-12-31 0.1.25 PhreakScript: added ulaw command, Asterisk: added func_frameintercept, app_fsk
 # 2021-12-27 0.1.24 PhreakScript: add tests for func_dbchan
 # 2021-12-26 0.1.23 PhreakScript: added Asterisk build info to trace, Asterisk: added app_loopplayback, func_numpeer
@@ -82,10 +83,14 @@
 # 2021-10-07 0.0.1  Asterisk (ASTERISK-20219): chan_iax2 (Improvement): Add encryption to RSA authentication (merged as of Oct. 2021, patch will be removed soon)
 ## End Change Log
 
+# User environment variables
+AST_CONFIG_DIR="/etc/asterisk"
+AST_VARLIB_DIR="/var/lib/asterisk"
+AST_SOURCE_PARENT_DIR="/usr/src"
+
 # Script environment variables
 AST_SOURCE_NAME="asterisk-18-current"
 CISCO_CM_SIP="cisco-usecallmanager-18.7.0"
-
 AST_ALT_VER=""
 MIN_ARGS=1
 FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
@@ -95,10 +100,8 @@ PATCH_DIR=https://docs.phreaknet.org/script
 OS_DIST_INFO="(lsb_release -ds || cat /etc/*release || uname -om ) 2>/dev/null | head -n1 | cut -d'=' -f2"
 OS_DIST_INFO=$(eval "$OS_DIST_INFO" | tr -d '"')
 PAC_MAN="apt-get"
-AST_CONFIG_DIR="/etc/asterisk"
-AST_SOUNDS_DIR="/var/lib/asterisk/sounds/en"
-AST_MOH_DIR="/var/lib/asterisk/moh"
-AST_SOURCE_PARENT_DIR="/usr/src"
+AST_SOUNDS_DIR="$AST_VARLIB_DIR/sounds/en"
+AST_MOH_DIR="$AST_VARLIB_DIR/moh"
 AST_MAKE="make"
 PATH="/sbin:$PATH" # in case su used without path
 
@@ -568,7 +571,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
 
 	## Gerrit patches: remove once merged
-	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/6/patch?download" # app_sf
+	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/7/patch?download" # app_sf
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
@@ -633,7 +636,7 @@ download_if_missing() {
 
 paste_post() { # $1 = file to upload
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
-		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" /etc/asterisk | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
+		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
 			echoerr "Failed to find InterLinked API key. For future use, please set your [global] variables, e.g. by running phreaknet config"
 			printf '\a' # alert the user
@@ -654,9 +657,9 @@ get_backtrace() { # $1 = "1" to upload
 		apt-get install gdb # for astcoredumper
 	fi
 	if [ -f /sbin/asterisk ]; then
-		/var/lib/asterisk/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
+		$AST_VARLIB_DIR/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
 	else
-		/var/lib/asterisk/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
+		$AST_VARLIB_DIR/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
 	fi
 	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
 	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
@@ -678,9 +681,9 @@ get_backtrace() { # $1 = "1" to upload
 }
 
 rule_audio() {
-	cd /var/lib/asterisk/sounds/en/ # so we can use both relative and absolute paths
+	cd $AST_SOUNDS_DIR # so we can use both relative and absolute paths
 	# trying to use {} to combine the output of multiple commands causes issues, so do them serially
-	directories="/etc/asterisk/"
+	directories="$AST_CONFIG_DIR/"
 	pcregrep -rho1 --include='.*\.conf$' ',Playback\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f1 > /tmp/phreakscript_update.txt
 	pcregrep -rho1 --include='.*\.conf$' ',BackGround\((.*)?\)' $directories | grep -vx ';.*' | cut -d',' -f1 >> /tmp/phreakscript_update.txt
 	pcregrep -rho1 --include='.*\.conf$' ',Read\((.*)?\)' $directories | grep -vx ';.*' | cut -s -d',' -f2 | grep -v "dial" | grep -v "stutter" | grep -v "congestion" >> /tmp/phreakscript_update.txt
@@ -703,7 +706,7 @@ rule_audio() {
 }
 
 rule_invalid_jump() {
-	results=$(pcregrep -ro3 --include='.*\.conf$' -hi '([1n\)]),(Goto|Gosub|GotoIf|GosubIf)\(([A-Za-z0-9_-]*),([A-Za-z0-9:\\$\{\}_-]*),([A-Za-z0-9:\\$\{\}_-]*)([\)\(:])' /etc/asterisk/ | sort | uniq | xargs -n1 -I{} sh -c 'if ! grep -r --include \*.conf "\[{}\]" /etc/asterisk/; then echo "Missing reference:{}"; fi' | grep "Missing reference:" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" /etc/asterisk/ | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
+	results=$(pcregrep -ro3 --include='.*\.conf$' -hi '([1n\)]),(Goto|Gosub|GotoIf|GosubIf)\(([A-Za-z0-9_-]*),([A-Za-z0-9:\\$\{\}_-]*),([A-Za-z0-9:\\$\{\}_-]*)([\)\(:])' $AST_CONFIG_DIR/ | sort | uniq | xargs -n1 -I{} sh -c 'if ! grep -r --include \*.conf "\[{}\]" $AST_CONFIG_DIR/; then echo "Missing reference:{}"; fi' | grep "Missing reference:" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" $AST_CONFIG_DIR/ | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
@@ -718,8 +721,8 @@ rule_invalid_jump() {
 }
 
 rule_unref() {
-	printf "%s\n" "Unreachable check: Assuming all dialplan code is in subdirectories of /etc/asterisk..."
-	results=$(pcregrep -ro -hi --include='.*\.conf$' '^\[([A-Za-z0-9-])+?\]' $(ls -d /etc/asterisk/*/) | cut -d "[" -f2 | cut -d "]" -f1 | xargs -n1 -I{} sh -c 'if ! grep -rE --include \*.conf "([ @?,:^\(=]){}"  /etc/asterisk/; then echo "Unreachable Code:{}"; fi' | grep "Unreachable Code:" | grep -vE "\-([0-9]+)$" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" $(ls -d /etc/asterisk/*/) | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
+	printf "Unreachable check: Assuming all dialplan code is in subdirectories of %s...\n" $AST_CONFIG_DIR
+	results=$(pcregrep -ro -hi --include='.*\.conf$' '^\[([A-Za-z0-9-])+?\]' $(ls -d $AST_CONFIG_DIR/*/) | cut -d "[" -f2 | cut -d "]" -f1 | xargs -n1 -I{} sh -c 'if ! grep -rE --include \*.conf "([ @?,:^\(=]){}"  $AST_CONFIG_DIR/; then echo "Unreachable Code:{}"; fi' | grep "Unreachable Code:" | grep -vE "\-([0-9]+)$" | cut -d: -f2 | xargs -n1 -I{} grep -rn --include \*.conf "{}" $(ls -d $AST_CONFIG_DIR/*/) | sed 's/\s\s*/ /g' | cut -c 15- | grep -v ":;")
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
@@ -734,7 +737,7 @@ rule_unref() {
 }
 
 rule_warning() { # $1 = rule, $2 = rule name
-	results=$(grep -rnE --include \*.conf "$1" /etc/asterisk | sed 's/\s\s*/ /g' | cut -c 15-)
+	results=$(grep -rnE --include \*.conf "$1" $AST_CONFIG_DIR | sed 's/\s\s*/ /g' | cut -c 15-)
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
@@ -749,7 +752,7 @@ rule_warning() { # $1 = rule, $2 = rule name
 }
 
 rule_error() { # $1 = rule, $2 = rule name
-	results=$(grep -rnE --include \*.conf "$1" /etc/asterisk | sed 's/\s\s*/ /g' | cut -c 15-)
+	results=$(grep -rnE --include \*.conf "$1" $AST_CONFIG_DIR | sed 's/\s\s*/ /g' | cut -c 15-)
 	lines=`echo "$results" | wc -l`
 	chars=`echo "$results" | wc -c`
 	if [ $chars -gt 1 ]; then # this is garbage whitespace
@@ -1193,7 +1196,7 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/ASTARGS=""/ASTARGS="-U $AST_USER"/g' /sbin/safe_asterisk
 		sed -i 's/#AST_USER="asterisk"/AST_USER="$AST_USER"/g' /etc/default/asterisk
 		sed -i 's/#AST_GROUP="asterisk"/AST_GROUP="$AST_USER"/g' /etc/default/asterisk
-		chown -R $AST_USER /etc/asterisk/ /usr/lib/asterisk /var/spool/asterisk/ /var/lib/asterisk/ /var/run/asterisk/ /var/log/asterisk /usr/sbin/asterisk
+		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /usr/sbin/asterisk
 	fi
 
 	if [ "$CHAN_SCCP" = "1" ]; then
@@ -1232,12 +1235,12 @@ elif [ "$cmd" = "pulsar" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://octothorpe.info/downloads/pulsar-agi.tar.gz
 	wget https://code.phreaknet.org/asterisk/pulsar-noanswer.agi # bug fix to pulsar.agi, to fix broken answer supervision:
-	mv pulsar-agi.tar.gz /var/lib/asterisk
-	cd /var/lib/asterisk
-	tar xvfz pulsar-agi.tar.gz # automatically creates /var/lib/asterisk/sounds/pulsar/
-	mv $AST_SOURCE_PARENT_DIR/pulsar-noanswer.agi /var/lib/asterisk/agi-bin/pulsar.agi
-	chmod 755 /var/lib/asterisk/agi-bin/pulsar.agi
-	if [ ! -f /var/lib/asterisk/agi-bin/pulsar.agi ]; then
+	mv pulsar-agi.tar.gz $AST_VARLIB_DIR
+	cd $AST_VARLIB_DIR
+	tar xvfz pulsar-agi.tar.gz # automatically creates $AST_VARLIB_DIR/sounds/pulsar/
+	mv $AST_SOURCE_PARENT_DIR/pulsar-noanswer.agi $AST_VARLIB_DIR/agi-bin/pulsar.agi
+	chmod 755 $AST_VARLIB_DIR/agi-bin/pulsar.agi
+	if [ ! -f $AST_VARLIB_DIR/agi-bin/pulsar.agi ]; then
 		echoerr "pulsar.agi is missing"
 	fi
 elif [ "$cmd" = "sounds" ]; then
@@ -1350,7 +1353,7 @@ elif [ "$cmd" = "pubdocs" ]; then
 	printf "%s\n" "Generating Confluence markup..."
 	if [ ! -f "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml" ]; then
 		echoerr "File does not exist: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml"
-		ls -d -v /usr/src/*/ | grep "asterisk-" | tail -1
+		ls -d -v $AST_SOURCE_PARENT_DIR/*/ | grep "asterisk-" | tail -1
 		exit 2
 	fi
 	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
@@ -1388,12 +1391,12 @@ elif [ "$cmd" = "config" ]; then
 	fi
 	printf "%s: %s\n" "PhreakNet CLLI code" $PHREAKNET_CLLI
 	printf "%s\n" "InterLinked API key seems to be of valid format, not displaying for security reasons..."
-	if [ ! -d /etc/asterisk/dialplan ]; then
-		mkdir -p /etc/asterisk/dialplan
-		cd /etc/asterisk/dialplan
-	elif [ ! -d /etc/asterisk/dialplan/phreaknet ]; then
-		mkdir -p /etc/asterisk/dialplan/phreaknet
-		cd /etc/asterisk/dialplan/phreaknet
+	if [ ! -d $AST_CONFIG_DIR/dialplan ]; then
+		mkdir -p $AST_CONFIG_DIR/dialplan
+		cd $AST_CONFIG_DIR/dialplan
+	elif [ ! -d $AST_CONFIG_DIR/dialplan/phreaknet ]; then
+		mkdir -p $AST_CONFIG_DIR/dialplan/phreaknet
+		cd $AST_CONFIG_DIR/dialplan/phreaknet
 	else
 		if [ "$FORCE_INSTALL" != "1" ]; then
 			echoerr "It looks like you already have configs. Proceed and overwrite? (y/n) "
@@ -1405,9 +1408,9 @@ elif [ "$cmd" = "config" ]; then
 			fi
 		fi
 	fi
-	printf "%s\n" "Backing up /etc/asterisk configs, just in case..."
+	printf "Backing up %s configs, just in case...\n" $AST_CONFIG_DIR
 	mkdir -p /tmp/etc_asterisk
-	cp /etc/asterisk/*.conf /tmp/etc/_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
+	cp $AST_CONFIG_DIR/*.conf /tmp/etc/_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
 	printf "%s" "Installing boilerplate code to "
 	pwd
 	printf "\n"
@@ -1415,23 +1418,23 @@ elif [ "$cmd" = "config" ]; then
 	wget -q --show-progress https://docs.phreaknet.org/phreaknet.conf -O phreaknet.conf --no-cache
 	wget -q --show-progress https://docs.phreaknet.org/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
 	ls -l
-	cd /etc/asterisk
-	wget -q --show-progress https://docs.phreaknet.org/asterisk.conf -O /etc/asterisk/asterisk.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/iax.conf -O /etc/asterisk/iax.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/sip.conf -O /etc/asterisk/sip.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/pjsip.conf -O /etc/asterisk/pjsip.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/musiconhold.conf -O /etc/asterisk/musiconhold.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/extensions.conf -O /etc/asterisk/extensions.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/verify.conf -O /etc/asterisk/verify.conf --no-cache
+	cd $AST_CONFIG_DIR
+	wget -q --show-progress https://docs.phreaknet.org/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/extensions.conf -O $AST_CONFIG_DIR/extensions.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
 	## Inject user config (CLLI code, API key)
-	sed -i "s/abcdefghijklmnopqrstuvwxyz/$INTERLINKED_APIKEY/g" /etc/asterisk/extensions.conf
-	sed -i "s/WWWWXXYYZZZ/$PHREAKNET_CLLI/g" /etc/asterisk/extensions.conf
-	sed -i "s/5551111/$PHREAKNET_DISA/g" /etc/asterisk/extensions.conf
-	printf "%s\n" "Updated [globals] in /etc/asterisk/extensions.conf with dynamic variables. If globals are stored in a different file, manual updating is required."
+	sed -i "s/abcdefghijklmnopqrstuvwxyz/$INTERLINKED_APIKEY/g" $AST_CONFIG_DIR/extensions.conf
+	sed -i "s/WWWWXXYYZZZ/$PHREAKNET_CLLI/g" $AST_CONFIG_DIR/extensions.conf
+	sed -i "s/5551111/$PHREAKNET_DISA/g" $AST_CONFIG_DIR/extensions.conf
+	printf "Updated [globals] in %s/extensions.conf with dynamic variables. If globals are stored in a different file, manual updating is required." $AST_CONFIG_DIR
 	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
 elif [ "$cmd" = "keygen" ]; then
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
-		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" /etc/asterisk | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
+		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
 			echoerr "Failed to find InterLinked API key. For future use, please set your [global] variables, e.g. by running phreaknet config"
 			printf '\a'
@@ -1442,7 +1445,7 @@ elif [ "$cmd" = "keygen" ]; then
 		fi
 	fi
 	if [ ${#PHREAKNET_CLLI} -eq 0 ]; then
-		PHREAKNET_CLLI=`grep -R "clli=" /etc/asterisk | grep -v "5551111" | grep -v "curl " | grep -v "<switch-clli>" | cut -d'=' -f2 | awk '{print $1;}'`
+		PHREAKNET_CLLI=`grep -R "clli=" $AST_CONFIG_DIR | grep -v "5551111" | grep -v "curl " | grep -v "<switch-clli>" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#PHREAKNET_CLLI} -ne 11 ]; then
 			echoerr "Failed to find PhreakNet CLLI. For future use, please set your [global] variables, e.g. by running phreaknet config"
 			printf '\a'
@@ -1452,7 +1455,7 @@ elif [ "$cmd" = "keygen" ]; then
 			fi
 		fi
 	fi
-	cd /var/lib/asterisk/keys/
+	cd $AST_VARLIB_DIR/keys/
 	if [ "$ASTKEYGEN" = "1" ]; then
 		if [ -f phreaknetrsa.key ]; then
 			printf "%s\n" "Rotating keys..."
@@ -1474,11 +1477,11 @@ elif [ "$cmd" = "keygen" ]; then
 	else
 		printf "%s\n" "No InterLinked API key and/or CLLI on file, skipping upload of public key..."
 	fi
-	touch /etc/asterisk/iax-phreaknet-rsa-in.conf
-	touch /etc/asterisk/iax-phreaknet-rsa-out.conf
+	touch $AST_CONFIG_DIR/iax-phreaknet-rsa-in.conf
+	# touch $AST_CONFIG_DIR/iax-phreaknet-rsa-out.conf # no longer necessary for >= 18.9
 	## If you are running Asterisk as not root, make the user as which Asterisk runs own the private key and the new files:
 	# chown asterisk phreaknetrsa.key
-	# chown asterisk /etc/asterisk/iax-phreaknet*
+	# chown asterisk $AST_CONFIG_DIR/iax-phreaknet*
 	asterisk -rx "module reload res_crypto"
 	asterisk -rx "keys init"
 	asterisk -rx "keys show"
@@ -1498,29 +1501,29 @@ elif [ "$cmd" = "patch" ]; then
 	wget -r -l 1 -nd -np -q --show-progress -P /tmp/phreakpatch -R -A patch "https://code.phreaknet.org/asterisk/patches/"
 	find /tmp/phreakpatch -name "*index*.html*" | xargs rm
 	printf "%s\n" "Patching configuration..."
-	if [ ! -d /etc/asterisk/dialplan/phreaknet ]; then
-		mkdir -p /etc/asterisk/dialplan/phreaknet
+	if [ ! -d $AST_CONFIG_DIR/dialplan/phreaknet ]; then
+		mkdir -p $AST_CONFIG_DIR/dialplan/phreaknet
 	fi
-	touch /etc/asterisk/dialplan/phreaknet/patches.lst
+	touch $AST_CONFIG_DIR/dialplan/phreaknet/patches.lst
 	for file in /tmp/phreakpatch/*; do
 		if [ -f $file ]; then
 			base=`basename $file`
-			if grep -q "$base" /etc/asterisk/dialplan/phreaknet/patches.lst; then
+			if grep -q "$base" $AST_CONFIG_DIR/dialplan/phreaknet/patches.lst; then
 				printf "%s\n" "Patch $base already installed or rejected, not applying again..."
 				continue
 			fi
 			endfile=`printf '%s' $base | cut -d'_' -f2 | cut -d'.' -f1-2`
-			if [ -f "/etc/asterisk/dialplan/phreaknet/$endfile" ]; then
-				patch -u -b -N /etc/asterisk/dialplan/phreaknet/$endfile -i $file
-			elif [ -f "/etc/asterisk/dialplan/phreaknet/$endfile" ]; then
-				patch -u -b -N /etc/asterisk/dialplan/phreaknet/$endfile -i $file
-			elif [ -f "/etc/asterisk/dialplan/phreaknet/$endfile" ]; then
-				patch -u -b -N /etc/asterisk/dialplan/phreaknet/$endfile -i $file
+			if [ -f "$AST_CONFIG_DIR/dialplan/phreaknet/$endfile" ]; then
+				patch -u -b -N $AST_CONFIG_DIR/dialplan/phreaknet/$endfile -i $file
+			elif [ -f "$AST_CONFIG_DIR/dialplan/phreaknet/$endfile" ]; then
+				patch -u -b -N $AST_CONFIG_DIR/dialplan/phreaknet/$endfile -i $file
+			elif [ -f "$AST_CONFIG_DIR/dialplan/phreaknet/$endfile" ]; then
+				patch -u -b -N $AST_CONFIG_DIR/dialplan/phreaknet/$endfile -i $file
 			else
 				echoerr "Failed to apply patch $file, couldn't find $endfile!"
 				continue
 			fi
-			echo "$base" >> /etc/asterisk/dialplan/phreaknet/patches.lst
+			echo "$base" >> $AST_CONFIG_DIR/dialplan/phreaknet/patches.lst
 		else
 			echoerr "No file to apply?"
 		fi
