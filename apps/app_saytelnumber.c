@@ -82,7 +82,7 @@
 						<para>Use of the <literal>m</literal> option
 						will override this option.</para>
 					</option>
-					<option name="v">
+					<option name="u">
 						<para>Suffix to use for files containing
 						up inflection. Default is <literal>_</literal>
 						(single underscore).</para>
