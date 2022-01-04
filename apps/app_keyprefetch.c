@@ -76,6 +76,9 @@
 						if a new key is installed. These modules need to be reloaded before any added
 						or modified keys will be accepted for incoming calls.</para>
 					</option>
+					<option name="n">
+						<para>Do not throw a warning if a public key request is a 404 Not Found.</para>
+					</option>
 				</optionlist>
 			</parameter>
 		</syntax>
@@ -107,10 +110,12 @@
 
 enum fetch_option_flags {
 	OPT_NORELOAD = (1 << 0),
+	OPT_NO404WARN = (1 << 1),
 };
 
 AST_APP_OPTIONS(fetch_app_options, {
 	AST_APP_OPTION('d', OPT_NORELOAD),
+	AST_APP_OPTION('n', OPT_NO404WARN),
 });
 
 static const char *app = "KeyPrefetch";
@@ -304,7 +309,11 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 
 		pbx_builtin_setvar_helper(chan, "KEYPREFETCHSTATUS", "UPDATED");
 		if (http_code / 100 != 2) {
-			ast_log(LOG_ERROR, "Failed to retrieve URL '%s': code %ld\n", args.url, http_code);
+			if (http_code == 404 && ast_test_flag(&flags, OPT_NO404WARN)) {
+				ast_debug(1, "Failed to retrieve URL '%s': code %ld\n", args.url, http_code);
+			} else {
+				ast_log(LOG_ERROR, "Failed to retrieve URL '%s': code %ld\n", args.url, http_code);
+			}
 			failure = 1;
 		} else if (stat(tmp_filename, &s)) {
 			ast_log(LOG_WARNING, "Inkey temp file '%s' not found on file system?\n", tmp_filename);
