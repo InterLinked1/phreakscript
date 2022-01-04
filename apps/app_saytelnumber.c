@@ -124,7 +124,7 @@
 			<para>By default, a pause is played between groups of digits. The
 			duration of the pause can be configured. Additionally, if the file
 			<literal>blank</literal> (or the configured name) exists in the
-			provided directory, it will be used instead of a timed pause.</literal>
+			provided directory, it will be used instead of a timed pause.</para>
 			<para>Double or triple digits may also be provided, such
 			as <literal>00</literal> or <literal>555</literal>. The file
 			names <literal>thousand</literal> and <literal>hundred</literal>
