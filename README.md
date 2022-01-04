@@ -18,6 +18,7 @@ PhreakScript installs:
       - ``SendMail``
       - ``MallocTrim``
       - ``LoopPlayback``
+      - ``SayTelephoneNumber``
       - ``StreamSilence``
       - ``SendSF``
       - ``ReceiveSF``
