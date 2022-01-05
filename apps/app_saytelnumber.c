@@ -171,6 +171,7 @@ static char *filter_number(char *str, int *length, int allowalpha)
 			}
 		}
 	}
+	new[j] = '\0';
 	return new;
 }
 
