@@ -20,8 +20,8 @@ PhreakScript installs:
       - ``LoopPlayback``
       - ``SayTelephoneNumber``
       - ``StreamSilence``
-      - ``SendSF``
-      - ``ReceiveSF``
+      - ``Signal``
+      - ``WaitForSignal``
       - ``ToneSweep``
       - ``ToneScan``
       - ``DialTone``
