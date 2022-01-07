@@ -50,10 +50,10 @@
 			Simulates revertive pulsing for a 4-digit number.
 		</synopsis>
 		<syntax>
-			<parameter name="digits" required="yes">
+			<parameter name="digits" required="true">
 				<para>The 4-digit station number.</para>
 			</parameter>
-			<parameter name="switch" required="no">
+			<parameter name="switch" required="false">
 				<para>The type of pulsing to use.</para>
 				<para>Valid options are <literal>panel</literal>, <literal>1xb</literal>,
 				and <literal>5xb</literal>.</para>
