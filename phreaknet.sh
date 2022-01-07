@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.26 (2021-01-01)
+# v0.1.28 (2021-01-07)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-01-07 0.1.28 Asterisk: add app_pulsar
+# 2021-01-04 0.1.27 Asterisk: add app_saytelnumber
 # 2022-01-01 0.1.26 PhreakScript: removed hardcoded paths
 # 2021-12-31 0.1.25 PhreakScript: added ulaw command, Asterisk: added func_frameintercept, app_fsk
 # 2021-12-27 0.1.24 PhreakScript: add tests for func_dbchan
@@ -539,6 +541,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
+	phreak_tree_module "apps/app_pulsar.c"
+	phreak_tree_module "apps/app_saytelnumber.c"
 	phreak_tree_module "apps/app_softmodem.c"
 	phreak_tree_module "apps/app_streamsilence.c"
 	phreak_tree_module "apps/app_tonetest.c"
@@ -569,14 +573,16 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17470 "https://gerrit.asterisk.org/changes/asterisk~17470/revisions/9/patch?download" # variable substitution for extensions
 	gerrit_patch 17654 "https://gerrit.asterisk.org/changes/asterisk~17654/revisions/1/patch?download" # critical compiler fix
 	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
+	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/7/patch?download" # app_sf
 
 	## Gerrit patches: remove once merged
-	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/7/patch?download" # app_sf
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
 	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
 	gerrit_patch 17716 "https://gerrit.asterisk.org/changes/asterisk~17716/revisions/3/patch?download" # func_frameintercept
+	gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
+	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
@@ -1328,14 +1334,26 @@ elif [ "$cmd" = "docgen" ]; then
 		printf "%s\n" "Failed to find any XML documentation. Has Asterisk been installed yet?"
 		exit 2
 	fi
+	/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml
+	if [ $? -ne 0 ]; then
+		exit 2 # if the XML docs aren't valid, then give up now
+	fi
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y php php7.4-xml
+		apt-get install -y php php7.3-xml
 	fi
 	printf "%s\n" "Obtaining latest version of astdocgen..."
 	wget -q "https://raw.githubusercontent.com/InterLinked1/astdocgen/master/astdocgen.php" -O astdocgen.php --no-cache
 	chmod +x astdocgen.php
 	./astdocgen.php -f doc/core-en_US.xml -x -s > /tmp/astdocgen.xml
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to generate XML dump"
+		exit 2
+	fi
 	./astdocgen.php -f /tmp/astdocgen.xml -h > doc/index.html
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to generate HTML documentation"
+		exit 2
+	fi
 	rm /tmp/astdocgen.xml
 	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
 elif [ "$cmd" = "pubdocs" ]; then
