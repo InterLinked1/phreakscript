@@ -57,7 +57,7 @@
 				<para>The type of pulsing to use.</para>
 				<para>Valid options are <literal>panel</literal>, <literal>1xb</literal>,
 				and <literal>5xb</literal>.</para>
-				<par>Default is <literal>panel</literal>.</para>
+				<para>Default is <literal>panel</literal>.</para>
 			</parameter>
 			<parameter name="options">
 				<optionlist>
@@ -72,8 +72,8 @@
 			<para>Mimics the revertive pulsing sounds characteristic of 
 			Panel, Number 1 Crossbar, or Number 5 Crossbar pulsing.</para>
 			<para>This application uses material sourced from Evan Doorbell
-			tapes. The <literal>pulsar</code> sounds directory should be
-			replaced directly into the main sounds directory.</para>
+			tapes. The <literal>pulsar</literal> sounds directory should be
+			placed directly into the main sounds directory.</para>
 			<para>Sounds can be obtained from the original tarball
 			at <literal>https://octothorpe.info/site/pulsar</literal>.</para>
 			<para>This application does not automatically answer the channel
