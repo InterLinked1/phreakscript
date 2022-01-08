@@ -25,7 +25,6 @@ PhreakScript installs:
       - ``Signal``
       - ``WaitForSignal``
       - ``ToneSweep``
-      - ``ToneScan``
       - ``DialTone``
       - ``Verify``
       - ``OutVerify``
@@ -43,7 +42,6 @@ PhreakScript installs:
       - ``DB_MAXKEY``
       - ``DB_MINKEY``
       - ``DB_UNIQUE``
-      - ``JSON_DECODE``
       - ``SIP_PARAMETER``
    - Miscellaneous improvements
       - Adds fax timing and parameter control to `chan_sip`
