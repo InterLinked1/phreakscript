@@ -1,0 +1,12 @@
+--- main/manager_channels.c.orig	2022-01-06 22:09:28.738866540 +0000
++++ main/manager_channels.c	2022-01-09 13:41:42.440213491 +0000
+@@ -611,6 +611,9 @@
+ 	struct ast_channel_snapshot *old_snapshot,
+ 	struct ast_channel_snapshot *new_snapshot)
+ {
++	/* This event is useless, and is so frequent that it
++		can add a significant performance overhead. */
++	return NULL;
+ 	/* Empty application is not valid for a Newexten event */
+ 	if (ast_strlen_zero(new_snapshot->dialplan->appl)) {
+ 		return NULL;
