@@ -24,6 +24,8 @@ PhreakScript installs:
       - ``RevertivePulse``
       - ``Signal``
       - ``WaitForSignal``
+      - ``WaitForDeposit``
+      - ``CoinDisposition``
       - ``ToneSweep``
       - ``DialTone``
       - ``Verify``
@@ -33,6 +35,7 @@ PhreakScript installs:
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
+      - ``COIN_DETECT``
       - ``OTHER_CHANNEL``
       - ``NOTCH_FILTER``
       - ``EVAL_EXTEN``
