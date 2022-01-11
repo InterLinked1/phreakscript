@@ -1,11 +1,10 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright (C) 2006, Russ Price
  * Copyright (C) 2022, Naveen Albert
  *
- * Russ Price <kxt@fubegra.net>
- * Naveen Albert <asterisk@phreaknet.org>
+ * app_pulsar.c adapted from the old app_rpsim.c, copyrighted by:
+ * Copyright (C) 2006, Russ Price <kxt@fubegra.net>
  *
  * See http://www.asterisk.org for more information about
  * the Asterisk project. Please do not directly contact
