@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.28 (2021-01-07)
+# v0.1.31 (2021-01-18)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,9 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-01-18 0.1.31 Asterisk: Temper SRTCP warnings
+# 2021-01-10 0.1.30 Asterisk: add res_coindetect
+# 2021-01-08 0.1.29 Asterisk: add app_randomplayback
 # 2021-01-07 0.1.28 Asterisk: add app_pulsar
 # 2021-01-04 0.1.27 Asterisk: add app_saytelnumber
 # 2022-01-01 0.1.26 PhreakScript: removed hardcoded paths
@@ -537,11 +540,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Add Standalone PhreakNet Modules
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
-	phreak_tree_module "apps/app_if.c"
 	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
 	phreak_tree_module "apps/app_pulsar.c"
+	phreak_tree_module "apps/app_randomplayback.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
 	phreak_tree_module "apps/app_softmodem.c"
 	phreak_tree_module "apps/app_streamsilence.c"
@@ -553,6 +556,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_numpeer.c"
 	phreak_tree_module "funcs/func_ochannel.c"
+	phreak_tree_module "res/res_coindetect.c"
 
 	## Third Party Modules
 	printf "Adding new module: %s\n" "apps/app_tdd.c"
@@ -565,6 +569,12 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
 	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
+	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
+	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
+
+	if [ "$WEAK_TLS" = "1" ]; then
+		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
+	fi
 
 	## Gerrit patches: merged, remove in 18.10
 	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/16/patch?download" # func_json
@@ -576,6 +586,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/7/patch?download" # app_sf
 
 	## Gerrit patches: remove once merged
+	phreak_tree_module "apps/app_if.c"
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
@@ -585,7 +596,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
-	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/4/patch?download" # chan_sip: Add custom parameters
+	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
 
 	## Menuselect updates
 	make menuselect.makeopts
@@ -662,18 +673,14 @@ get_backtrace() { # $1 = "1" to upload
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install gdb # for astcoredumper
 	fi
-	if [ -f /sbin/asterisk ]; then
-		$AST_VARLIB_DIR/scripts/ast_coredumper core --asterisk-bin=/sbin/asterisk > /tmp/ast_coredumper.txt
-	else
-		$AST_VARLIB_DIR/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
-	fi
+	$AST_VARLIB_DIR/scripts/ast_coredumper > /tmp/ast_coredumper.txt
 	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
 	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
 		echoerr "No core dumps found"
 		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
 		exit 2
 	fi
-	if [ ! -f $corefullpath ]; then
+	if [ ${#corefullpath} -eq 0 ] || [ ! -f "$corefullpath" ]; then
 		echoerr "Core dump failed to get backtrace, aborting..."
 		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
 		exit 2
