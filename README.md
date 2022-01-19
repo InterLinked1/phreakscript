@@ -20,6 +20,7 @@ PhreakScript installs:
       - ``LoopPlayback``
       - ``RandomPlayback``
       - ``SayTelephoneNumber``
+      - ``PlayDigits``
       - ``StreamSilence``
       - ``RevertivePulse``
       - ``Signal``
