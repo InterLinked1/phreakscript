@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.31 (2021-01-18)
+# v0.1.32 (2021-01-19)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-01-19 0.1.32 Asterisk: add app_playdigits
 # 2021-01-18 0.1.31 Asterisk: Temper SRTCP warnings
 # 2021-01-10 0.1.30 Asterisk: add res_coindetect
 # 2021-01-08 0.1.29 Asterisk: add app_randomplayback
@@ -403,7 +404,7 @@ install_testsuite_itself() {
 configure_devmode() {
 	./configure --enable-dev-mode
 	make menuselect.makeopts
-	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK menuselect.makeopts
+	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK --enable DO_CRASH menuselect.makeopts
 	menuselect/menuselect --enable-category MENUSELECT_TESTS menuselect.makeopts
 }
 
@@ -543,6 +544,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
+	phreak_tree_module "apps/app_playdigits.c"
 	phreak_tree_module "apps/app_pulsar.c"
 	phreak_tree_module "apps/app_randomplayback.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
@@ -562,6 +564,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	printf "Adding new module: %s\n" "apps/app_tdd.c"
 	wget -q https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tdd.c --no-cache
 	wget -q https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_fsk.c --no-cache
+	sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
 
 	## Add patches to existing modules
 	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
