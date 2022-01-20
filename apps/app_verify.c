@@ -820,21 +820,22 @@ static int hostname_to_ip(char *hostname , char *ip)
 	int rv;
 
 	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNSPEC;
+	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if ((rv = getaddrinfo(hostname, "http", &hints, &servinfo)) != 0) {
+	if ((rv = getaddrinfo(hostname, "4569", &hints, &servinfo)) != 0) {
 		ast_log(LOG_WARNING, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
 
 	/* loop through all the results and connect to the first we can */
-	for(p = servinfo; p != NULL; p = p->ai_next) {
+	for (p = servinfo; p != NULL; p = p->ai_next) {
 		h = (struct sockaddr_in *) p->ai_addr;
 		strcpy(ip, ast_inet_ntoa(h->sin_addr));
 	}
 
 	freeaddrinfo(servinfo);
+	ast_debug(1, "Hostname '%s' resolved to IP address '%s'\n", hostname, ip);
 	return 0;
 }
 
