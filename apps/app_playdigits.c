@@ -62,6 +62,12 @@
 					<option name="b" argsep="&amp;">
 						<para>Custom file(s) to play between digits.</para>
 					</option>
+					<option name="m">
+						<para>Custom prefix for digits. Default is none.</para>
+					</option>
+					<option name="n">
+						<para>Custom suffix for digits. Default is none.</para>
+					</option>
 					<option name="p">
 						<para>Custom file to play for pound.</para>
 					</option>
@@ -121,6 +127,8 @@ enum say_option_flags {
 	OPT_STAR       = (1 << 2),
 	OPT_PRE        = (1 << 3),
 	OPT_POST       = (1 << 4),
+	OPT_PREFIX     = (1 << 5),
+	OPT_SUFFIX     = (1 << 6),
 };
 
 enum {
@@ -129,6 +137,8 @@ enum {
 	OPT_ARG_STAR,
 	OPT_ARG_PRE,
 	OPT_ARG_POST,
+	OPT_ARG_PREFIX,
+	OPT_ARG_SUFFIX,
 	/* Must be the last element */
 	OPT_ARG_ARRAY_SIZE,
 };
@@ -136,16 +146,18 @@ enum {
 AST_APP_OPTIONS(say_app_options, {
 	AST_APP_OPTION_ARG('a', OPT_PRE, OPT_ARG_PRE),
 	AST_APP_OPTION_ARG('b', OPT_BETWEEN, OPT_ARG_BETWEEN),
+	AST_APP_OPTION_ARG('m', OPT_PREFIX, OPT_ARG_PREFIX),
+	AST_APP_OPTION_ARG('n', OPT_SUFFIX, OPT_ARG_SUFFIX),
 	AST_APP_OPTION_ARG('p', OPT_POUND, OPT_ARG_POUND),
 	AST_APP_OPTION_ARG('s', OPT_STAR, OPT_ARG_STAR),
 	AST_APP_OPTION_ARG('z', OPT_POST, OPT_ARG_POST),
 });
 
-#define SET_MAX_LEN(option, arg) { \
+#define SET_MAX_LEN(option, arg, add) { \
 	if (ast_test_flag(&flags, option) && !ast_strlen_zero(optargs[arg])) { \
 		tmpptr = optargs[arg]; \
 		if ((x = strlen(tmpptr)) > addlen) { \
-			addlen = x; \
+			addlen = x + add; \
 		} \
 	} \
 }
@@ -167,10 +179,12 @@ static int playdigits_exec(struct ast_channel *chan, const char *data)
 #define DEFAULT_POUND "#"
 #define DEFAULT_PRE ""
 #define DEFAULT_POST ""
+#define DEFAULT_PREFIX ""
+#define DEFAULT_SUFFIX ""
 	int d, dirlen, res = 0, addlen = 0, waitms = DEFAULT_WAITMS;
 	char *tmp, *num, *orignum, *file;
 	double sec;
-	char *tmpptr, *between = "", *star = "", *pound = "", *pre = "", *post = "";
+	char *tmpptr, *between = "", *star = "", *pound = "", *pre = "", *post = "", *prefix = "", *suffix = "";
 	struct ast_flags flags = {0};
 	char *optargs[OPT_ARG_ARRAY_SIZE];
 
@@ -204,17 +218,21 @@ static int playdigits_exec(struct ast_channel *chan, const char *data)
 	if (!ast_strlen_zero(args.options)) {
 		int x;
 		ast_app_parse_options(say_app_options, &flags, optargs, args.options);
-		SET_MAX_LEN(OPT_PRE, OPT_ARG_PRE);
-		SET_MAX_LEN(OPT_POST, OPT_ARG_POST);
-		SET_MAX_LEN(OPT_BETWEEN, OPT_ARG_BETWEEN);
-		SET_MAX_LEN(OPT_STAR, OPT_ARG_STAR);
-		SET_MAX_LEN(OPT_POUND, OPT_ARG_POUND);
+		SET_MAX_LEN(OPT_PRE, OPT_ARG_PRE, 0);
+		SET_MAX_LEN(OPT_POST, OPT_ARG_POST, 0);
+		SET_MAX_LEN(OPT_BETWEEN, OPT_ARG_BETWEEN, 0);
+		SET_MAX_LEN(OPT_STAR, OPT_ARG_STAR, 0);
+		SET_MAX_LEN(OPT_POUND, OPT_ARG_POUND, 0);
+		SET_MAX_LEN(OPT_PREFIX, OPT_ARG_PREFIX, 1); /* add 1 for the digit itself */
+		SET_MAX_LEN(OPT_SUFFIX, OPT_ARG_SUFFIX, 1); /* add 1 for the digit itself */
 
 		SET_VAR(OPT_PRE, OPT_ARG_PRE, DEFAULT_PRE, pre);
 		SET_VAR(OPT_POST, OPT_ARG_POST, DEFAULT_POST, post);
 		SET_VAR(OPT_BETWEEN, OPT_ARG_BETWEEN, DEFAULT_BETWEEN, between);
 		SET_VAR(OPT_STAR, OPT_ARG_STAR, DEFAULT_STAR, star);
 		SET_VAR(OPT_POUND, OPT_ARG_POUND, DEFAULT_POUND, pound);
+		SET_VAR(OPT_PREFIX, OPT_ARG_PREFIX, DEFAULT_PREFIX, prefix);
+		SET_VAR(OPT_SUFFIX, OPT_ARG_PREFIX, DEFAULT_SUFFIX, suffix);
 	}
 
 	num = filter_number(args.number, &d, 0);
@@ -246,7 +264,7 @@ static int playdigits_exec(struct ast_channel *chan, const char *data)
 		} else if (num[0] == '#') {
 			snprintf(file, dirlen, "%s/%s", args.directory, pound);
 		} else {
-			snprintf(file, dirlen, "%s/%c", args.directory, num[0]);
+			snprintf(file, dirlen, "%s/%s%c%s", args.directory, prefix, num[0], suffix);
 		}
 		if (ast_fileexists(file, NULL, NULL)) {
 			res = ast_streamfile(chan, file, ast_channel_language(chan));
