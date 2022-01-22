@@ -191,7 +191,8 @@
 					<option name="a">
 						<para>Minimum deposit required (subject to the provided timeout)
 						before going to the destination provided in the <literal>g</literal>
-						or <literal>h</literal> option. Default is 5 cents.</para>
+						or <literal>h</literal> option. Default is none (collect deposits
+						indefinitely).</para>
 					</option>
 					<option name="d">
 						<para>Delay threshold to use after the condition has matched to allow for
@@ -465,7 +466,7 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 				now = di->txcount;
 			}
 			ast_debug(1, "COIN_DETECT just got a hit (#%d in %s direction, waiting for %d total)\n", now, direction == AST_AUDIOHOOK_DIRECTION_READ ? "RX" : "TX", di->hitsrequired);
-			if (now >= di->hitsrequired) {
+			if (di->hitsrequired && now >= di->hitsrequired) {
 				if (di->delay > 0) {
 					di->delaytimer = ast_tvnow();
 					ast_debug(1, "Deposit threshold met, waiting for %d ms before we return\n", ast_remaining_ms(di->delaytimer, di->delay));
@@ -499,7 +500,7 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 		di->debouncedhits = 0;
 		di->debounce = -1;
 	}
-	if (success && di->actionflag) {
+	if (success && di->actionflag) { /* this will only execute if we specified a threshold for deposits */
 		now = (direction == AST_AUDIOHOOK_DIRECTION_READ) ? di->rxcount : di->txcount;
 		ast_verb(3, "%d total cents deposited\n", 5 * now);
 		if (di->rxcount >= di->hitsrequired && di->gotorx) {
@@ -527,7 +528,7 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 	char *opt_args[OPT_ARG_ARRAY_SIZE];
 	struct ast_dsp *dsp;
 	double delayf = 0;
-	int hitsrequired = 1, delay = 0;
+	int hitsrequired = 0, delay = 0;
 	int features = 0;
 
 	AST_DECLARE_APP_ARGS(args,
