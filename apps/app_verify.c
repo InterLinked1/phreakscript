@@ -726,6 +726,9 @@ static int resolve_verify_request(struct ast_channel *chan, char *url, struct as
 		pbx_builtin_setvar_helper(chan, "VERIFYARG1", varg1);
 	}
 	pbx_substitute_variables_helper(chan, url, substituted, sizeof(substituted) - 1);
+	if (varg1) {
+		pbx_builtin_setvar_helper(chan, "VERIFYARG1", "");
+	}
 	if (curl) {
 		if (verify_curl(chan, strbuf, substituted)) {
 			return -1;
