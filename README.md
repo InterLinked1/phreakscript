@@ -36,6 +36,7 @@ PhreakScript installs:
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
+      - ``NUM2DEVICE``
       - ``COIN_DETECT``
       - ``OTHER_CHANNEL``
       - ``NOTCH_FILTER``
