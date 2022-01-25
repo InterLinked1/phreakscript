@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.32 (2021-01-19)
+# v0.1.33 (2021-01-22)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-01-22 0.1.33 Asterisk: removed func_frameintercept
 # 2021-01-19 0.1.32 Asterisk: add app_playdigits
 # 2021-01-18 0.1.31 Asterisk: Temper SRTCP warnings
 # 2021-01-10 0.1.30 Asterisk: add res_coindetect
@@ -594,8 +595,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
 	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
-	gerrit_patch 17716 "https://gerrit.asterisk.org/changes/asterisk~17716/revisions/3/patch?download" # func_frameintercept
-	gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
+	#gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
@@ -676,8 +676,23 @@ get_backtrace() { # $1 = "1" to upload
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install gdb # for astcoredumper
 	fi
+	if [ -f "/etc/init.d/mysql" ]; then
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			printf "%s\n" "Restarting MySQL/MariaDB service..."
+			# mysql uses up a lot of CPU and memory, and will really slow down the coredumper script
+			service mysql restart
+		fi
+	fi
+	printf "%s\n" "Finding core dump to process, this may take a moment..."
 	$AST_VARLIB_DIR/scripts/ast_coredumper > /tmp/ast_coredumper.txt
-	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer simply just /tmp/core-full.txt
+	if [ $? -ne 0 ]; then
+		$AST_VARLIB_DIR/scripts/ast_coredumper core > /tmp/ast_coredumper.txt
+	fi
+	if [ $? -ne 0 ]; then
+		mostrecentcoredump=`ls -v * | grep "^core" | tail -1`
+		$AST_VARLIB_DIR/scripts/ast_coredumper "$mostrecentcoredump" > /tmp/ast_coredumper.txt
+	fi
+	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer necessarily simply just /tmp/core-full.txt
 	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
 		echoerr "No core dumps found"
 		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
@@ -688,12 +703,14 @@ get_backtrace() { # $1 = "1" to upload
 		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
 		exit 2
 	fi
-	if [ "$1" == "1" ]; then # backtrace
+	if [ "$1" = "1" ]; then # backtrace
+		printf "%s\n" "Uploading paste of backtrace..."
 		paste_post "$corefullpath"
 		rm /tmp/core-*.txt
 	else # backtrace-only
 		ls $corefullpath
 	fi
+	rm -f core* # if core dump itself wasn't automatically deleted, delete it now
 }
 
 rule_audio() {
@@ -1144,7 +1161,7 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		nice $AST_MAKE ASTLDFLAGS=-lcrypt main
 	else
-		nice $AST_MAKE # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+		nice $AST_MAKE -j2 # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 	fi
 
 	if [ $? -ne 0 ]; then
@@ -1186,6 +1203,9 @@ elif [ "$cmd" = "install" ]; then
 		chmod +x /usr/local/etc/rc.d/asterisk
 	fi
 	$AST_MAKE install-logrotate # auto compress and rotate log files
+	if [ ${#AST_USER} -gt 0 ]; then
+		sed -i 's/create 640 root root/create 640 $AST_USER $AST_USER/g' /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
+	fi
 
 	if [ "$ODBC" = "1" ]; then # MariaDB ODBC for Asterisk
 		apt-get install -y unixodbc unixodbc-dev mariadb-server
@@ -1632,6 +1652,7 @@ elif [ "$cmd" = "trace" ]; then
 		exit 2
 	fi
 	asterisk -rx "core set verbose $VERBOSE_LEVEL"
+	asterisk -rx "iax2 set debug on" # this might not actually appear in the trace, but doesn't hurt...
 	printf "Starting trace (verbose %d, debug %d): %s\n" "$VERBOSE_LEVEL" "$DEBUG_LEVEL" "$debugtime"
 	printf "%s\n" "Starting CLI trace..."
 	read -r -p "A CLI trace is now being collected. Reproduce the issue, then press ENTER to conclude the trace: " x
@@ -1645,6 +1666,8 @@ elif [ "$cmd" = "trace" ]; then
 	printf "\n" >> /var/log/asterisk/$channel
 	echo "------------------------------------------------------------------------" >> /var/log/asterisk/$channel
 	echo "$settings" >> /var/log/asterisk/$channel # append helpful system info.
+	echo "------------------------------------------------------------------------" >> /var/log/asterisk/$channel
+	phreakscript_info >> /var/log/asterisk/$channel # append helpful system info.
 	paste_post "/var/log/asterisk/$channel"
 	rm /var/log/asterisk/$channel
 elif [ "$cmd" = "pcap" ]; then
@@ -1678,6 +1701,7 @@ elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/
 	asterisk -rx "core stop now"
 	sleep 1
 	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp --log-fd=9 asterisk -vvvvcg 9 > asteriskvalgrind.txt
+	paste_post "/tmp/asteriskvalgrind.txt"
 	ls /tmp/asteriskvalgrind.txt
 elif [ "$cmd" = "backtrace-only" ]; then
 	get_backtrace 0
@@ -1735,7 +1759,7 @@ elif [ "$cmd" = "info" ]; then
 	phreakscript_info
 elif [ "$cmd" = "about" ]; then
 	printf "%s\n%s\n%s\n\n" "========= PhreakScript =========" "PhreakScript automates the management of Asterisk and DAHDI, from installation to patching to debugging." "The version of Asterisk and DAHDI installed by PhreakScript isn't a fork of Asterisk/DAHDI. Rather, it builds on top of the latest versions of Asterisk and DAHDI, so that users benefit from bug fixes and new features and improvements upstream, but also adds additional bug fixes and features that haven't made it upstream, to provide the fullest and richest Asterisk/DAHDI experience. For more details, see https://phreaknet.org/changes" | fold -s -w 80
-	printf "%s\n" "Change Log (both changes to PhreakScript and to Asterisk/DAHDI as installed by PhreakScript"
+	printf "%s\n" "Change Log (both changes to PhreakScript and to Asterisk/DAHDI as installed by PhreakScript)"
 	grep "^#" $FILE_PATH | grep -A 999999 "Begin Change Log" | grep -B 999999 "End Change Log" | tail -n +2 | head -n -1 | cut -c 3-
 	printf "\n"
 	phreakscript_info
