@@ -16,7 +16,7 @@
 
 /*! \file
  *
- * \brief Functions for managing channels with the AstDB database
+ * \brief Functions for managing channel-related info stored in the AstDB database
  *
  * \author Naveen Albert <asterisk@phreaknet.org>
  *
@@ -181,7 +181,7 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 	int pruned = 0;
 	int epochparse = 0, found = 0;
 
-	if (prune == 2) {
+	if (prune == 2) { /* DB_CHANNEL_PRUNE_TIME */
 		char *epochthreshold = strsep(&parse, ",");
 		epochparse = atoi(epochthreshold);
 		if (!epochparse) {
@@ -247,28 +247,31 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 				continue;
 			}
 
-			chan_found = ast_channel_get_by_name(channel);
-			if (chan_found) {
-				ast_channel_unref(chan_found);
-				/* main difference between DB_CHANNEL and DB_CHANNEL_PRUNE is latter always checks all keys.
-					Former stops if/when we find a match. */
-				if (prune) {
-					continue;
+			if (prune != 2) { /* skip for DB_CHANNEL_PRUNE_TIME, because the values aren't channel names */
+				chan_found = ast_channel_get_by_name(channel);
+				if (chan_found) {
+					ast_channel_unref(chan_found);
+					/* main difference between DB_CHANNEL and DB_CHANNEL_PRUNE is latter always checks all keys.
+						Former stops if/when we find a match. */
+					if (prune) {
+						continue;
+					}
+					ast_copy_string(buf, curkey, len);
+					found = 1;
+					break;
 				}
-				ast_copy_string(buf, curkey, len);
-				found = 1;
-				break;
 			}
 			/* channel doesn't exist anymore: delete key and continue */
 			if (prune == 2) { /* but only if it's staler than the required epoch time */
 				int keyepoch = atoi(curkey);
 				if (!(keyepoch < epochparse)) { /* if not older than threshold, don't delete */
-					ast_debug(4, "%s: %d is newer than %d, not old enough to purge\n", cmd, keyepoch, epochparse);
+					ast_debug(3, "%s: %d is newer than %d, not old enough to purge\n", cmd, keyepoch, epochparse);
 					continue;
 				}
-				ast_debug(4, "%s: %d is older than %d, okay to purge\n", cmd, keyepoch, epochparse);
+				ast_debug(3, "%s: %d is older than %d, okay to purge\n", cmd, keyepoch, epochparse);
+			} else {
+				ast_debug(3, "%s: Channel %s doesn't exist, saying goodbye\n", cmd, channel);
 			}
-			ast_debug(3, "%s: Channel %s doesn't exist, saying goodbye\n", cmd, channel);
 			pruned++;
 			if (ast_db_del(family, curkey)) {
 				ast_log(LOG_WARNING, "%s: %s/%s could not be deleted from the database\n", cmd, family, curkey);
