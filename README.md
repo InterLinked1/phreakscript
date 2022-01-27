@@ -71,7 +71,13 @@ Please refer to the Docs: https://docs.phreaknet.org/#phreakscript
 
 In a nutshell, run:
 
-```cd /usr/local/src; wget https://docs.phreaknet.org/script/phreaknet.sh; chmod +x phreaknet.sh; ./phreaknet.sh make```
+Linux:
+
+```cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
+
+FreeBSD:
+
+```pkg install -y wget && cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
 
 Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet examples``` to get started.
 
