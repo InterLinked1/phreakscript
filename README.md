@@ -71,11 +71,11 @@ Please refer to the Docs: https://docs.phreaknet.org/#phreakscript
 
 In a nutshell, run:
 
-Linux:
+**Linux:**
 
-```cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
+```cd /usr/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
 
-FreeBSD:
+**FreeBSD:**
 
 ```pkg install -y wget && cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
 
