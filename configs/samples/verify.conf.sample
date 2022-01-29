@@ -145,6 +145,25 @@ curltimeout = 5
 ;
 ;successregex = 0$
 ;
+; Request to make for blacklist check. Must be an HTTP endpoint. Dialplan
+; variables may be used. The endpoint should return a floating point score,
+; where a higher score corresponds to a less trustworthy call.
+;
+;blacklist_endpoint = https://api.,example.com/v1/?key=${key}&caller=${CALLERID(num)}
+;
+; Floating point score above which incoming calls should be completely
+; rejected. Only applies if <literal>blacklist_endpoint</literal> is set.
+; Default is 1.0.
+;
+;blacklist_threshold = 1
+;
+; Whether or not to fail open as opposed to failing safe if a number cannot
+; be queried against the blacklist API.
+; Setting this to yes may present a security risk.
+; Default is no.
+;
+;blacklist_failopen = no
+;
 ; Whether or not to flag calls to private IP addresses (Class A, B, or C), APIPA,
 ; or localhost, as malicious. ${OUTVERIFYSTATUS} will be set to MALICIOUS if a
 ; private/local IP address is detected. Only IPv4 is supported currently. Default
