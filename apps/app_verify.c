@@ -123,7 +123,7 @@
 						complete the outgoing call.
 					</value>
 					<value name="QUARANTINEPSTN">
-					This is a PSTN call which should not be allowed to
+						This is a PSTN call which should not be allowed to
 						complete the outgoing call.
 					</value>
 				</variable>
