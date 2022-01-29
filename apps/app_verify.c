@@ -258,6 +258,25 @@
 						<para>For the "direct" and "pattern" methods, this is used against the verification code to determine if it constitutes success. For the "regex" method, this is used against the calling number to determine if it should be considered a valid number.</para>
 					</description>
 				</configOption>
+				<configOption name="blacklist_endpoint">
+					<synopsis>Request to make for blacklist check.</synopsis>
+					<description>
+						<para>Must be an HTTP endpoint. Dialplan variables may be used.</para>
+						<para>The endpoint should return a floating point score, where a higher score corresponds to a less trustworthy call.</para>
+					</description>
+				</configOption>
+				<configOption name="blacklist_threshold" default="1">
+					<synopsis>Blacklist threshold above which calls are rejected</synopsis>
+					<description>
+						<para>Floating point score above which incoming calls should be completely rejected. Only applies if <literal>blacklist_endpoint</literal> is set.</para>
+					</description>
+				</configOption>
+				<configOption name="blacklist_failopen" default="no">
+					<synopsis>Allow calls that cannot successfully be queried using the blacklist API</synopsis>
+					<description>
+						<para>Whether or not to fail open to rejecting calls that fail to query (as opposed to failing safe). Set to <literal>yes</literal> to allow any calls that fail to query against the blacklist API (this may present a security risk).</para>
+					</description>
+				</configOption>
 				<configOption name="flagprivateip" default="yes">
 					<synopsis>Whether or not to flag calls to private IP addresses as malicious destinations.</synopsis>
 					<description>
@@ -270,7 +289,7 @@
 				<configOption name="threshold" default="0">
 					<synopsis>Maximum number of unsuccessfully verified calls to accept before subsequent calls are dropped upon arrival.</synopsis>
 					<description>
-						<para>Default is 0, e.g. any call that fails to verify will be dropped. In reality, you may want to set this to a more conservative value to allow for some legitimate accident calls to get through. The greater this value, the more vulnerable the node is to a spam attack. This option is only effective if failgroup is specified, since the group is used to keep track of concurrent calls.</para>
+					<para>Default is 0, e.g. any call that fails to verify will be dropped. In reality, you may want to set this to a more conservative value to allow for some legitimate accident calls to get through. The greater this value, the more vulnerable the node is to a spam attack. This option is only effective if failgroup is specified, since the group is used to keep track of concurrent calls.</para>
 					</description>
 				</configOption>
 				<configOption name="failgroup">
@@ -342,6 +361,7 @@ struct call_verify {
 	int insuccess;							/*!< Total number of incoming calls successfully passed verification */
 	int out;								/*!< Total number of outgoing calls attempted to out verify under this profile */
 	int outsuccess;							/*!< Total number of outgoing calls out-verified under this profile */
+	int total_blacklisted;					/*!< Total number of incoming calls that have been rejected due to blacklisting */
 	char verifymethod[PATH_MAX];			/*!< Algorithm to use for verification: direct or reverse */
 	char requestmethod[PATH_MAX];			/*!< Request method: curl or enum */
 	char verifyrequest[PATH_MAX];			/*!< Request URL or ENUM lookup */
@@ -362,6 +382,9 @@ struct call_verify {
 	int allowtoken;							/*!< Whether to allow verification tokens */
 	int flagprivateip;						/*!< Whether to flag private IP addresses as malicious */
 	char successregex[PATH_MAX];			/*!< Regex to use for direct verification to determine success */
+	char blacklist_endpoint[PATH_MAX];		/*!< Blacklist endpoint */
+	float blacklist_threshold;				/*!< Blacklist threshold */
+	int blacklist_failopen;					/*!< Allow blacklist to fail open */
 	char outregex[PATH_MAX];				/*!< Regex to use to verify outgoing URIs */
 	char exceptioncontext[PATH_MAX];		/*!< Action to take upon failure */
 	char failureaction[PATH_MAX];			/*!< Action to take upon failure */
@@ -381,6 +404,7 @@ struct call_verify {
 };
 
 #define DEFAULT_CURL_TIMEOUT 5
+#define SUB_BUFLEN 1024
 
 static int curltimeout = DEFAULT_CURL_TIMEOUT;		/*!< Curl Timeout */
 
@@ -403,6 +427,7 @@ static struct call_verify *alloc_profile(const char *vname)
 	v->insuccess = 0;
 	v->out = 0;
 	v->outsuccess = 0;
+	v->total_blacklisted = 0;
 
 	return v;
 }
@@ -424,6 +449,18 @@ if (!strcasecmp(param, #field)) { \
 		return; \
 	} \
 	v->field = !strcasecmp(val, "yes") ? 1 : 0; \
+	return; \
+}
+
+#define VERIFY_LOAD_FLOAT_PARAM(field, cond) \
+if (!strcasecmp(param, #field)) { \
+	if (!(cond)) { \
+		ast_log(LOG_WARNING, "Invalid value for %s, ignoring: '%s'\n", param, val); \
+		return; \
+	} \
+	if (sscanf(val, "%30f", &v->field) != 1) { \
+		ast_log(LOG_WARNING, "Invalid floating point value for %s, ignoring: '%s'\n", param, val); \
+	} \
 	return; \
 }
 
@@ -460,6 +497,9 @@ static void profile_set_param(struct call_verify *v, const char *param, const ch
 	VERIFY_LOAD_INT_PARAM(allowtoken, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
 	VERIFY_LOAD_INT_PARAM(flagprivateip, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
 	VERIFY_LOAD_STR_PARAM(successregex, val[0]);
+	VERIFY_LOAD_STR_PARAM(blacklist_endpoint, val[0]);
+	VERIFY_LOAD_FLOAT_PARAM(blacklist_threshold, val[0]);
+	VERIFY_LOAD_INT_PARAM(blacklist_failopen, !strcasecmp(val, "yes") || !strcasecmp(val, "no"));
 	VERIFY_LOAD_STR_PARAM(outregex, val[0]);
 	VERIFY_LOAD_STR_PARAM(exceptioncontext, val[0]);
 	VERIFY_LOAD_STR_PARAM(failureaction, !strcasecmp(val, "nothing") || !strcasecmp(val, "hangup") || !strcasecmp(val, "playback") || !strcasecmp(val, "redirect"));
@@ -564,6 +604,8 @@ static int reload_verify(int reload)
 		v->threshold = 0;
 		v->sanitychecks = 0;
 		v->flagprivateip = 1;
+		v->blacklist_threshold = 1;
+		v->blacklist_failopen = 0;
 		ast_copy_string(v->verifymethod, "reverse", sizeof(v->verifymethod));
 		ast_copy_string(v->requestmethod, "curl", sizeof(v->requestmethod));
 		/* Search Config */
@@ -659,7 +701,7 @@ static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
 	CURL **curl;
 	char curl_errbuf[CURL_ERROR_SIZE + 1];
 
-	ast_debug(1, "Planning to curl '%s' for verification request\n", url);
+	ast_debug(1, "Planning to curl '%s'\n", url);
 
 	if (url_is_vulnerable(url)) {
 		ast_log(LOG_ERROR, "URL '%s' is vulnerable to HTTP injection attacks. Aborting CURL() call.\n", url);
@@ -695,10 +737,10 @@ static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
 
 	ast_autoservice_stop(chan);
 
-	if (ast_str_strlen(buf) < 1) { /* didn't get anything back? */
+	if (!ast_str_buffer(buf)) {
 		return -1;
 	}
-	if (!ast_str_buffer(buf)) {
+	if (ast_str_strlen(buf) < 1) { /* didn't get anything back? */
 		return -1;
 	}
 
@@ -720,7 +762,7 @@ static void verify_set_var(struct ast_channel *chan, char *vname, char *vvalue)
 
 static int resolve_verify_request(struct ast_channel *chan, char *url, struct ast_str *strbuf, int curl, char *varg1)
 {
-	char substituted[1024];
+	char substituted[SUB_BUFLEN];
 
 	if (varg1) {
 		pbx_builtin_setvar_helper(chan, "VERIFYARG1", varg1);
@@ -731,6 +773,7 @@ static int resolve_verify_request(struct ast_channel *chan, char *url, struct as
 	}
 	if (curl) {
 		if (verify_curl(chan, strbuf, substituted)) {
+			ast_debug(1, "curl failed\n");
 			return -1;
 		}
 		ast_debug(1, "curl result is: %s\n", ast_str_buffer(strbuf));
@@ -898,6 +941,30 @@ static void assign_vars(struct ast_channel *chan, struct ast_str *strbuf, char *
 	}
 }
 
+static int v_blacklisted(char *name)
+{
+	struct call_verify *v = NULL;
+
+	AST_RWLIST_RDLOCK(&verifys);
+	AST_LIST_TRAVERSE(&verifys, v, entry) {
+		if (!strcasecmp(v->name, name)) {
+			break;
+		}
+	}
+	AST_RWLIST_UNLOCK(&verifys);
+
+	if (!v) {
+		ast_log(LOG_WARNING, "Verification profile '%s' unexpectedly disappeared\n", name);
+		return -1;
+	}
+
+	ast_mutex_lock(&v->lock);
+	v->total_blacklisted++;
+	ast_mutex_unlock(&v->lock);
+
+	return 0;
+}
+
 static int v_success(char *name, int in)
 {
 	struct call_verify *v = NULL;
@@ -916,9 +983,7 @@ static int v_success(char *name, int in)
 	}
 
 	ast_mutex_lock(&v->lock);
-
 	in ? v->insuccess++ : v->outsuccess++;
-
 	ast_mutex_unlock(&v->lock);
 
 	return 0;
@@ -931,10 +996,11 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	struct call_verify *v;
 	char *vresult, *argstr, *callerid;
 	struct ast_str *strbuf = NULL;
-	int success = 0;
+	int blacklisted = 0, success = 0;
 
-	int curl, method, extendtrust, allowtoken, sanitychecks, threshold;
-	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
+	int curl, method, extendtrust, allowtoken, sanitychecks, threshold, blacklist_failopen;
+	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], blacklist_endpoint[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
+	float blacklist_threshold;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(profile);
@@ -981,6 +1047,8 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	allowtoken = v->allowtoken;
 	sanitychecks = v->sanitychecks;
 	threshold = v->threshold;
+	blacklist_threshold = v->blacklist_threshold;
+	blacklist_failopen = v->blacklist_failopen;
 	VERIFY_STRDUP(name);
 	VERIFY_STRDUP(verifyrequest);
 	VERIFY_STRDUP(verifycontext);
@@ -999,6 +1067,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(code_fail);
 	VERIFY_STRDUP(code_spoof);
 	VERIFY_STRDUP(successregex);
+	VERIFY_STRDUP(blacklist_endpoint);
 	VERIFY_STRDUP(loglevel);
 	VERIFY_STRDUP(logmsg);
 	ast_mutex_unlock(&v->lock);
@@ -1291,17 +1360,45 @@ done:
 			ast_log(LOG_WARNING, "No log message format specified for log level '%s'\n", loglevel);
 		} else {
 			ast_str_substitute_variables(&strbuf, 0, chan, logmsg); /* we don't actually know how big this will be, so use this instead of pbx_substitute_variables_helper */
-			ast_debug(1, "Logging format '%s' to level '%s'\n", logmsg, loglevel);
+			ast_debug(5, "Logging format '%s' to level '%s'\n", logmsg, loglevel);
 			verify_log(chan, loglevel, ast_str_buffer(strbuf));
+			ast_str_reset(strbuf);
+		}
+	}
+
+	/* if there's an additional blacklist check to perform, do that now */
+	if (!ast_strlen_zero(blacklist_endpoint)) { /* don't even bother if it's already failed */
+		char substituted[SUB_BUFLEN];
+
+		pbx_substitute_variables_helper(chan, blacklist_endpoint, substituted, sizeof(substituted) - 1);
+		if (verify_curl(chan, strbuf, substituted)) {
+			ast_debug(1, "Failed to check blacklist for number '%s', %s (%s)\n", callerid, blacklist_failopen ? "accepting" : "rejecting", ast_str_buffer(strbuf));
+		} else {
+			float blacklistfloat;
+
 			/* don't bother resetting strbuf, since it's about to disappear anyways */
+			if (sscanf(ast_str_buffer(strbuf), "%30f", &blacklistfloat) != 1) {
+				ast_log(LOG_WARNING, "Failed to parse blacklist result '%s' for number: %s\n", ast_str_buffer(strbuf), callerid);
+			} else {
+				ast_debug(1, "Blacklist score for caller '%s' is %f\n", callerid, blacklistfloat);
+				if (blacklistfloat >= blacklist_threshold) {
+					ast_verb(3, "Dropping blacklisted caller '%s' (score %f meets threshold %f)\n", callerid, blacklistfloat, blacklist_threshold);
+					blacklisted = 1;
+				}
+			}
 		}
 	}
 
 	ast_free(strbuf);
 
+	if (blacklisted) {
+		v_blacklisted(name);
+		return -1; /* if caller is sufficiently blacklisted, then say goodbye */
+	}
+
 	if (!success && *failgroup) { /* assign bad calls to special group if requested */
-		int count = ast_app_group_get_count(name, failgroup);
 		char grpcat[4176]; /* avoid compiler warning about insufficient buffer */
+		int count = ast_app_group_get_count(name, failgroup);
 		if (count >= threshold) { /* if we're alraedy over the threshold, drop the call */
 			ast_verb(3, "Current number of unverified calls (%d) is greater than threshold (%d). Dropping call\n", count, threshold);
 			return -1;
@@ -1450,7 +1547,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 	/* If we need to request a verification token, do and set that now */
 	if (allowtoken && *obtaintokenrequest && !ast_strlen_zero(obtaintokenrequest)) {
 		struct ast_str *strbuf = NULL;
-		char substituted[1024];
+		char substituted[SUB_BUFLEN];
 
 		VERIFY_ASSERT_VAR_EXISTS(token_remote_var);
 
@@ -1571,8 +1668,8 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 /*! \brief CLI command to list verification profiles */
 static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
-#define FORMAT  "%-20s %-7s %-8s %-10s %-13s %-9s %-11s %-14s\n"
-#define FORMAT2 "%-20s %-7s %8d %10d %13d %9d %11d %14d\n"
+#define FORMAT  "%-20s %-7s %-8s %-10s %-13s %-11s %-9s %-11s %-14s\n"
+#define FORMAT2 "%-20s %7s %8d %10d %13d %11d %9d %11d %14d\n"
 	struct call_verify *v;
 
 	switch(cmd) {
@@ -1586,11 +1683,12 @@ static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_c
 		return NULL;
 	}
 
-	ast_cli(a->fd, FORMAT, "Name", "Method", "Total In", "Success In", "% In Verified", "Total Out", "Success Out", "% Out Verified");
-	ast_cli(a->fd, FORMAT, "--------------------", "-------", "--------", "----------", "-------------", "---------", "-----------", "--------------");
+	ast_cli(a->fd, FORMAT, "Name", "Method", "Total In", "Success In", "% In Verified", "Blacklisted", "Total Out", "Success Out", "% Out Verified");
+	ast_cli(a->fd, FORMAT, "--------------------", "-------", "--------", "----------", "-------------", "-----------", "---------", "-----------", "--------------");
 	AST_RWLIST_RDLOCK(&verifys);
 	AST_LIST_TRAVERSE(&verifys, v, entry) {
 		ast_cli(a->fd, FORMAT2, v->name, v->verifymethod, v->in, v->insuccess, (int) (v->in == 0 ? 0 : (100.0 * v->insuccess) / v->in),
+			v->total_blacklisted,
 			v->out, v->outsuccess, (int) (v->out == 0 ? 0 : (100.0 * v->outsuccess) / v->out));
 	}
 	AST_RWLIST_UNLOCK(&verifys);
@@ -1604,6 +1702,7 @@ static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_c
 static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 #define FORMAT  "%-32s : %s\n"
+#define FORMAT2 "%-32s : %f\n"
 	struct call_verify *v;
 	int which = 0;
 	char *ret = NULL;
@@ -1658,6 +1757,9 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 			ast_cli(a->fd, FORMAT, "Flag Private IP Addresses", AST_CLI_YESNO(v->flagprivateip));
 			ast_cli(a->fd, FORMAT, "Success Regex", v->successregex);
 			ast_cli(a->fd, FORMAT, "Outgoing Regex", v->outregex);
+			ast_cli(a->fd, FORMAT, "Blacklist Endpoint", v->blacklist_endpoint);
+			ast_cli(a->fd, FORMAT2, "Blacklist Threshold", v->blacklist_threshold);
+			ast_cli(a->fd, FORMAT, "Blacklist Fail Open", AST_CLI_YESNO(v->blacklist_failopen));
 			ast_cli(a->fd, FORMAT, "Exception Context", v->exceptioncontext);
 			ast_cli(a->fd, FORMAT, "Failure Action", v->failureaction);
 			ast_cli(a->fd, FORMAT, "Failure Playback File", v->failurefile);
@@ -1687,6 +1789,7 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 
 	return CLI_SUCCESS;
 #undef FORMAT
+#undef FORMAT2
 }
 
 /*! \brief CLI command to reset verification stats */
