@@ -123,7 +123,7 @@
 						complete the outgoing call.
 					</value>
 					<value name="QUARANTINEPSTN">
-						This is a PSTN call which should not be allowed to
+					This is a PSTN call which should not be allowed to
 						complete the outgoing call.
 					</value>
 				</variable>
@@ -289,7 +289,7 @@
 				<configOption name="threshold" default="0">
 					<synopsis>Maximum number of unsuccessfully verified calls to accept before subsequent calls are dropped upon arrival.</synopsis>
 					<description>
-					<para>Default is 0, e.g. any call that fails to verify will be dropped. In reality, you may want to set this to a more conservative value to allow for some legitimate accident calls to get through. The greater this value, the more vulnerable the node is to a spam attack. This option is only effective if failgroup is specified, since the group is used to keep track of concurrent calls.</para>
+						<para>Default is 0, e.g. any call that fails to verify will be dropped. In reality, you may want to set this to a more conservative value to allow for some legitimate accident calls to get through. The greater this value, the more vulnerable the node is to a spam attack. This option is only effective if failgroup is specified, since the group is used to keep track of concurrent calls.</para>
 					</description>
 				</configOption>
 				<configOption name="failgroup">
