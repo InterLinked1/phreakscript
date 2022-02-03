@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.33 (2021-01-22)
+# v0.1.35 (2021-02-03)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-02-03 0.1.35 PhreakScript: added preliminary freepbx flag
+# 2021-01-27 0.1.34 PhreakScript: added master branch install option
 # 2021-01-22 0.1.33 Asterisk: removed func_frameintercept
 # 2021-01-19 0.1.32 Asterisk: add app_playdigits
 # 2021-01-18 0.1.31 Asterisk: Temper SRTCP warnings
@@ -110,6 +112,7 @@ PAC_MAN="apt-get"
 AST_SOUNDS_DIR="$AST_VARLIB_DIR/sounds/en"
 AST_MOH_DIR="$AST_VARLIB_DIR/moh"
 AST_MAKE="make"
+XMLSTARLET="/usr/bin/xmlstarlet"
 PATH="/sbin:$PATH" # in case su used without path
 
 # Defaults
@@ -130,14 +133,29 @@ INTERLINKED_APIKEY=""
 BOILERPLATE_SOUNDS=0
 SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
 DEBUG_LEVEL=0
+FREEPBX_GUI=0
 
-echog() { printf "\e[32;1m%s\e[0m\n" "$*" >&2; }
-echoerr() { printf "\e[31;1m%s\e[0m\n" "$*" >&2; } # https://stackoverflow.com/questions/2990414/echo-that-outputs-to-stderr
+# FreeBSD doesn't support this escaping, so just do a simple print.
+echog() {
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		printf "%s\n" "$*" >&2;
+	else
+		printf "\e[32;1m%s\e[0m\n" "$*" >&2;
+	fi
+}
+echoerr() { # https://stackoverflow.com/questions/2990414/echo-that-outputs-to-stderr
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		printf "%s\n" "$*" >&2;
+	else
+		printf "\e[31;1m%s\e[0m\n" "$*" >&2;
+	fi
+}
 
 if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	PAC_MAN="pkg"
 	AST_SOURCE_PARENT_DIR="/usr/local/src"
 	AST_MAKE="gmake"
+	XMLSTARLET="/usr/local/bin/xml"
 fi
 
 phreakscript_info() {
@@ -171,6 +189,7 @@ Commands:
    make              Add PhreakScript to path
    install           Install or upgrade PhreakNet Asterisk
    installts         Install Asterisk Test Suite
+   freepbx           Install FreePBX GUI (not recommended)
    pulsar            Install Revertive Pulsing simulator
    sounds            Install Pat Fleet sound library
    ulaw              Convert wav to ulaw (specific file or all in current directory)
@@ -224,6 +243,7 @@ Options:
        --clli         config: CLLI code
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --disa         config: DISA number
+	   --freepbx      install: Install FreePBX GUI (not recommended)
        --api-key      config: InterLinked API key
        --rotate       keygen: Rotate/create keys
        --upstream     update: Specify upstream source
@@ -232,31 +252,86 @@ Options:
 	exit 2
 }
 
+get_newest_astdir() {
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		ls -d ./*/ | cut -c 3- | grep "^asterisk" | tail -1 # FreeBSD doesn't have the same GNU ls options: https://stackoverflow.com/a/31603260/
+	else
+		ls -d -v */ | grep "^asterisk" | tail -1
+	fi
+}
+
 install_prereq() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get clean
 		apt-get update -y
 		apt-get upgrade -y
 		apt-get dist-upgrade -y
-		apt-get install -y ntp iptables tcpdump wget curl sox libcurl4-openssl-dev mpg123 dnsutils php festival bc fail2ban mariadb-server git
+		apt-get install -y ntp iptables tcpdump wget curl sox libcurl4-openssl-dev mpg123 dnsutils php festival bc fail2ban mariadb-server git xmlstarlet
 		# used to feed the country code non-interactively
 		apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "pkg" ]; then
-		pkg update -y
+		pkg update -f
 		pkg upgrade -y
-		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion # bind-tools for dig
+		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion xmlstarlet # bind-tools for dig
+		pkg info e2fsprogs-libuuid
+		#if [ $? -ne 0 ]; then
+		#	if [ ! -d /usr/ports/misc/e2fsprogs-libuuid/ ]; then # https://www.freshports.org/misc/e2fsprogs-libuuid/
+		#		portsnap fetch extract
+		#	fi
+		#	cd /usr/ports/misc/e2fsprogs-libuuid/ && make install clean # for uuid-dev
+		#	pkg install misc/e2fsprogs-libuuid
+		#fi
 	else
 		echoerr "Could not determine what package manager to use..."
 	fi
+}
+
+install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asterisk-and-freepbx-on-ubuntu-20-04/
+	FREEPBX_VERSION="freepbx-16.0-latest"
+	# avoid using if possible
+	# PHP 7.4 is supported: https://www.freepbx.org/freepbx-16-is-now-released-for-general-availability/
+	apt-get -y install apache2 mariadb-server libapache2-mod-php7.4 php7.4 php-pear php7.4-cgi php7.4-common php7.4-curl php7.4-mbstring php7.4-gd php7.4-mysql php7.4-bcmath php7.4-zip php7.4-xml php7.4-imap php7.4-json php7.4-snmp
+	cd $AST_SOURCE_PARENT_DIR
+	wget http://mirror.freepbx.org/modules/packages/freepbx/$FREEPBX_VERSION.tgz -O $AST_SOURCE_PARENT_DIR/$FREEPBX_VERSION.tgz
+	tar -xvzf $FREEPBX_VERSION.tgz
+	cd $AST_SOURCE_PARENT_DIR/freepbx
+	rm ../$FREEPBX_VERSION.tgz
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to find FreePBX source directory"
+		return
+	fi
+	apt-get install -y nodejs
+	./install -n
+	if [ $? -ne 0 ]; then
+		echoerr "Installation failed"
+		return
+	fi
+	sed -i 's/^\(User\|Group\).*/\1 asterisk/' /etc/apache2/apache2.conf
+	sed -i 's/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+	PHP_VERSION=`ls /etc/php | tr -d '\n'`
+	printf "System version of PHP is %s\n" "$PHP_VERSION"
+	sed -i 's/\(^upload_max_filesize = \).*/\120M/' /etc/php/$PHP_VERSION/apache2/php.ini
+	sed -i 's/\(^upload_max_filesize = \).*/\120M/' /etc/php/$PHP_VERSION/cli/php.ini
+	printf "%s\n" "Reloading and restarting Apache web server..."
+	a2enmod rewrite
+	systemctl restart apache2
+	PUBLIC_IP=`dig +short myip.opendns.com @resolver1.opendns.com`
+	printf "Public IP address is: %s\n" "$PUBLIC_IP"
+	hostname -I
+	printf "%s\n" "FreePBX has been installed and can be accessed at http://IP-ADDRESS/admin"
+	printf "%s\n" "Use the appropriate IP address for your system, as indicated above."
+	printf "%s\n" "You will need to navigate to this page to complete setup."
+	printf "%s\n" "If this system is Internet facing, you are urged to secure your system"
+	printf "%s\n" "by restricting access to specific IP addresses only."
 }
 
 run_testsuite_test() {
 	testcount=$(($testcount + 1))
 	./runtests.py --test=tests/$1
 	if [ $? -ne 0 ]; then # test failed
-		lastrun=`ls -d -v logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
+		lastrun=`get_newest_astdir` # get the directory containing the logs from the most recently run test
 		ls "$lastrun/ast1/var/log/asterisk/full.txt"
 		grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
 	else # test succeeded
@@ -281,7 +356,7 @@ run_testsuite_test_only() { # $2 = stress test
 	while [ $iterations -gt 0 ]; do # POSIX for loop
 		$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
 		if [ $? -ne 0 ]; then # test failed
-			lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test
+			lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test ############# this is not FreeBSD compatible.
 			ls "$lastrun/ast1/var/log/asterisk/full.txt"
 			grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
 			exit 1
@@ -581,13 +656,15 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	## Gerrit patches: merged, remove in 18.10
-	gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/16/patch?download" # func_json
-	gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
-	gerrit_patch 17510 "https://gerrit.asterisk.org/changes/asterisk~17510/revisions/1/patch?download" # app_sendtext: Add ReceiveText
-	gerrit_patch 17470 "https://gerrit.asterisk.org/changes/asterisk~17470/revisions/9/patch?download" # variable substitution for extensions
-	gerrit_patch 17654 "https://gerrit.asterisk.org/changes/asterisk~17654/revisions/1/patch?download" # critical compiler fix
-	gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
-	gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/7/patch?download" # app_sf
+	if [ "$AST_ALT_VER" != "master" ]; then # apply specified merged patches, unless we just cloned master
+		gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/16/patch?download" # func_json
+		gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
+		gerrit_patch 17510 "https://gerrit.asterisk.org/changes/asterisk~17510/revisions/1/patch?download" # app_sendtext: Add ReceiveText
+		gerrit_patch 17470 "https://gerrit.asterisk.org/changes/asterisk~17470/revisions/9/patch?download" # variable substitution for extensions
+		gerrit_patch 17654 "https://gerrit.asterisk.org/changes/asterisk~17654/revisions/1/patch?download" # critical compiler fix
+		gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
+		gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/7/patch?download" # app_sf
+	fi
 
 	## Gerrit patches: remove once merged
 	phreak_tree_module "apps/app_if.c"
@@ -642,7 +719,7 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_http.c"
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_lock.c"
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile.rules"
+	#freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile.rules"
 	printf "%s\n" "FreeBSD patching complete..."
 }
 
@@ -692,6 +769,7 @@ get_backtrace() { # $1 = "1" to upload
 		mostrecentcoredump=`ls -v * | grep "^core" | tail -1`
 		$AST_VARLIB_DIR/scripts/ast_coredumper "$mostrecentcoredump" > /tmp/ast_coredumper.txt
 	fi
+	printf "Exit code is %d\n" $?
 	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer necessarily simply just /tmp/core-full.txt
 	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
 		echoerr "No core dumps found"
@@ -706,11 +784,12 @@ get_backtrace() { # $1 = "1" to upload
 	if [ "$1" = "1" ]; then # backtrace
 		printf "%s\n" "Uploading paste of backtrace..."
 		paste_post "$corefullpath"
-		rm /tmp/core-*.txt
+		# rm /tmp/core-*.txt # actually, don't delete these, just in case...
 	else # backtrace-only
 		ls $corefullpath
 	fi
-	rm -f core* # if core dump itself wasn't automatically deleted, delete it now
+	rm -f /tmp/ast_coredumper.txt
+	ls | grep "^core" | grep -v ".txt" | xargs rm # if core dump itself wasn't automatically deleted, delete it now... but don't remove the backtraces we just extracted!
 }
 
 rule_audio() {
@@ -849,7 +928,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,freepbx,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -884,6 +963,7 @@ while true; do
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
 		--disa ) PHREAKNET_DISA=$2; shift 2;;
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
+		--freepbx ) FREEPBX_GUI=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
 		--upstream ) SCRIPT_UPSTREAM=$2; shift 2;;
@@ -930,7 +1010,11 @@ elif [ "$cmd" = "install" ]; then
 		echoerr "PhreakScript install must be run as root. Aborting..."
 		exit 2
 	fi
-	freediskspace=`df --local --type=ext4 | head -2 | tail -1 | awk '{print $4}'` # free disk space, in KB
+	if [ "$FREEPBX_GUI" = "1" ] && [ "$AST_USER" != "asterisk" ]; then
+		echoerr "FreePBX requires installing as asterisk user (use --user asterisk)"
+		exit 2
+	fi
+	freediskspace=`df / | awk '{print $4}' | tail -n +2 | tr -d '\n'` # free disk space, in KB
 	if [ ${#freediskspace} -gt 0 ]; then
 		if [ $freediskspace -lt 800000 ]; then # warn users if they're about to install Asterisk with insufficient disk space ( < 800,000 KB)
 			echoerr "WARNING: Free disk space is low: "
@@ -1033,7 +1117,11 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	# Get latest Asterisk LTS version
 	cd $AST_SOURCE_PARENT_DIR
-	if [ "$AST_ALT_VER" != "" ]; then
+	if [ "$AST_ALT_VER" = "master" ]; then
+		AST_SOURCE_NAME="asterisk-master"
+		printf "%s\n" "Proceeding to clone master branch of Asterisk..."
+		sleep 1
+	elif [ "$AST_ALT_VER" != "" ]; then
 		AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
 		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER..."
 		echoerr "***************************** WARNING *****************************"
@@ -1044,11 +1132,36 @@ elif [ "$cmd" = "install" ]; then
 	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
 		wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+	elif [ "$AST_ALT_VER" = "master" ]; then # clone master branch
+		if [ -d "asterisk" ]; then
+			if [ "$FORCE_INSTALL" = "1" ]; then
+				rm -rf "asterisk"
+			else
+				echoerr "Directory asterisk already exists. Please rename or delete this directory and restart installation or specify the force flag."
+				exit 1
+			fi
+		fi
+		if [ -d "asterisk-master" ]; then
+			if [ "$FORCE_INSTALL" = "1" ]; then
+				rm -rf "asterisk-master"
+			else
+				echoerr "Directory asterisk-master already exists. Please rename or delete this directory and restart installation or specify the force flag."
+				exit 1
+			fi
+		fi
+		git clone "https://github.com/asterisk/asterisk"
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to clone asterisk master branch"
+			exit 1
+		fi
+		mv asterisk asterisk-master
 	else
 		wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
 	fi
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz"
+		if [ "$AST_ALT_VER" != "master" ]; then
+			echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz"
+		fi
 		if [ "$AST_ALT_VER" != "" ]; then
 			printf "It seems Asterisk version %s does not exist...\n" "$AST_ALT_VER"
 		fi
@@ -1057,23 +1170,30 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$CHAN_SCCP" = "1" ]; then
 		git clone https://github.com/chan-sccp/chan-sccp.git chan-sccp
 	fi
-	AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
-	if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			rm -rf $AST_SRC_DIR
-		else
-			echoerr "Directory $AST_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-			exit 1
+
+	if [ "$AST_ALT_VER" = "master" ]; then
+		AST_SRC_DIR="asterisk-master"
+	else
+		AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
+		if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
+			if [ "$FORCE_INSTALL" = "1" ]; then
+				rm -rf $AST_SRC_DIR
+			else
+				echoerr "Directory $AST_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
+				exit 1
+			fi
 		fi
 	fi
 	printf "%s\n" "Installing production version $AST_SRC_DIR..."
-	tar -zxvf $AST_SOURCE_NAME.tar.gz
-	rm $AST_SOURCE_NAME.tar.gz
+	if [ "$AST_ALT_VER" != "master" ]; then
+		tar -zxvf $AST_SOURCE_NAME.tar.gz
+		rm $AST_SOURCE_NAME.tar.gz
+	fi
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
 		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
 		exit 2
 	fi
-	AST_SRC_DIR2=`ls -d -v */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR2=`get_newest_astdir`
 	AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
 	if [ "$AST_SRC_DIR" != "$AST_SRC_DIR2" ]; then
 		echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
@@ -1165,8 +1285,8 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	if [ $? -ne 0 ]; then
-		if [ "$TEST_SUITE" = "1" ]; then
-			/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
+		if [ "$TEST_SUITE" = "1" ] && [ -f doc/core-en_US.xml ]; then
+			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
 	fi
@@ -1175,7 +1295,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	if [ $? -ne 0 ]; then
 		if [ "$TEST_SUITE" = "1" ]; then
-			/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
+			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
 	fi
@@ -1197,15 +1317,13 @@ elif [ "$cmd" = "install" ]; then
 		done
 	fi
 	$AST_MAKE config # install init script
+	ldconfig # update shared libraries cache
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		wget https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/asterisk.in
 		cp asterisk.in /usr/local/etc/rc.d/asterisk
 		chmod +x /usr/local/etc/rc.d/asterisk
 	fi
 	$AST_MAKE install-logrotate # auto compress and rotate log files
-	if [ ${#AST_USER} -gt 0 ]; then
-		sed -i 's/create 640 root root/create 640 $AST_USER $AST_USER/g' /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
-	fi
 
 	if [ "$ODBC" = "1" ]; then # MariaDB ODBC for Asterisk
 		apt-get install -y unixodbc unixodbc-dev mariadb-server
@@ -1233,6 +1351,7 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/#AST_USER="asterisk"/AST_USER="$AST_USER"/g' /etc/default/asterisk
 		sed -i 's/#AST_GROUP="asterisk"/AST_GROUP="$AST_USER"/g' /etc/default/asterisk
 		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /usr/sbin/asterisk
+		sed -i 's/create 640 root root/create 640 $AST_USER $AST_USER/g' /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
 	fi
 
 	if [ "$CHAN_SCCP" = "1" ]; then
@@ -1267,6 +1386,20 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		echog "Note that DAHDI was installed and requires a reboot before it can be used."
 	fi
+	if [ "$FREEPBX_GUI" = "1" ]; then
+		printf "%s\n" "Installation of FreePBX GUI will begin in 5 seconds..."
+		sleep 5 # give time to read the message above, if we're watching...
+		install_freepbx
+	fi
+elif [ "$cmd" = "freepbx" ]; then
+	if [ "$AST_USER" != "asterisk" ]; then
+		echoerr "FreePBX requires installing as asterisk user (use --user asterisk)"
+		exit 2
+	else
+		echoerr "Assuming that Asterisk runs as user 'asterisk'..."
+		sleep 2
+	fi
+	install_freepbx
 elif [ "$cmd" = "pulsar" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://octothorpe.info/downloads/pulsar-agi.tar.gz
@@ -1333,8 +1466,8 @@ elif [ "$cmd" = "installts" ]; then
 	fi
 	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "docverify" ]; then
-	/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # show the XML validation errors
-	/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml 2>&1 | grep "doc/core-en_US.xml:" | cut -d':' -f2 | cut -d'.' -f1 | xargs  -d "\n" -I{} sed "{}q;d" doc/core-en_US.xml # show the offending lines
+	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # show the XML validation errors
+	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml 2>&1 | grep "doc/core-en_US.xml:" | cut -d':' -f2 | cut -d'.' -f1 | xargs  -d "\n" -I{} sed "{}q;d" doc/core-en_US.xml # show the offending lines
 elif [ "$cmd" = "gerrit" ]; then
 	read -r -p "Gerrit Patchset: " gurl
 	phreak_gerrit_off "$gurl"
@@ -1354,7 +1487,7 @@ elif [ "$cmd" = "runtests" ]; then
 	run_testsuite_tests
 elif [ "$cmd" = "docgen" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
 	if [ $? -ne 0 ]; then
 		echoerr "Couldn't find Asterisk source directory?"
@@ -1364,7 +1497,7 @@ elif [ "$cmd" = "docgen" ]; then
 		printf "%s\n" "Failed to find any XML documentation. Has Asterisk been installed yet?"
 		exit 2
 	fi
-	/usr/bin/xmlstarlet val -d doc/appdocsxml.dtd -e doc/core-en_US.xml
+	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml
 	if [ $? -ne 0 ]; then
 		exit 2 # if the XML docs aren't valid, then give up now
 	fi
@@ -1388,7 +1521,7 @@ elif [ "$cmd" = "docgen" ]; then
 	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
 elif [ "$cmd" = "pubdocs" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`get_newest_astdir`
 	apt-get install -y python-dev python-virtualenv python-lxml
 	pip install pystache
 	pip install premailer
@@ -1401,7 +1534,7 @@ elif [ "$cmd" = "pubdocs" ]; then
 	printf "%s\n" "Generating Confluence markup..."
 	if [ ! -f "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml" ]; then
 		echoerr "File does not exist: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml"
-		ls -d -v $AST_SOURCE_PARENT_DIR/*/ | grep "asterisk-" | tail -1
+		ls -d -v $AST_SOURCE_PARENT_DIR/*/ | grep "asterisk-" | tail -1 ###### not FreeBSD compatible
 		exit 2
 	fi
 	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
@@ -1688,21 +1821,44 @@ elif [ "$cmd" = "pcap" ]; then
 	printf "Packet capture successfully saved to %s\n" "/tmp/pcap_$debugtime.pcap"
 elif [ "$cmd" = "enable-backtraces" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
 	make
 	make install
 elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/Valgrind
+	apt-get install -y valgrind
 	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`ls -d -v */ | grep "^asterisk-" | tail -1`
+	AST_SRC_DIR=`get_newest_astdir`
 	cd /tmp
 	asterisk -rx "core stop now"
 	sleep 1
 	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp --log-fd=9 asterisk -vvvvcg 9 > asteriskvalgrind.txt
 	paste_post "/tmp/asteriskvalgrind.txt"
 	ls /tmp/asteriskvalgrind.txt
+elif [ "$cmd" = "malloc-debug" ]; then # https://wiki.asterisk.org/wiki/display/AST/MALLOC_DEBUG+Compiler+Flag
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	cd $AST_SRC_DIR
+	asterisk -rx "core show settings" | grep "Build Options:" | grep "MALLOC_DEBUG"
+	if [ $? -ne 0 ]; then # either Asterisk isn't running or MALLOC_DEBUG isn't a currently compiler option, so recompile with MALLOC_DEBUG
+		make menuselect.makeopts
+		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable MALLOC_DEBUG menuselect.makeopts
+		$AST_MAKE make
+		$AST_MAKE install
+	fi
+	cd /tmp
+	read -r -p "Press ENTER to restart Asterisk with MALLOC_DEBUG enabled: "
+	asterisk -rx "core stop now"
+	asterisk -g
+	read -r -p "MALLOC_DEBUG is currently collecting debug. Press ENTER once issue has been reproduced: "
+	if [ ! -f "/var/log/asterisk/mmlog" ]; then
+		echoerr "Could not find /var/log/asterisk/mmlog"
+		exit 1
+	fi
+	paste_post "/var/log/asterisk/mmlog"
+	ls /var/log/asterisk/mmlog
 elif [ "$cmd" = "backtrace-only" ]; then
 	get_backtrace 0
 elif [ "$cmd" = "backtrace" ]; then
