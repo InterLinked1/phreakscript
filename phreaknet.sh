@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.35 (2021-02-03)
+# v0.1.36 (2021-02-10)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-02-10 0.1.37 Asterisk: target 18.10.0
+# 2021-02-05 0.1.36 Asterisk: add hearpulsing to DAHDI
 # 2021-02-03 0.1.35 PhreakScript: added preliminary freepbx flag
 # 2021-01-27 0.1.34 PhreakScript: added master branch install option
 # 2021-01-22 0.1.33 Asterisk: removed func_frameintercept
@@ -539,10 +541,14 @@ dahdi_undo() {
 
 dahdi_custom_patch() {
 	printf "Applying custom DAHDI patch: %s\n" "$1"
+	if [ ! -f "$AST_SOURCE_PARENT_DIR/$2" ]; then
+		echoerr "File $AST_SOURCE_PARENT_DIR/$2 does not exist"
+		exit 2
+	fi
 	wget -q "$3" -O /tmp/$1.patch --no-cache
 	patch -u -b "$AST_SOURCE_PARENT_DIR/$2" -i /tmp/$1.patch
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply DAHDI patch... this should be reported..."
+		echoerr "Failed to apply DAHDI patch (patch -u -b $AST_SOURCE_PARENT_DIR/$2 -i /tmp/$1.patch)... this should be reported..."
 		exit 2
 	fi
 	rm /tmp/$1.patch
@@ -655,25 +661,19 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
 	fi
 
-	## Gerrit patches: merged, remove in 18.10
+	## Gerrit patches: merged, remove in 18.11
 	if [ "$AST_ALT_VER" != "master" ]; then # apply specified merged patches, unless we just cloned master
-		gerrit_patch 16634 "https://gerrit.asterisk.org/changes/asterisk~16634/revisions/16/patch?download" # func_json
-		gerrit_patch 16499 "https://gerrit.asterisk.org/changes/asterisk~16499/revisions/3/patch?download" # app_mf: Add ReceiveMF
-		gerrit_patch 17510 "https://gerrit.asterisk.org/changes/asterisk~17510/revisions/1/patch?download" # app_sendtext: Add ReceiveText
-		gerrit_patch 17470 "https://gerrit.asterisk.org/changes/asterisk~17470/revisions/9/patch?download" # variable substitution for extensions
-		gerrit_patch 17654 "https://gerrit.asterisk.org/changes/asterisk~17654/revisions/1/patch?download" # critical compiler fix
-		gerrit_patch 17648 "https://gerrit.asterisk.org/changes/asterisk~17648/revisions/1/patch?download" # app.c: Throw warnings for nonexistent app options
-		gerrit_patch 17652 "https://gerrit.asterisk.org/changes/asterisk~17652/revisions/7/patch?download" # app_sf
+		:
 	fi
 
 	## Gerrit patches: remove once merged
 	phreak_tree_module "apps/app_if.c"
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
-	gerrit_patch 17700 "https://gerrit.asterisk.org/changes/asterisk~17700/revisions/3/patch?download" # CLI command to unload/load module
 	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
 	#gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
+	gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
@@ -760,6 +760,8 @@ get_backtrace() { # $1 = "1" to upload
 			service mysql restart
 		fi
 	fi
+	printf "%s" "Core dump pattern is: "
+	sysctl -n kernel.core_pattern # sysctl -w kernel.core_pattern=core
 	printf "%s\n" "Finding core dump to process, this may take a moment..."
 	$AST_VARLIB_DIR/scripts/ast_coredumper > /tmp/ast_coredumper.txt
 	if [ $? -ne 0 ]; then
@@ -1072,8 +1074,8 @@ elif [ "$cmd" = "install" ]; then
 			exit 2
 		fi
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
-		dahdi_unpurge $DAHDI_LIN_SRC_DIR
 		# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
+		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 		dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
 		dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
 		dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
@@ -1086,6 +1088,7 @@ elif [ "$cmd" = "install" ]; then
 		dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
 		dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
 		dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
+		# dahdi_custom_patch "DAHLIN-395-hearpulsing" "$DAHDI_LIN_SRC_DIR/drivers/dahdi/dahdi-base.c" "https://issues.asterisk.org/jira/secure/attachment/61183/DAHLIN-395-hearpulsing.patch"
 		make
 		if [ $? -ne 0 ]; then
 			echoerr "DAHDI Linux compilation failed, aborting install"
@@ -1099,6 +1102,7 @@ elif [ "$cmd" = "install" ]; then
 		fi
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 		dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+		# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
 		autoreconf -i
 		./configure
 		make
@@ -1352,6 +1356,8 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/#AST_GROUP="asterisk"/AST_GROUP="$AST_USER"/g' /etc/default/asterisk
 		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /usr/sbin/asterisk
 		sed -i 's/create 640 root root/create 640 $AST_USER $AST_USER/g' /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
+		sed -i 's/;runuser =/runuser =/' $AST_CONFIG_DIR/asterisk.conf
+		sed -i 's/;rungroup =/rungroup =/' $AST_CONFIG_DIR/asterisk.conf
 	fi
 
 	if [ "$CHAN_SCCP" = "1" ]; then
