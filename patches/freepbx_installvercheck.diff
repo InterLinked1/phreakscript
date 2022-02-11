@@ -1,0 +1,17 @@
+--- installlib/installcommand.class.php.orig	2022-02-11 12:02:47.859242419 -0500
++++ installlib/installcommand.class.php	2022-02-11 12:05:53.038004749 -0500
+@@ -286,6 +286,14 @@
+ 				$output->writeln("<error>Try starting Asterisk with the './start_asterisk start' command in this directory</error>");
+ 				exit(1);
+ 			}
++
++			// If running a command ends in "Asterisk ending (0).", which will appear at the end, cut that out first.
++			if (count($tmpout) > 2 && $tmpout[2] === 'Asterisk ending (0).') {
++				unset($tmpout[2]);
++                        } else if (count($tmpout) > 1 && $tmpout[1] === 'Asterisk ending (0).') {
++				unset($tmpout[1]);
++                        }
++
+ 			// If this machine doesn't have an ethernet interface (which opens a WHOLE NEW can of worms),
+ 			// asterisk will say "No ethernet interface detected". There may, also, be other errors about
+ 			// other modules or configuration issues. The last line, however, is always the version.
