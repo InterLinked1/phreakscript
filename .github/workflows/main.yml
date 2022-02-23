@@ -32,7 +32,9 @@ jobs:
       - name: Run build
         run: |
           cd /usr/src
-          wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
-          chmod +x phreaknet.sh
-          ./phreaknet.sh make
-          phreaknet install -d -t
+          sudo apt-get update
+          sudo apt-get install wget
+          sudo wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
+          sudo chmod +x phreaknet.sh
+          sudo ./phreaknet.sh make
+          sudo phreaknet install -d -t
