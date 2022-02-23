@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.36 (2021-02-10)
+# v0.1.39 (2021-02-23)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-02-23 0.1.39 PhreakScript: minor refactoring
+# 2021-02-11 0.1.38 Asterisk: refined freepbx support
 # 2021-02-10 0.1.37 Asterisk: target 18.10.0
 # 2021-02-05 0.1.36 Asterisk: add hearpulsing to DAHDI
 # 2021-02-03 0.1.35 PhreakScript: added preliminary freepbx flag
@@ -101,6 +103,8 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 
 # Script environment variables
 AST_SOURCE_NAME="asterisk-18-current"
+LIBPRI_SOURCE_NAME="libpri-1.6.0"
+WANPIPE_SOURCE_NAME="wanpipe-7.0.34"
 CISCO_CM_SIP="cisco-usecallmanager-18.7.0"
 AST_ALT_VER=""
 MIN_ARGS=1
@@ -136,6 +140,10 @@ BOILERPLATE_SOUNDS=0
 SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
 DEBUG_LEVEL=0
 FREEPBX_GUI=0
+
+handler() {
+	kill $BGPID
+}
 
 # FreeBSD doesn't support this escaping, so just do a simple print.
 echog() {
@@ -182,50 +190,58 @@ usage() {
 	echo "Usage: phreaknet [command] [options]
 Commands:
    *** Getting Started ***
-   about             About PhreakScript
-   help              Program usage
-   examples          Example usages
-   info              System info
+   about              About PhreakScript
+   help               Program usage
+   examples           Example usages
+   info               System info
 
    *** First Use / Installation ***
-   make              Add PhreakScript to path
-   install           Install or upgrade PhreakNet Asterisk
-   installts         Install Asterisk Test Suite
-   freepbx           Install FreePBX GUI (not recommended)
-   pulsar            Install Revertive Pulsing simulator
-   sounds            Install Pat Fleet sound library
-   ulaw              Convert wav to ulaw (specific file or all in current directory)
+   make               Add PhreakScript to path
+   install            Install or upgrade PhreakNet Asterisk
+   installts          Install Asterisk Test Suite
+   freepbx            Install FreePBX GUI (not recommended)
+   pulsar             Install Revertive Pulsing simulator
+   sounds             Install Pat Fleet sound library
+   boilerplate-sounds Install boilerplate sounds only
+   ulaw               Convert wav to ulaw (specific file or all in current directory)
+   uninstall          Uninstall Asterisk, but leave configuration behind
+   uninstall-all      Uninstall Asterisk, and completely remove all traces of it (configs, etc.)
 
    *** Initial Configuration ***
-   config            Install PhreakNet boilerplate config
-   keygen            Install and update PhreakNet RSA keys
+   bconfig            Install PhreakNet boilerplate config
+   config             Install PhreakNet boilerplate config and autoconfigure PhreakNet variables
+   keygen             Install and update PhreakNet RSA keys
 
    *** Maintenance ***
-   update            Update PhreakScript
-   patch             Patch PhreakNet Asterisk configuration
-   genpatch          Generate a PhreakPatch
+   update             Update PhreakScript
+   patch              Patch PhreakNet Asterisk configuration
+   genpatch           Generate a PhreakPatch
+   freedisk           Free up disk space
 
    *** Debugging ***
-   validate          Run dialplan validation and diagnostics and look for problems
-   trace             Capture a CLI trace and upload to InterLinked Paste
-   pcap              Perform a packet capture, optionally against a specific IP address
-   enable-backtraces Enables backtraces to be extracted from the core dumper (new or existing installs)
-   backtrace         Use astcoredumper to process a backtrace and upload to InterLinked Paste
-   backtrace-only    Use astcoredumper to process a backtrace
-   valgrind          Run Asterisk under valgrind
+   validate           Run dialplan validation and diagnostics and look for problems
+   trace              Capture a CLI trace and upload to InterLinked Paste
+   iaxping            Check if a remote IAX2 listener is reachable
+   pcap               Perform a packet capture, optionally against a specific IP address
+   pcaps              Same as pcap, but open in sngrep afterwards
+   sngrep             Perform SIP message debugging
+   enable-backtraces  Enables backtraces to be extracted from the core dumper (new or existing installs)
+   backtrace          Use astcoredumper to process a backtrace and upload to InterLinked Paste
+   backtrace-only     Use astcoredumper to process a backtrace
+   valgrind           Run Asterisk under valgrind
 
    *** Development & Testing ***
-   docverify         Show documentation validation errors and details
-   runtests          Run differential PhreakNet tests
-   runtest           Run any specified test (argument to command)
-   stresstest        Run any specified test multiple times in a row
-   gerrit            Manually install a custom patch set from Gerrit
-   ccache            Globally install ccache to speed up recompilation
+   docverify          Show documentation validation errors and details
+   runtests           Run differential PhreakNet tests
+   runtest            Run any specified test (argument to command)
+   stresstest         Run any specified test multiple times in a row
+   gerrit             Manually install a custom patch set from Gerrit
+   ccache             Globally install ccache to speed up recompilation
 
    *** Miscellaneous ***
-   docgen            Generate Asterisk user documentation
-   pubdocs           Generate Asterisk user documentation (deprecated)
-   edit              Edit PhreakScript
+   docgen             Generate Asterisk user documentation
+   pubdocs            Generate Asterisk user documentation (deprecated)
+   edit               Edit PhreakScript
 
 Options:
    -b, --backtraces   Enables getting backtraces
@@ -262,6 +278,14 @@ get_newest_astdir() {
 	fi
 }
 
+download_if_missing() {
+	if [ ! -f "$1" ]; then
+		wget "$2"
+	else
+		printf "Audio file already present, not overwriting: %s\n" "$1"
+	fi
+}
+
 install_prereq() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get clean
@@ -290,6 +314,79 @@ install_prereq() {
 	fi
 }
 
+install_boilerplate() {
+	if [ ! -d $AST_CONFIG_DIR/dialplan ]; then
+		mkdir -p $AST_CONFIG_DIR/dialplan
+		cd $AST_CONFIG_DIR/dialplan
+	elif [ ! -d $AST_CONFIG_DIR/dialplan/phreaknet ]; then
+		mkdir -p $AST_CONFIG_DIR/dialplan/phreaknet
+		cd $AST_CONFIG_DIR/dialplan/phreaknet
+	else
+		if [ "$FORCE_INSTALL" != "1" ]; then
+			echoerr "It looks like you already have configs. Proceed and overwrite? (y/n) "
+			printf '\a'
+			read -r -p "" ans
+			if [ "$ans" != "y" ]; then
+				echo "Cancelling config installation."
+				exit 1
+			fi
+		fi
+	fi
+	printf "Backing up %s configs, just in case...\n" $AST_CONFIG_DIR
+	mkdir -p /tmp/etc_asterisk
+	cp $AST_CONFIG_DIR/*.conf /tmp/etc/_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
+	EXTENSIONS_CONF_FILE="extensions.conf"
+	if [ -f $AST_CONFIG_DIR/freepbx_module_admin.conf ]; then
+		printf "%s\n" "Detected FreePBX installation..."
+		EXTENSIONS_CONF_FILE="extensions_custom.conf"
+	fi
+	printf "%s" "Installing boilerplate code to "
+	pwd
+	printf "\n"
+	wget -q --show-progress https://docs.phreaknet.org/verification.conf -O verification.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/phreaknet.conf -O phreaknet.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
+	ls -l
+	cd $AST_CONFIG_DIR
+	wget -q --show-progress https://docs.phreaknet.org/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/extensions.conf -O $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE --no-cache
+	wget -q --show-progress https://docs.phreaknet.org/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
+	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
+}
+
+install_boilerplate_sounds() {
+	cd $AST_SOUNDS_DIR
+	mkdir -p custom/signal
+	cd custom/signal
+	download_if_missing "dialtone.ulaw" "https://audio.phreaknet.org/stock/dialtone.ulaw"
+	download_if_missing "busy.ulaw" "https://audio.phreaknet.org/stock/busy.ulaw"
+	download_if_missing "reorder.ulaw" "https://audio.phreaknet.org/stock/reorder.ulaw"
+	download_if_missing "ccad.ulaw" "https://audio.phreaknet.org/stock/ccad.ulaw"
+	download_if_missing "acbn.ulaw" "https://audio.phreaknet.org/stock/acbn.ulaw"
+	cd $AST_MOH_DIR
+	mkdir -p ringback
+	cd ringback
+	download_if_missing "ringback.ulaw" "https://audio.phreaknet.org/stock/ringback.ulaw"
+}
+
+install_freepbx_checks() {
+	if [ "$AST_USER" != "asterisk" ]; then
+		echoerr "FreePBX requires installing as asterisk user (use --user asterisk)"
+		exit 2
+	fi
+	if [ -f $AST_CONFIG_DIR/extensions.conf ]; then
+		if [ "$FORCE_INSTALL" != "1" ]; then
+			echoerr "An existing /etc/asterisk/extensions.conf has been detected on the file system. Installing FreePBX will overwrite ALL OF YOUR CONFIGURATION!!!"
+			printf "%s\n" "If this is intended, rerun the command with the -f or --force flag. Be sure to backup your configuration first if desired."
+			exit 2
+		fi
+	fi
+}
+
 install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asterisk-and-freepbx-on-ubuntu-20-04/
 	FREEPBX_VERSION="freepbx-16.0-latest"
 	# avoid using if possible
@@ -305,6 +402,7 @@ install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asteri
 		return
 	fi
 	apt-get install -y nodejs
+	phreak_tree_patch "installlib/installcommand.class.php" "freepbx_installvercheck.diff" # bug fix to installer
 	./install -n
 	if [ $? -ne 0 ]; then
 		echoerr "Installation failed"
@@ -327,6 +425,18 @@ install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asteri
 	printf "%s\n" "You will need to navigate to this page to complete setup."
 	printf "%s\n" "If this system is Internet facing, you are urged to secure your system"
 	printf "%s\n" "by restricting access to specific IP addresses only."
+}
+
+uninstall_freepbx() {
+	printf "%s\n" "Uninstalling and removing FreePBX-specific stuff"
+	# ./install_amp --uninstall # where is this file even located?
+	rm /usr/sbin/amportal
+	# rm -rf /var/lib/asterisk/bin/* # there could be other stuff in here
+	rm -rf /var/www/html/admin/*
+	rm /etc/amportal.conf
+	rm /etc/asterisk/amportal.conf
+	rm /etc/freepbx.conf
+	rm /etc/asterisk/freepbx.conf
 }
 
 run_testsuite_test() {
@@ -403,13 +513,15 @@ install_phreak_testsuite_test() { # $1 = test path
 	fi
 	cp -r "phreakscript/testsuite/tests/$1" "testsuite/tests/$parent"
 	echo "    - test: '$base'" >> "testsuite/tests/$parent/tests.yaml" # rather than have a patch for this file, which could be subject to frequent change and result in a finicky patch that's likely to fail, simply append it to the list of tests to run
-	printf "%s\n" "Installed test: %s" "$1"
+	printf "Installed test: %s\n" "$1"
 }
 
 add_phreak_testsuite() {
 	printf "%s\n" "Applying PhreakNet test suite additions"
 	cd ..
-	git clone https://github.com/InterLinked1/phreakscript.git
+	if [ -d phreakscript ]; then # if dir exists, assume it's the repo
+		git clone https://github.com/InterLinked1/phreakscript.git
+	fi
 	cd phreakscript
 	git config pull.rebase false # this is the default. do this solely to avoid those annoying "Pulling without specifying" warnings...
 	git pull # in case it already existed, update the repo
@@ -474,7 +586,7 @@ install_testsuite_itself() {
 	cd ..
 	cd testsuite
 	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
-	./runtests.py -l
+	# ./runtests.py -l # list all tests
 	add_phreak_testsuite
 	printf "%s\n" "Asterisk Test Suite installation complete"
 }
@@ -677,6 +789,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
+	gerrit_patch 18063 "https://gerrit.asterisk.org/changes/asterisk~18063/revisions/1/patch?download" # func_channel: Add TECH_EXISTS
 
 	## Menuselect updates
 	make menuselect.makeopts
@@ -684,6 +797,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 }
 
 phreak_gerrit_off() {
+	if [ ${#1} -le 10 ]; then
+		echoerr "Provide the full Gerrit patch link, not just the review number"
+		exit 2
+	fi
 	gerritid=`echo "$1" | cut -d'~' -f2 | cut -d'/' -f1`
 	if [ "${#gerritid}" -ne 5 ]; then
 		echoerr "Invalid Gerrit review (id $gerritid)"
@@ -721,14 +838,6 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile"
 	#freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile.rules"
 	printf "%s\n" "FreeBSD patching complete..."
-}
-
-download_if_missing() {
-	if [ ! -f "$1" ]; then
-		wget "$2"
-	else
-		printf "Audio file already present, not overwriting: %s\n" "$1"
-	fi
 }
 
 paste_post() { # $1 = file to upload
@@ -1012,9 +1121,8 @@ elif [ "$cmd" = "install" ]; then
 		echoerr "PhreakScript install must be run as root. Aborting..."
 		exit 2
 	fi
-	if [ "$FREEPBX_GUI" = "1" ] && [ "$AST_USER" != "asterisk" ]; then
-		echoerr "FreePBX requires installing as asterisk user (use --user asterisk)"
-		exit 2
+	if [ "$FREEPBX_GUI" = "1" ]; then
+		install_freepbx_checks
 	fi
 	freediskspace=`df / | awk '{print $4}' | tail -n +2 | tr -d '\n'` # free disk space, in KB
 	if [ ${#freediskspace} -gt 0 ]; then
@@ -1073,9 +1181,13 @@ elif [ "$cmd" = "install" ]; then
 			printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
 			exit 2
 		fi
+
+		# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
-		# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
+
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
+		
+		# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
 		dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
 		dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
 		dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
@@ -1096,6 +1208,8 @@ elif [ "$cmd" = "install" ]; then
 		fi
 		make install
 		make all install config
+		
+		# DAHDI Tools
 		if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
 			printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
 			exit 2
@@ -1118,6 +1232,25 @@ elif [ "$cmd" = "install" ]; then
 		# modprobe <listed>
 		dahdi_genconf system # in case not in path
 		dahdi_cfg # in case not in path
+		
+		# LibPRI # https://gist.github.com/debuggerboy/3028532
+		cd $AST_SOURCE_PARENT_DIR
+		wget http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz
+		tar -zxvf ${PRI}.tar.gz
+		rm ${PRI}.tar.gz
+		cd ${LIBPRI_SOURCE_NAME}
+		make && make install
+		
+		# Wanpipe
+		cd $AST_SOURCE_PARENT_DIR
+		wget https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+		tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
+		rm ${WANPIPE_SOURCE_NAME}.tgz
+		cd ${WANPIPE_SOURCE_NAME}
+		# ./Setup dahdi
+		./Setup install --silent
+		wanrouter stop
+		wanrouter start
 	fi
 	# Get latest Asterisk LTS version
 	cd $AST_SOURCE_PARENT_DIR
@@ -1320,7 +1453,7 @@ elif [ "$cmd" = "install" ]; then
 			nm -D ${FILE} | grep PJ_AF_INET
 		done
 	fi
-	$AST_MAKE config # install init script
+	$AST_MAKE config # install init script (to run Asterisk as a service)
 	ldconfig # update shared libraries cache
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		wget https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/asterisk.in
@@ -1354,7 +1487,7 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/ASTARGS=""/ASTARGS="-U $AST_USER"/g' /sbin/safe_asterisk
 		sed -i 's/#AST_USER="asterisk"/AST_USER="$AST_USER"/g' /etc/default/asterisk
 		sed -i 's/#AST_GROUP="asterisk"/AST_GROUP="$AST_USER"/g' /etc/default/asterisk
-		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /usr/sbin/asterisk
+		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /var/cache/asterisk /usr/sbin/asterisk
 		sed -i 's/create 640 root root/create 640 $AST_USER $AST_USER/g' /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
 		sed -i 's/;runuser =/runuser =/' $AST_CONFIG_DIR/asterisk.conf
 		sed -i 's/;rungroup =/rungroup =/' $AST_CONFIG_DIR/asterisk.conf
@@ -1384,7 +1517,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	/etc/init.d/asterisk status
-	/etc/init.d/asterisk start
+	/etc/init.d/asterisk start # service asterisk start
 	/etc/init.d/asterisk status
 
 	printf "%s\n" "Asterisk installation has completed. You may now connect to the Asterisk CLI: asterisk -r"
@@ -1398,14 +1531,32 @@ elif [ "$cmd" = "install" ]; then
 		install_freepbx
 	fi
 elif [ "$cmd" = "freepbx" ]; then
-	if [ "$AST_USER" != "asterisk" ]; then
-		echoerr "FreePBX requires installing as asterisk user (use --user asterisk)"
-		exit 2
-	else
+	install_freepbx_checks
+	if [ "$AST_USER" = "asterisk" ]; then
 		echoerr "Assuming that Asterisk runs as user 'asterisk'..."
 		sleep 2
 	fi
 	install_freepbx
+elif [ "$cmd" = "uninstall" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	if [ -f $AST_CONFIG_DIR/freepbx_module_admin.conf ]; then
+		uninstall_freepbx
+	fi
+	cd $AST_SRC_DIR
+	make uninstall
+elif [ "$cmd" = "uninstall-all" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	echoerr "WARNING: This will remove all configuration, spool contents, logs, etc."
+	if [ "$FORCE_INSTALL" != "1" ]; then
+		sleep 3
+	fi
+	if [ -f $AST_CONFIG_DIR/freepbx_module_admin.conf ]; then
+		uninstall_freepbx
+	fi
+	cd $AST_SRC_DIR
+	make uninstall-all
 elif [ "$cmd" = "pulsar" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://octothorpe.info/downloads/pulsar-agi.tar.gz
@@ -1437,19 +1588,10 @@ elif [ "$cmd" = "sounds" ]; then
 	rm -rf /tmp/patfleet
 
 	if [ "$BOILERPLATE_SOUNDS" = "1" ]; then
-		cd $AST_SOUNDS_DIR
-		mkdir -p custom/signal
-		cd custom/signal
-		download_if_missing "dialtone.ulaw" "https://audio.phreaknet.org/stock/dialtone.ulaw"
-		download_if_missing "busy.ulaw" "https://audio.phreaknet.org/stock/busy.ulaw"
-		download_if_missing "reorder.ulaw" "https://audio.phreaknet.org/stock/reorder.ulaw"
-		download_if_missing "ccad.ulaw" "https://audio.phreaknet.org/stock/ccad.ulaw"
-		download_if_missing "acbn.ulaw" "https://audio.phreaknet.org/stock/acbn.ulaw"
-		cd $AST_MOH_DIR
-		mkdir -p ringback
-		cd ringback
-		download_if_missing "ringback.ulaw" "https://audio.phreaknet.org/stock/ringback.ulaw"
+		install_boilerplate_sounds
 	fi
+elif [ "$cmd" = "boilerplate-sounds" ]; then
+	install_boilerplate_sounds
 elif [ "$cmd" = "ulaw" ]; then
 	if ! which sox > /dev/null; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
@@ -1556,6 +1698,17 @@ elif [ "$cmd" = "pubdocs" ]; then
 	printf "%s\n" "All Wiki documentation has been generated and is now in $AST_SOURCE_PARENT_DIR/publish-docs/docs.html"
 	printf "%s\n" "phreaknet pubdocs is deprecated. Please migrate to phreaknet docgen instead"
 elif [ "$cmd" = "config" ]; then
+	inject=1
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	cd $AST_SRC_DIR
+	if [ $? -ne 0 ]; then
+		echoerr "Asterisk configuration directory does not exist"
+		exit 1
+	fi
+	if [ ! -d "$AST_CONFIG_DIR" ]; then
+		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
+	fi
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		printf '\a'
 		read -r -p "InterLinked API key: " INTERLINKED_APIKEY
@@ -1570,55 +1723,35 @@ elif [ "$cmd" = "config" ]; then
 	fi
 	if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
 		echoerr "InterLinked API key must be greater than 30 characters."
-		exit 2
+		inject=0
 	fi
 	if [ ${#PHREAKNET_DISA} -ne 7 ]; then
 		echoerr "PhreakNet DISA number must be 7 digits."
-		exit 2
+		inject=0
 	fi
 	printf "%s: %s\n" "PhreakNet CLLI code" $PHREAKNET_CLLI
 	printf "%s\n" "InterLinked API key seems to be of valid format, not displaying for security reasons..."
-	if [ ! -d $AST_CONFIG_DIR/dialplan ]; then
-		mkdir -p $AST_CONFIG_DIR/dialplan
-		cd $AST_CONFIG_DIR/dialplan
-	elif [ ! -d $AST_CONFIG_DIR/dialplan/phreaknet ]; then
-		mkdir -p $AST_CONFIG_DIR/dialplan/phreaknet
-		cd $AST_CONFIG_DIR/dialplan/phreaknet
-	else
-		if [ "$FORCE_INSTALL" != "1" ]; then
-			echoerr "It looks like you already have configs. Proceed and overwrite? (y/n) "
-			printf '\a'
-			read -r -p "" ans
-			if [ "$ans" != "y" ]; then
-				echo "Cancelling config installation."
-				exit 1
-			fi
-		fi
-	fi
-	printf "Backing up %s configs, just in case...\n" $AST_CONFIG_DIR
-	mkdir -p /tmp/etc_asterisk
-	cp $AST_CONFIG_DIR/*.conf /tmp/etc/_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
-	printf "%s" "Installing boilerplate code to "
-	pwd
-	printf "\n"
-	wget -q --show-progress https://docs.phreaknet.org/verification.conf -O verification.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/phreaknet.conf -O phreaknet.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
-	ls -l
-	cd $AST_CONFIG_DIR
-	wget -q --show-progress https://docs.phreaknet.org/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/extensions.conf -O $AST_CONFIG_DIR/extensions.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
+	install_boilerplate
 	## Inject user config (CLLI code, API key)
-	sed -i "s/abcdefghijklmnopqrstuvwxyz/$INTERLINKED_APIKEY/g" $AST_CONFIG_DIR/extensions.conf
-	sed -i "s/WWWWXXYYZZZ/$PHREAKNET_CLLI/g" $AST_CONFIG_DIR/extensions.conf
-	sed -i "s/5551111/$PHREAKNET_DISA/g" $AST_CONFIG_DIR/extensions.conf
-	printf "Updated [globals] in %s/extensions.conf with dynamic variables. If globals are stored in a different file, manual updating is required." $AST_CONFIG_DIR
+	if [ "$inject" = "1" ]; then
+		sed -i "s/abcdefghijklmnopqrstuvwxyz/$INTERLINKED_APIKEY/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
+		sed -i "s/WWWWXXYYZZZ/$PHREAKNET_CLLI/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
+		sed -i "s/5551111/$PHREAKNET_DISA/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
+		printf "Updated [globals] in %s/extensions.conf with dynamic variables. If globals are stored in a different file, manual updating is required." $AST_CONFIG_DIR
+	fi
 	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
+elif [ "$cmd" = "bconfig" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	cd $AST_SRC_DIR
+	if [ $? -ne 0 ]; then
+		echoerr "Asterisk configuration directory does not exist"
+		exit 1
+	fi
+	if [ ! -d "$AST_CONFIG_DIR" ]; then
+		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
+	fi
+	install_boilerplate
 elif [ "$cmd" = "keygen" ]; then
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
@@ -1809,22 +1942,6 @@ elif [ "$cmd" = "trace" ]; then
 	phreakscript_info >> /var/log/asterisk/$channel # append helpful system info.
 	paste_post "/var/log/asterisk/$channel"
 	rm /var/log/asterisk/$channel
-elif [ "$cmd" = "pcap" ]; then
-	apt-get install -y tshark
-	debugtime=$EPOCHSECONDS
-	if [ "$debugtime" = "" ]; then
-		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
-	fi
-	ip=""
-	if [ ${#2} -gt 0 ]; then
-		ip=$2
-		printf "%s\n" "Starting packet capture for IP $ip - press CTRL+C to conclude"
-		tshark -f "not port 22 and host $ip" -i any -w /tmp/pcap_$debugtime.pcap
-	else
-		printf "%s\n" "Starting packet capture (all IPs) - press CTRL+C to conclude"
-		tshark -f "not port 22" -i any -w /tmp/pcap_$debugtime.pcap
-	fi
-	printf "Packet capture successfully saved to %s\n" "/tmp/pcap_$debugtime.pcap"
 elif [ "$cmd" = "enable-backtraces" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
@@ -1889,6 +2006,84 @@ elif [ "$cmd" = "ccache" ]; then
 	ln -s ccache /usr/local/bin/cc
 	ln -s ccache /usr/local/bin/c++
 	which gcc
+elif [ "$cmd" = "iaxping" ]; then
+	if [ ${#2} -eq 0 ]; then
+		echoerr "Usage: phreaknet iaxping <hostname> [<port>]"
+		exit 1
+	fi
+	port=4569
+	host="$2"
+	if [ ${#3} -gt 0 ]; then
+		if [ "$3" -eq "$3" ] 2> /dev/null; then
+			port="$3"
+		else
+			echoerr "Invalid port number: $3"
+			exit 2
+		fi
+	fi
+	if ! which nmap > /dev/null; then
+		apt-get install -y nmap
+	fi
+	exec nmap -sU ${host} -p ${port}
+elif [ "$cmd" = "pcap" ]; then
+	if ! which tshark > /dev/null; then
+		apt-get install -y tshark
+	fi
+	debugtime=$EPOCHSECONDS
+	if [ "$debugtime" = "" ]; then
+		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
+	fi
+	ip=""
+	if [ ${#2} -gt 0 ]; then
+		ip=$2
+		printf "%s\n" "Starting packet capture for IP $ip - press CTRL+C to conclude"
+		tshark -f "not port 22 and host $ip" -i any -w /tmp/pcap_$debugtime.pcap &
+	else
+		printf "%s\n" "Starting packet capture (all IPs) - press CTRL+C to conclude"
+		tshark -f "not port 22" -i any -w /tmp/pcap_$debugtime.pcap &
+	fi
+	BGPID=$!
+	trap handler INT
+	wait $BGPID
+	printf "Packet capture successfully saved to %s\n" "/tmp/pcap_$debugtime.pcap"
+elif [ "$cmd" = "pcaps" ]; then
+	if ! which tshark > /dev/null; then
+		apt-get install -y tshark
+	fi
+	debugtime=$EPOCHSECONDS
+	if [ "$debugtime" = "" ]; then
+		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
+	fi
+	ip=""
+	if [ ${#2} -gt 0 ]; then
+		ip=$2
+		printf "%s\n" "Starting packet capture for IP $ip - press CTRL+C to conclude"
+		tshark -f "not port 22 and host $ip" -i any -w /tmp/pcap_$debugtime.pcap &
+	else
+		printf "%s\n" "Starting packet capture (all IPs) - press CTRL+C to conclude"
+		tshark -f "not port 22" -i any -w /tmp/pcap_$debugtime.pcap &
+	fi
+	BGPID=$!
+	trap handler INT
+	wait $BGPID
+	printf "Packet capture successfully saved to %s\n" "/tmp/pcap_$debugtime.pcap"
+	exec sngrep -I /tmp/pcap_$debugtime.pcap
+elif [ "$cmd" = "sngrep" ]; then
+	if ! which sngrep > /dev/null; then
+		apt-get install -y sngrep
+	fi
+	exec sngrep
+elif [ "$cmd" = "freedisk" ] ; then
+	apt-get clean
+	logrotate -f /etc/logrotate.conf
+	rm /var/log/*.gz
+	rm /var/log/asterisk/*.gz
+	if [ -f /var/log/asterisk/full.1 ]; then
+		rm /var/log/asterisk/full.1
+	fi
+	if [ -f /var/log/apache2/modsec_audit.log ]; then
+		echo "" > /var/log/apache2/modsec_audit.log
+	fi
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."

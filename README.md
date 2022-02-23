@@ -36,6 +36,7 @@ PhreakScript installs:
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
+      - ``TECH_EXISTS``
       - ``NUM2DEVICE``
       - ``COIN_DETECT``
       - ``OTHER_CHANNEL``
@@ -49,7 +50,7 @@ PhreakScript installs:
       - ``DB_UNIQUE``
       - ``SIP_PARAMETER``
    - Miscellaneous improvements
-      - Enhanced performance by disabling Newexten AMI event
+      - Enhances performance by disabling Newexten AMI event
       - Adds fax timing and parameter control to `chan_sip`
       - Fixes ulaw/gsm codec translation bug
       - Fixes infinite loop Dial bug
