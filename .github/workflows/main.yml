@@ -32,8 +32,8 @@ jobs:
       - name: Run build
         run: |
           cd /usr/src
-          apt-get update
-          apt-get install wget
+          apt-get update -y
+          apt-get install -y wget
           wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           chmod +x phreaknet.sh
           ./phreaknet.sh make
