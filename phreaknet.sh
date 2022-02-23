@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.40 (2021-02-23)
+# v0.1.40 (2022-02-23)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,20 +13,21 @@
 # phreaknet install
 
 ## Begin Change Log:
-# 2021-02-23 0.1.40 PhreakScript: minor test suite fixes
-# 2021-02-23 0.1.39 PhreakScript: minor refactoring
-# 2021-02-11 0.1.38 Asterisk: refined freepbx support
-# 2021-02-10 0.1.37 Asterisk: target 18.10.0
-# 2021-02-05 0.1.36 Asterisk: add hearpulsing to DAHDI
-# 2021-02-03 0.1.35 PhreakScript: added preliminary freepbx flag
-# 2021-01-27 0.1.34 PhreakScript: added master branch install option
-# 2021-01-22 0.1.33 Asterisk: removed func_frameintercept
-# 2021-01-19 0.1.32 Asterisk: add app_playdigits
-# 2021-01-18 0.1.31 Asterisk: Temper SRTCP warnings
-# 2021-01-10 0.1.30 Asterisk: add res_coindetect
-# 2021-01-08 0.1.29 Asterisk: add app_randomplayback
-# 2021-01-07 0.1.28 Asterisk: add app_pulsar
-# 2021-01-04 0.1.27 Asterisk: add app_saytelnumber
+# 2022-02-23 0.1.41 PhreakScript: add out-of-tree tests for app_assert
+# 2022-02-23 0.1.40 PhreakScript: minor test suite fixes
+# 2022-02-23 0.1.39 PhreakScript: minor refactoring
+# 2022-02-11 0.1.38 Asterisk: refined freepbx support
+# 2022-02-10 0.1.37 Asterisk: target 18.10.0
+# 2022-02-05 0.1.36 Asterisk: add hearpulsing to DAHDI
+# 2022-02-03 0.1.35 PhreakScript: added preliminary freepbx flag
+# 2022-01-27 0.1.34 PhreakScript: added master branch install option
+# 2022-01-22 0.1.33 Asterisk: removed func_frameintercept
+# 2022-01-19 0.1.32 Asterisk: add app_playdigits
+# 2022-01-18 0.1.31 Asterisk: Temper SRTCP warnings
+# 2022-01-10 0.1.30 Asterisk: add res_coindetect
+# 2022-01-08 0.1.29 Asterisk: add app_randomplayback
+# 2022-01-07 0.1.28 Asterisk: add app_pulsar
+# 2022-01-04 0.1.27 Asterisk: add app_saytelnumber
 # 2022-01-01 0.1.26 PhreakScript: removed hardcoded paths
 # 2021-12-31 0.1.25 PhreakScript: added ulaw command, Asterisk: added func_frameintercept, app_fsk
 # 2021-12-27 0.1.24 PhreakScript: add tests for func_dbchan
@@ -528,6 +529,7 @@ add_phreak_testsuite() {
 	git pull # in case it already existed, update the repo
 	cd $AST_SOURCE_PARENT_DIR
 
+	install_phreak_testsuite_test "apps/signal"
 	install_phreak_testsuite_test "apps/dialtone"
 	install_phreak_testsuite_test "apps/verify"
 	install_phreak_testsuite_test "funcs/func_dbchan"
@@ -782,7 +784,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## Gerrit patches: remove once merged
 	phreak_tree_module "apps/app_if.c"
-	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
+
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
 	#gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
@@ -792,6 +794,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
 	gerrit_patch 18063 "https://gerrit.asterisk.org/changes/asterisk~18063/revisions/1/patch?download" # func_channel: Add TECH_EXISTS
+	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 
 	## Menuselect updates
 	make menuselect.makeopts
