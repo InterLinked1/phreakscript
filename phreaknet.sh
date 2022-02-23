@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.39 (2021-02-23)
+# v0.1.40 (2021-02-23)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2021-02-23 0.1.40 PhreakScript: minor test suite fixes
 # 2021-02-23 0.1.39 PhreakScript: minor refactoring
 # 2021-02-11 0.1.38 Asterisk: refined freepbx support
 # 2021-02-10 0.1.37 Asterisk: target 18.10.0
@@ -518,14 +519,14 @@ install_phreak_testsuite_test() { # $1 = test path
 
 add_phreak_testsuite() {
 	printf "%s\n" "Applying PhreakNet test suite additions"
-	cd ..
+	cd $AST_SOURCE_PARENT_DIR
 	if [ -d phreakscript ]; then # if dir exists, assume it's the repo
 		git clone https://github.com/InterLinked1/phreakscript.git
 	fi
 	cd phreakscript
-	git config pull.rebase false # this is the default. do this solely to avoid those annoying "Pulling without specifying" warnings...
+	git config pull.rebase false # this is the default. Do this solely to avoid those annoying "Pulling without specifying" warnings...
 	git pull # in case it already existed, update the repo
-	cd ..
+	cd $AST_SOURCE_PARENT_DIR
 
 	install_phreak_testsuite_test "apps/dialtone"
 	install_phreak_testsuite_test "apps/verify"
@@ -585,6 +586,7 @@ install_testsuite_itself() {
 	make install
 	cd ..
 	cd testsuite
+	cd ..
 	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
 	# ./runtests.py -l # list all tests
 	add_phreak_testsuite
