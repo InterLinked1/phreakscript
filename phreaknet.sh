@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.40 (2022-02-23)
+# v0.1.42 (2022-02-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-02-25 0.1.42 Asterisk: Fix xmldocs bug with SET MUSIC AGI
 # 2022-02-23 0.1.41 PhreakScript: add out-of-tree tests for app_assert
 # 2022-02-23 0.1.40 PhreakScript: minor test suite fixes
 # 2022-02-23 0.1.39 PhreakScript: minor refactoring
@@ -491,6 +492,7 @@ run_testsuite_tests() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
+	run_testsuite_test "apps/assert"
 	run_testsuite_test "apps/dialtone"
 	run_testsuite_test "apps/verify"
 	run_testsuite_test "funcs/func_dbchan"
@@ -513,6 +515,11 @@ install_phreak_testsuite_test() { # $1 = test path
 		echoerr "File tests/$parent/tests.yaml does not exist!"
 		exit 2
 	fi
+	if [ ! -d "phreakscript/testsuite/tests/$1" ]; then
+		echoerr "Directory phreakscript/testsuite/tests/$1 does not exist!"
+		ls -la phreakscript/testsuite/tests
+		exit 2
+	fi
 	cp -r "phreakscript/testsuite/tests/$1" "testsuite/tests/$parent"
 	echo "    - test: '$base'" >> "testsuite/tests/$parent/tests.yaml" # rather than have a patch for this file, which could be subject to frequent change and result in a finicky patch that's likely to fail, simply append it to the list of tests to run
 	printf "Installed test: %s\n" "$1"
@@ -521,15 +528,20 @@ install_phreak_testsuite_test() { # $1 = test path
 add_phreak_testsuite() {
 	printf "%s\n" "Applying PhreakNet test suite additions"
 	cd $AST_SOURCE_PARENT_DIR
-	if [ -d phreakscript ]; then # if dir exists, assume it's the repo
+	if [ ! -d phreakscript ]; then # if dir exists, assume it's the repo
 		git clone https://github.com/InterLinked1/phreakscript.git
 	fi
 	cd phreakscript
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to find phreakscript directory"
+		pwd
+		exit 1
+	fi
 	git config pull.rebase false # this is the default. Do this solely to avoid those annoying "Pulling without specifying" warnings...
 	git pull # in case it already existed, update the repo
 	cd $AST_SOURCE_PARENT_DIR
 
-	install_phreak_testsuite_test "apps/signal"
+	install_phreak_testsuite_test "apps/assert"
 	install_phreak_testsuite_test "apps/dialtone"
 	install_phreak_testsuite_test "apps/verify"
 	install_phreak_testsuite_test "funcs/func_dbchan"
@@ -586,9 +598,7 @@ install_testsuite_itself() {
 	./build.sh --prefix=/usr --with-openssl --with-pcap --with-rtpstream --with-sctp --with-gsl CFLAGS=-w
 	./sipp -v
 	make install
-	cd ..
-	cd testsuite
-	cd ..
+	cd $AST_SOURCE_PARENT_DIR
 	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
 	# ./runtests.py -l # list all tests
 	add_phreak_testsuite
@@ -790,6 +800,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	#gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 	gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
+	gerrit_patch 18077 "https://gerrit.asterisk.org/changes/asterisk~18077/revisions/1/patch?download" # bug fix to AGI SET MUSIC xmldocs
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
@@ -1655,7 +1666,7 @@ elif [ "$cmd" = "docgen" ]; then
 		exit 2 # if the XML docs aren't valid, then give up now
 	fi
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y php php7.3-xml
+		apt-get install -y php php7.4-xml
 	fi
 	printf "%s\n" "Obtaining latest version of astdocgen..."
 	wget -q "https://raw.githubusercontent.com/InterLinked1/astdocgen/master/astdocgen.php" -O astdocgen.php --no-cache
