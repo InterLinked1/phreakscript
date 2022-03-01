@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.42 (2022-02-25)
+# v0.1.43 (2022-03-01)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-03-01 0.1.43 Asterisk: update Call Manager to 18.10
 # 2022-02-25 0.1.42 Asterisk: Fix xmldocs bug with SET MUSIC AGI
 # 2022-02-23 0.1.41 PhreakScript: add out-of-tree tests for app_assert
 # 2022-02-23 0.1.40 PhreakScript: minor test suite fixes
@@ -446,9 +447,12 @@ run_testsuite_test() {
 	testcount=$(($testcount + 1))
 	./runtests.py --test=tests/$1
 	if [ $? -ne 0 ]; then # test failed
+		ls
 		lastrun=`get_newest_astdir` # get the directory containing the logs from the most recently run test
 		ls "$lastrun/ast1/var/log/asterisk/full.txt"
-		grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
+		if [ -f "$lastrun/ast1/var/log/asterisk/full.txt" ]; then
+			grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
+		fi
 	else # test succeeded
 		testsuccess=$(($testsuccess + 1))
 	fi
@@ -471,6 +475,7 @@ run_testsuite_test_only() { # $2 = stress test
 	while [ $iterations -gt 0 ]; do # POSIX for loop
 		$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
 		if [ $? -ne 0 ]; then # test failed
+			echo "ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1"
 			lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test ############# this is not FreeBSD compatible.
 			ls "$lastrun/ast1/var/log/asterisk/full.txt"
 			grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
@@ -1355,7 +1360,7 @@ elif [ "$cmd" = "install" ]; then
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
 		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
-		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/cisco-usecallmanager-18.9.0.patch" -O /tmp/$CISCO_CM_SIP.patch
+		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/cisco-usecallmanager-18.10.0.patch" -O /tmp/$CISCO_CM_SIP.patch
 		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
 		if [ $? -ne 0 ]; then
 			echoerr "WARNING: Call Manager patch may have failed to apply correctly"
