@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.43 (2022-03-01)
+# v0.1.45 (2022-03-05)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-03-05 0.1.45 PhreakScript: added cppcheck
+# 2022-03-04 0.1.44 PhreakScript: add apiban
 # 2022-03-01 0.1.43 Asterisk: update Call Manager to 18.10
 # 2022-02-25 0.1.42 Asterisk: Fix xmldocs bug with SET MUSIC AGI
 # 2022-02-23 0.1.41 PhreakScript: add out-of-tree tests for app_assert
@@ -203,6 +205,7 @@ Commands:
    make               Add PhreakScript to path
    install            Install or upgrade PhreakNet Asterisk
    installts          Install Asterisk Test Suite
+   apiban             Install apiban client
    freepbx            Install FreePBX GUI (not recommended)
    pulsar             Install Revertive Pulsing simulator
    sounds             Install Pat Fleet sound library
@@ -225,6 +228,7 @@ Commands:
    *** Debugging ***
    validate           Run dialplan validation and diagnostics and look for problems
    trace              Capture a CLI trace and upload to InterLinked Paste
+   paste              Upload an arbitrary existing file to InterLinked Paste
    iaxping            Check if a remote IAX2 listener is reachable
    pcap               Perform a packet capture, optionally against a specific IP address
    pcaps              Same as pcap, but open in sngrep afterwards
@@ -232,7 +236,10 @@ Commands:
    enable-backtraces  Enables backtraces to be extracted from the core dumper (new or existing installs)
    backtrace          Use astcoredumper to process a backtrace and upload to InterLinked Paste
    backtrace-only     Use astcoredumper to process a backtrace
+
+   *** Developer Debugging ***
    valgrind           Run Asterisk under valgrind
+   cppcheck           Run cppcheck on Asterisk for static code analysis
 
    *** Development & Testing ***
    docverify          Show documentation validation errors and details
@@ -280,6 +287,12 @@ get_newest_astdir() {
 	else
 		ls -d -v */ | grep "^asterisk" | tail -1
 	fi
+}
+
+cd_ast() {
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	cd $AST_SRC_DIR
 }
 
 download_if_missing() {
@@ -1401,7 +1414,7 @@ elif [ "$cmd" = "install" ]; then
 		configure_devmode
 	fi
 	if [ "$CHAN_DAHDI" = "1" ]; then
-		menuselect/menuselect --enable chan_dahdi menuselect.makeopts
+		menuselect/menuselect --enable chan_dahdi --enable app_meetme menuselect.makeopts
 	fi
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
 		echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Please migrate to chan_pjsip at your convenience."
@@ -1443,7 +1456,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	if [ $? -ne 0 ]; then
-		if [ "$TEST_SUITE" = "1" ] && [ -f doc/core-en_US.xml ]; then
+		if [ "$TEST_SUITE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
@@ -1963,6 +1976,16 @@ elif [ "$cmd" = "trace" ]; then
 	phreakscript_info >> /var/log/asterisk/$channel # append helpful system info.
 	paste_post "/var/log/asterisk/$channel"
 	rm /var/log/asterisk/$channel
+elif [ "$cmd" = "paste" ]; then
+	if [ ${#2} -eq 0 ]; then
+		echoerr "Usage: phreaknet paste <filename>"
+		exit 1
+	fi
+	if [ ! -f "$2" ]; then
+		echoerr "File $2 does not exist"
+		exit 1
+	fi
+	paste_post "$2"
 elif [ "$cmd" = "enable-backtraces" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
@@ -1981,6 +2004,16 @@ elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/
 	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp --log-fd=9 asterisk -vvvvcg 9 > asteriskvalgrind.txt
 	paste_post "/tmp/asteriskvalgrind.txt"
 	ls /tmp/asteriskvalgrind.txt
+elif [ "$cmd" = "cppcheck" ]; then
+	if ! which tshark > /dev/null; then
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install -y cppcheck
+		fi
+	fi
+	cd_ast
+	printf "%s\n" "Running cppcheck and dumping errors to cppcheck.txt"
+	cppcheck --enable=all --suppress=unknownMacro . 2> cppcheck.txt
+	printf "%s\n" "cppcheck completed. Errors dumped to cppcheck.txt"
 elif [ "$cmd" = "malloc-debug" ]; then # https://wiki.asterisk.org/wiki/display/AST/MALLOC_DEBUG+Compiler+Flag
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
@@ -2027,6 +2060,41 @@ elif [ "$cmd" = "ccache" ]; then
 	ln -s ccache /usr/local/bin/cc
 	ln -s ccache /usr/local/bin/c++
 	which gcc
+elif [ "$cmd" = "apiban" ]; then # install apiban-client: https://github.com/palner/apiban
+	if [ ${#APIBAN_KEY} -le 1 ]; then
+		read -r -p "apiban API key: " APIBAN_KEY
+	fi
+	if [ ! -d /usr/local/bin/apiban ]; then
+		mkdir /usr/local/bin/apiban
+	fi
+	cd /usr/local/bin/apiban
+	if [ ! -f apiban-iptables-client ]; then
+		wget https://github.com/palner/apiban/raw/v0.7.0/clients/go/apiban-iptables-client
+	fi
+	if [ ! -f config.json ]; then
+		wget https://raw.githubusercontent.com/palner/apiban/v0.7.0/clients/go/apiban-iptables/config.json
+	fi
+	if [ ${#APIBAN_KEY} -gt 0 ]; then
+		sed -i "s/MY API KEY/$APIBAN_KEY/" config.json
+	fi
+	chmod +x /usr/local/bin/apiban/apiban-iptables-client
+	cat > /etc/logrotate.d/apiban-client << EOF
+/var/log/apiban-client.log {
+        daily
+        copytruncate
+        rotate 7
+        compress
+}
+EOF
+	if [ ! -f /usr/local/bin/apiban/apiban-iptables-client ]; then
+		echoerr "apiban-client not installed successfully"
+		exit 1
+	fi
+	/usr/local/bin/apiban/apiban-iptables-client
+	printf "%s\n\n" "apiban-client has been installed"
+	printf "%s\n" "To run this regularly, run crontab -e and add:"
+	printf "%s\n" "*/4 * * * * /usr/local/bin/apiban/apiban-iptables-client >/dev/null 2>&1"
+	# EDITOR=nano crontab -e
 elif [ "$cmd" = "iaxping" ]; then
 	if [ ${#2} -eq 0 ]; then
 		echoerr "Usage: phreaknet iaxping <hostname> [<port>]"
