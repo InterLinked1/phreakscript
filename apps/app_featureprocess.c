@@ -282,17 +282,17 @@ static void assign_vars(struct ast_channel *chan, struct ast_str *strbuf, char *
 	ast_debug(1, "Processing variables: %s\n", tmp);
 
 	while ((var = ast_strsep(&tmp, ',', AST_STRSEP_STRIP))) { /* strsep will cut on the next literal comma, and stuff could have commas inside... */
-		char *newvar, *oldvar;
+		char *varname, *varvalue;
 		ast_debug(1, "Processing variable assignment: %s\n", var);
-		newvar = ast_strsep(&var, '=', AST_STRSEP_STRIP);
-		oldvar = ast_strsep(&var, '=', AST_STRSEP_STRIP);
-		if (!newvar || !oldvar) {
-			ast_log(LOG_WARNING, "Missing variable in assignment: %s=%s\n", newvar, oldvar);
+		varname = ast_strdupa(ast_strsep(&var, '=', AST_STRSEP_STRIP)); /* this should be fine, we're not going to have a huge number of vars... */
+		varvalue = ast_strsep(&var, '=', AST_STRSEP_STRIP);
+		if (!varname || !varvalue) {
+			ast_log(LOG_WARNING, "Missing variable in assignment: %s=%s\n", varname, varvalue);
 			continue;
 		}
-		ast_str_substitute_variables(&strbuf, 0, chan, oldvar); /* we don't actually know how big this will be, so use this instead of pbx_substitute_variables_helper */
-		ast_debug(1, "Making variable assignment: %s = %s (%s)\n", newvar, oldvar, ast_str_buffer(strbuf));
-		pbx_builtin_setvar_helper(chan, newvar, ast_str_buffer(strbuf));
+		ast_str_substitute_variables(&strbuf, 0, chan, varvalue); /* we don't actually know how big this will be, so use this instead of pbx_substitute_variables_helper */
+		ast_debug(1, "Making variable assignment: %s = %s (%s)\n", varname, varvalue, ast_str_buffer(strbuf));
+		pbx_builtin_setvar_helper(chan, varname, ast_str_buffer(strbuf));
 		ast_str_reset(strbuf);
 	}
 }
