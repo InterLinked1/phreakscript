@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.45 (2022-03-05)
+# v0.1.47 (2022-03-11)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-03-11 0.1.47 DAHDI: fix compiler error in DAHDI Tools
+# 2022-03-06 0.1.46 Asterisk: added app_featureprocess (+README)
 # 2022-03-05 0.1.45 PhreakScript: added cppcheck
 # 2022-03-04 0.1.44 PhreakScript: add apiban
 # 2022-03-01 0.1.43 Asterisk: update Call Manager to 18.10
@@ -1183,7 +1185,10 @@ elif [ "$cmd" = "install" ]; then
 	install_prereq
 	# Get DAHDI
 	if [ "$CHAN_DAHDI" = "1" ]; then
-		apt-get install -y linux-headers-`uname -r` build-essential binutils-dev
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install -y linux-headers-`uname -r` build-essential binutils-dev autoconf dh-autoreconf libusb-dev
+			apt install -y pkg-config m4 libtool automake autoconf
+		fi
 		if [ $? -ne 0 ]; then
 			echoerr "Failed to download system headers"
 			exit 2
@@ -1219,7 +1224,8 @@ elif [ "$cmd" = "install" ]; then
 		# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
 
-		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
+		# temporarily commented out due to causing compilation to fail:
+		# dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 		
 		# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
 		dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
@@ -1242,14 +1248,17 @@ elif [ "$cmd" = "install" ]; then
 		fi
 		make install
 		make all install config
-		
+
 		# DAHDI Tools
 		if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
 			printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
 			exit 2
 		fi
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
+
 		dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+		dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
+		
 		# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
 		autoreconf -i
 		./configure

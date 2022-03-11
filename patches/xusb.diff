@@ -1,0 +1,20 @@
+--- xpp/xtalk/xusb_libusb.c.orig	2022-03-11 15:23:10.629689494 -0500
++++ xpp/xtalk/xusb_libusb.c	2022-03-11 15:23:24.925970960 -0500
+@@ -475,7 +475,7 @@
+ {
+ 	struct usb_bus *bus;
+ 	struct usb_device *dev;
+-	char devpath_tail[PATH_MAX];
++	char devpath_tail[PATH_MAX * 2 + 2];
+ 	struct xusb_spec *spec;
+ 
+ 	DBG("path='%s'\n", path);
+@@ -497,7 +497,7 @@
+ 				dev->filename,
+ 				dev_desc->idVendor,
+ 				dev_desc->idProduct);
+-			snprintf(devpath_tail, PATH_MAX, "%3s/%3s",
++			snprintf(devpath_tail, PATH_MAX * 2 + 2, "%3s/%3s",
+ 				dev->bus->dirname, dev->filename);
+ 			if (!match_devpath(path, devpath_tail))
+ 				continue;
