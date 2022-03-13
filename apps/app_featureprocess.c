@@ -44,6 +44,7 @@
 #include "asterisk/config.h"
 #include "asterisk/app.h"
 #include "asterisk/utils.h"
+#include "asterisk/strings.h"
 
 /*** DOCUMENTATION
 	<application name="FeatureProcess" language="en_US">
@@ -78,6 +79,27 @@
 						<para>If a condition is not specified, it is implicitly always true.</para>
 					</description>
 				</configOption>
+				<configOption name="setvars">
+					<synopsis>Variable assignments to make.</synopsis>
+					<description>
+						<para>Comma-separated variable assignments to make if condition is true.</para>
+						<para>Format is the same as arguments to the MSet application.</para>
+					</description>
+				</configOption>
+				<configOption name="gosublocation">
+					<synopsis>Dialplan routine to execute if condition is true.</synopsis>
+					<description>
+						<para>Gosub subroutine to go to if condition is true.</para>
+						<para>Subroutines are executed after variables have been set, but before a goto is processed, if applicable.</para>
+						<para>Subroutines must end with a call to the <literal>Return</literal> application.</para>
+					</description>
+				</configOption>
+				<configOption name="gosubargs">
+					<synopsis>Arguments to be passed into a Gosub execution, if applicable.</synopsis>
+					<description>
+						<para>Comma-separated arguments to a Gosub execution of the routine specified by <literal>gosublocation</literal>.</para>
+					</description>
+				</configOption>
 				<configOption name="gotolocation">
 					<synopsis>Dialplan location to go to if condition is true.</synopsis>
 					<description>
@@ -85,13 +107,6 @@
 						<para>Goto branching is always done last after other processing (e.g. variable assignments, if specified, will happen first).</para>
 						<para>Takes the form similar to Goto() of [[context,]extension,]priority.</para>
 						<para>May contain variables.</para>
-					</description>
-				</configOption>
-				<configOption name="setvars">
-					<synopsis>Variable assignments to make.</synopsis>
-					<description>
-						<para>Comma-separated variable assignments to make if condition is true.</para>
-						<para>Format is the same as arguments to the MSet application.</para>
 					</description>
 				</configOption>
 			</configObject>
@@ -111,7 +126,9 @@ struct feature_proc {
 	char name[AST_MAX_CONTEXT];			/*!< Name */
 	int total;							/*!< Total number of processings */
 	char condition[PATH_MAX];			/*!< Condition required to process */
-	char gotolocation[AST_MAX_CONTEXT];	/*!< Dialplan goto location */
+	char gosublocation[AST_MAX_CONTEXT];/*!< Dialplan Gosub location */
+	char gosubargs[PATH_MAX];			/*!< Dialplan Gosub args */
+	char gotolocation[AST_MAX_CONTEXT];	/*!< Dialplan Goto location */
 	char setvars[PATH_MAX];				/*!< Variable assignments */
 	AST_LIST_ENTRY(feature_proc) entry;	/*!< Next Feature record */
 };
@@ -184,6 +201,8 @@ static int contains_whitespace(const char *str)
 static void profile_set_param(struct feature_proc *f, const char *param, const char *val, int linenum, int failunknown)
 {
 	LOAD_STR_PARAM(condition, val[0]);
+	LOAD_STR_PARAM(gosublocation, val[0] && !contains_whitespace(val));
+	LOAD_STR_PARAM(gosubargs, val[0] && !contains_whitespace(val));
 	LOAD_STR_PARAM(gotolocation, val[0] && !contains_whitespace(val));
 	LOAD_STR_PARAM(setvars, val[0]);
 	if (failunknown) {
@@ -287,7 +306,7 @@ static void assign_vars(struct ast_channel *chan, struct ast_str *strbuf, char *
 		varname = ast_strdupa(ast_strsep(&var, '=', AST_STRSEP_STRIP)); /* this should be fine, we're not going to have a huge number of vars... */
 		varvalue = ast_strsep(&var, '=', AST_STRSEP_STRIP);
 		if (!varname || !varvalue) {
-			ast_log(LOG_WARNING, "Missing variable in assignment: %s=%s\n", varname, varvalue);
+			ast_log(LOG_WARNING, "Missing variable in assignment: %s = %s\n", varname ? varname : "(null)", varvalue ? varvalue : "(null)");
 			continue;
 		}
 		ast_str_substitute_variables(&strbuf, 0, chan, varvalue); /* we don't actually know how big this will be, so use this instead of pbx_substitute_variables_helper */
@@ -301,22 +320,40 @@ static void assign_vars(struct ast_channel *chan, struct ast_str *strbuf, char *
 
 static int feature_process(struct ast_channel *chan, struct feature_proc *f, struct ast_str *strbuf)
 {
-	char name[AST_MAX_CONTEXT], condition[PATH_MAX], gotolocation[AST_MAX_CONTEXT], setvars[PATH_MAX];
+#define BUGGY_AST_SUB 1
+
+#if BUGGY_AST_SUB
+	char substituted[1024];
+#endif
+	char name[AST_MAX_CONTEXT], condition[PATH_MAX], gosublocation[AST_MAX_CONTEXT], gosubargs[PATH_MAX], gotolocation[AST_MAX_CONTEXT], setvars[PATH_MAX];
 
 	ast_mutex_lock(&f->lock);
 	FEATPROC_STRDUP(name);
 	FEATPROC_STRDUP(condition);
+	FEATPROC_STRDUP(gosublocation);
+	FEATPROC_STRDUP(gosubargs);
 	FEATPROC_STRDUP(gotolocation);
 	FEATPROC_STRDUP(setvars);
 	ast_mutex_unlock(&f->lock);
 
 	if (!ast_strlen_zero(condition)) {
+#if BUGGY_AST_SUB
+		pbx_substitute_variables_helper(chan, condition, substituted, sizeof(substituted) - 1);
+		ast_debug(2, "Condition to check: %s (evaluates to %s)\n", condition, substituted);
+		if (!pbx_checkcondition(substituted)) {
+			ast_debug(1, "Not processing feature '%s'\n", name);
+			return 0;
+		}
+#else
+		ast_str_reset(strbuf);
 		ast_str_substitute_variables(&strbuf, 0, chan, condition);
+		ast_debug(2, "Condition to check: %s (evaluates to %s)\n", condition, ast_str_buffer(strbuf));
 		if (!pbx_checkcondition(ast_str_buffer(strbuf))) {
 			ast_debug(1, "Not processing feature '%s'\n", name);
 			return 0;
 		}
 		ast_str_reset(strbuf);
+#endif
 	}
 	ast_verb(4, "Processing feature '%s'\n", name);
 
@@ -329,11 +366,17 @@ static int feature_process(struct ast_channel *chan, struct feature_proc *f, str
 		ast_str_substitute_variables(&strbuf, 0, chan, setvars);
 		assign_vars(chan, strbuf, ast_str_buffer(strbuf));
 	}
+	if (!ast_strlen_zero(gosublocation)) {
+		/* location could have variables */
+		ast_str_substitute_variables(&strbuf, 0, chan, gosublocation);
+		ast_debug(3, "Feature '%s' triggered Gosub %s(%s)\n", name, gosublocation, gosubargs);
+		ast_app_run_sub(NULL, chan, gosublocation, gosubargs, 0);
+	}
 	if (!ast_strlen_zero(gotolocation)) {
 		/* location could have variables */
 		ast_str_substitute_variables(&strbuf, 0, chan, gotolocation);
 		if (!ast_parseable_goto(chan, ast_str_buffer(strbuf))) {
-			ast_verb(3, "Feature '%s' triggered goto (%s)\n", name, gotolocation);
+			ast_verb(3, "Feature '%s' triggered Goto (%s)\n", name, gotolocation);
 		}
 		return -1; /* if we hit a goto, that means end feature processing */
 	}
@@ -452,6 +495,8 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 		if (!strcasecmp(a->argv[3], f->name)) {
 			ast_cli(a->fd, FORMAT, "Name", f->name);
 			ast_cli(a->fd, FORMAT, "Condition", f->condition);
+			ast_cli(a->fd, FORMAT, "Gosub Location", f->gosublocation);
+			ast_cli(a->fd, FORMAT, "Gosub Arguments", f->gosubargs);
 			ast_cli(a->fd, FORMAT, "Goto Location", f->gotolocation);
 			ast_cli(a->fd, FORMAT, "Variable Assignments", f->setvars);
 			break;
