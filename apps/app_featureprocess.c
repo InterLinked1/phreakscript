@@ -70,7 +70,7 @@
 				<synopsis>Options that apply globally to app_featureprocess</synopsis>
 			</configObject>
 			<configObject name="profile">
-				<synopsis>Defined profiles for app_featureprocess to use with call verification.</synopsis>
+				<synopsis>Defined profiles for app_featureprocess to use with feature processing.</synopsis>
 				<configOption name="condition" default="1">
 					<synopsis>Condition that must be true to process the feature.</synopsis>
 					<description>
@@ -482,7 +482,7 @@ static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_c
 #undef FORMAT2
 }
 
-/*! \brief CLI command to dump verification profile */
+/*! \brief CLI command to dump feature profile */
 static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 #define FORMAT  "%-32s : %s\n"
@@ -539,7 +539,7 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 #undef FORMAT2
 }
 
-/*! \brief CLI command to reset verification stats */
+/*! \brief CLI command to reset feature profile stats */
 static char *handle_reset_stats(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	struct feature_proc *f;
