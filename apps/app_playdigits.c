@@ -121,7 +121,7 @@ static char *filter_number(char *str, int *length, int allowalpha)
 	return new;
 }
 
-enum say_option_flags {
+enum play_option_flags {
 	OPT_BETWEEN    = (1 << 0),
 	OPT_POUND      = (1 << 1),
 	OPT_STAR       = (1 << 2),
@@ -143,7 +143,7 @@ enum {
 	OPT_ARG_ARRAY_SIZE,
 };
 
-AST_APP_OPTIONS(say_app_options, {
+AST_APP_OPTIONS(play_app_options, {
 	AST_APP_OPTION_ARG('a', OPT_PRE, OPT_ARG_PRE),
 	AST_APP_OPTION_ARG('b', OPT_BETWEEN, OPT_ARG_BETWEEN),
 	AST_APP_OPTION_ARG('m', OPT_PREFIX, OPT_ARG_PREFIX),
@@ -217,7 +217,7 @@ static int playdigits_exec(struct ast_channel *chan, const char *data)
 	addlen = 0;
 	if (!ast_strlen_zero(args.options)) {
 		int x;
-		ast_app_parse_options(say_app_options, &flags, optargs, args.options);
+		ast_app_parse_options(play_app_options, &flags, optargs, args.options);
 		SET_MAX_LEN(OPT_PRE, OPT_ARG_PRE, 0);
 		SET_MAX_LEN(OPT_POST, OPT_ARG_POST, 0);
 		SET_MAX_LEN(OPT_BETWEEN, OPT_ARG_BETWEEN, 0);
