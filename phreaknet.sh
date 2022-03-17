@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.47 (2022-03-11)
+# v0.1.48 (2022-03-17)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,8 +13,9 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-03-17 0.1.48 PhreakScript: added swap commands
 # 2022-03-11 0.1.47 DAHDI: fix compiler error in DAHDI Tools
-# 2022-03-06 0.1.46 Asterisk: added app_featureprocess (+README)
+# 2022-03-06 0.1.46 Asterisk: added app_featureprocess
 # 2022-03-05 0.1.45 PhreakScript: added cppcheck
 # 2022-03-04 0.1.44 PhreakScript: add apiban
 # 2022-03-01 0.1.43 Asterisk: update Call Manager to 18.10
@@ -137,6 +138,7 @@ CHAN_SIP=0
 SIP_CISCO=0
 CHAN_SCCP=0
 CHAN_DAHDI=0
+DAHDI_OLD_DRIVERS=0
 TEST_SUITE=0
 FORCE_INSTALL=0
 ENABLE_BACKTRACES=0
@@ -226,6 +228,8 @@ Commands:
    patch              Patch PhreakNet Asterisk configuration
    genpatch           Generate a PhreakPatch
    freedisk           Free up disk space
+   enable-swap        Temporarily allocate and enable swap file
+   disable-swap       Disable and deallocate temporary swap file
 
    *** Debugging ***
    validate           Run dialplan validation and diagnostics and look for problems
@@ -274,6 +278,7 @@ Options:
        --clli         config: CLLI code
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --disa         config: DISA number
+	   --drivers      install: Also install DAHDI drivers removed in 2018
 	   --freepbx      install: Install FreePBX GUI (not recommended)
        --api-key      config: InterLinked API key
        --rotate       keygen: Rotate/create keys
@@ -295,6 +300,13 @@ cd_ast() {
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
+}
+
+assert_root() {
+	if [ $(id -u) -ne 0 ]; then
+		echoerr "PhreakScript make must be run as root. Aborting..."
+		exit 2
+	fi
 }
 
 download_if_missing() {
@@ -724,8 +736,8 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	dahdi_undo $1 "wctdm" "Remove support for wctdm." "04e759f9c5a6f76ed88bc6ba6446fb0c23c1ff55"
 	dahdi_undo $1 "wct1xxp" "Remove support for wct1xxp." "dade6ac6154b58c4f5b6f178cc09de397359000b"
 	dahdi_undo $1 "wcfxo" "Remove support for wcfxo." "14198aee8532bbafed2ad1297177f8e0e0f13f50"
-	dahdi_undo $1 "tor2" "Remove support for tor2." "60d058cc7a064b6e07889f76dd9514059c303e0f"
-	dahdi_undo $1 "pciradio" "Remove support for pciradio." "bfdfc4728c033381656b59bf83aa37187b5dfca8"
+	#dahdi_undo $1 "tor2" "Remove support for tor2." "60d058cc7a064b6e07889f76dd9514059c303e0f"
+	#dahdi_undo $1 "pciradio" "Remove support for pciradio." "bfdfc4728c033381656b59bf83aa37187b5dfca8"
 	printf "%s\n" "Finished undoing DAHDI removals!"
 }
 
@@ -1075,7 +1087,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,freepbx,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,boilerplate,upstream: -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1110,6 +1122,7 @@ while true; do
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
 		--disa ) PHREAKNET_DISA=$2; shift 2;;
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
+		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
@@ -1133,6 +1146,14 @@ if [ -z "${AST_CC##*[!0-9]*}" ] ; then # POSIX compliant: https://unix.stackexch
 	exit 1
 fi
 
+self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
+upstream=`curl --silent https://docs.phreaknet.org/script/phreaknet.sh | grep -m1 "# v" | cut -d'v' -f2`
+
+if [ "$self" != "$upstream" ]; then
+	echoerr "WARNING: PhreakScript is out of date (most recent version is $upstream) - run 'phreaknet update' to update"
+	sleep 0.25
+fi
+
 if [ "$cmd" = "help" ]; then
 	usage
 	exit 2
@@ -1141,10 +1162,7 @@ elif [ "$cmd" = "make" ]; then
 	# ./phreaknet.sh make
 	# phreaknet install
 
-	if [ $(id -u) -ne 0 ]; then
-		echoerr "PhreakScript make must be run as root. Aborting..."
-		exit 2
-	fi
+	assert_root
 	ln $FILE_PATH /usr/local/sbin/phreaknet
 	if [ $? -eq 0 ]; then
 		echo "PhreakScript added to path."
@@ -1153,10 +1171,7 @@ elif [ "$cmd" = "make" ]; then
 		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
 elif [ "$cmd" = "install" ]; then
-	if [ $(id -u) -ne 0 ]; then
-		echoerr "PhreakScript install must be run as root. Aborting..."
-		exit 2
-	fi
+	assert_root
 	if [ "$FREEPBX_GUI" = "1" ]; then
 		install_freepbx_checks
 	fi
@@ -1224,9 +1239,10 @@ elif [ "$cmd" = "install" ]; then
 		# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
 
-		# temporarily commented out due to causing compilation to fail:
-		# dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
-		
+		if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
+			dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
+		fi
+
 		# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
 		dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
 		dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
@@ -1256,7 +1272,7 @@ elif [ "$cmd" = "install" ]; then
 		fi
 		cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
-		dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+		#dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
 		dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
 		
 		# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
@@ -1651,10 +1667,7 @@ elif [ "$cmd" = "ulaw" ]; then
 		done
 	fi
 elif [ "$cmd" = "installts" ]; then
-	if [ $(id -u) -ne 0 ]; then
-		echoerr "PhreakScript installts must be run as root. Aborting..."
-		exit 2
-	fi
+	assert_root
 	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "docverify" ]; then
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # show the XML validation errors
@@ -1849,6 +1862,7 @@ elif [ "$cmd" = "keygen" ]; then
 	asterisk -rx "keys init"
 	asterisk -rx "keys show"
 elif [ "$cmd" = "update" ]; then
+	assert_root
 	if [ ! -f "/tmp/phreakscript_update.sh" ]; then
 		wget -q $PATCH_DIR/phreakscript_update.sh -O /tmp/phreakscript_update.sh
 		chmod +x /tmp/phreakscript_update.sh
@@ -2182,6 +2196,58 @@ elif [ "$cmd" = "freedisk" ] ; then
 	if [ -f /var/log/apache2/modsec_audit.log ]; then
 		echo "" > /var/log/apache2/modsec_audit.log
 	fi
+elif [ "$cmd" = "enable-swap" ]; then
+# https://www.digitalocean.com/community/tutorials/how-to-add-swap-space-on-debian-10
+	assert_root
+	swap=`swapon --show | wc -l | tr -d '\n'`
+	if [ "$swap" = "0" ]; then
+		echo "Swap is currently disabled"
+	else
+		echoerr "Swap is already enabled"
+		swapon --show
+		exit 1
+	fi
+	freediskspace=`df / | awk '{print $4}' | tail -n +2 | tr -d '\n'`
+	if [ $freediskspace -gt 1300000 ]; then
+		echo "More than 1.3 GB of free disk space, allocating 1 GB swap"
+		fallocate -l 1G /swapfile
+	elif [ $freediskspace -gt 800000 ]; then
+		echo "More than 800 MB of free disk space, allocating 500 MB space"
+		fallocate -l 500M /swapfile
+	else
+		echoerr "Only $freediskspace KB of space available (not enough to add sufficient swap)"
+		exit 1
+	fi
+	chmod 600 /swapfile
+	mkswap /swapfile
+	swapon /swapfile
+	swapon --show
+	free -h
+	# To make the swap permanent:
+	# cp /etc/fstab /etc/fstab.bak
+	# echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
+	cat /proc/sys/vm/swappiness
+	sysctl vm.swappiness=25
+	sysctl vm.vfs_cache_pressure=50
+elif [ "$cmd" = "disable-swap" ; then
+	assert_root
+	swap=`swapon --show | wc -l | tr -d '\n'`
+	if [ "$swap" != "0" ]; then
+		swapoff -a
+		echo "Swap is currently enabled, disabling"
+	else
+		echo "Swap is already disabled"
+	fi
+	swapon --show
+	# if in /etc/fstab, then should be removed from there, too!
+	if [ ! -f /swapfile ]; then
+		echoerr "/swapfile does not exist!"
+		exit 1
+	fi
+	rm /swapfile
+	df -h /
+	echo "Removed swapfile!"
+	df -h /
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."
