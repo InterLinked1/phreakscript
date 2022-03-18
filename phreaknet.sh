@@ -2229,7 +2229,7 @@ elif [ "$cmd" = "enable-swap" ]; then
 	cat /proc/sys/vm/swappiness
 	sysctl vm.swappiness=25
 	sysctl vm.vfs_cache_pressure=50
-elif [ "$cmd" = "disable-swap" ; then
+elif [ "$cmd" = "disable-swap" ]; then
 	assert_root
 	swap=`swapon --show | wc -l | tr -d '\n'`
 	if [ "$swap" != "0" ]; then
@@ -2244,10 +2244,10 @@ elif [ "$cmd" = "disable-swap" ; then
 		echoerr "/swapfile does not exist!"
 		exit 1
 	fi
+	df -h /
 	rm /swapfile
 	df -h /
 	echo "Removed swapfile!"
-	df -h /
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."
