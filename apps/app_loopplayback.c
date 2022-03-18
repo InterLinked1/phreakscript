@@ -108,14 +108,15 @@ static int playback_exec(struct ast_channel *chan, const char *data)
 	ast_stopstream(chan);
 
 	while (!res && !mres && (loops == 0 || plays++ < loops)) {
+		char *front, *files;
 		char *back = ast_strdup(args.filenames); /* because we could be iterating for a LONG time, strdupa is a BAD idea, we could blow the stack */
-		char *front;
+		files = back; /* duplicate the pointer so we don't modify it, since we need to free memory */
 
 		if (loops > 0) {
 			ast_debug(1, "Looping playback of file(s) '%s', iteration %d of %d\n", back, plays, loops);
 		}
 
-		while (!res && (front = strsep(&back, "&"))) {
+		while (!res && (front = strsep(&files, "&"))) {
 			res = ast_streamfile(chan, front, ast_channel_language(chan));
 			if (!res) {
 				res = ast_waitstream(chan, "");
