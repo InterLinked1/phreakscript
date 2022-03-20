@@ -39,6 +39,7 @@ PhreakScript installs:
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
       - ``TECH_EXISTS``
+      - ``DTMF_FLASH``
       - ``NUM2DEVICE``
       - ``COIN_DETECT``
       - ``OTHER_CHANNEL``
