@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.48 (2022-03-17)
+# v0.1.50 (2022-03-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-03-25 0.1.50 PhreakScript: add paste_post error handling
+# 2022-03-20 0.1.49 Asterisk: add func_dtmf_flash
 # 2022-03-17 0.1.48 PhreakScript: added swap commands
 # 2022-03-11 0.1.47 DAHDI: fix compiler error in DAHDI Tools
 # 2022-03-06 0.1.46 Asterisk: added app_featureprocess
@@ -795,6 +797,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_keyprefetch.c"
 	phreak_tree_module "configs/samples/verify.conf.sample"
 	phreak_tree_module "funcs/func_dbchan.c"
+	phreak_tree_module "funcs/func_dtmf_flash.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_numpeer.c"
 	phreak_tree_module "funcs/func_ochannel.c"
@@ -888,7 +891,7 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 	printf "%s\n" "FreeBSD patching complete..."
 }
 
-paste_post() { # $1 = file to upload
+paste_post() { # $1 = file to upload, $2 = 1 to delete file on success.
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
@@ -903,7 +906,16 @@ paste_post() { # $1 = file to upload
 		fi
 	fi
 	url=`curl -X POST -F "body=@$1" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
-	printf "Paste URL: %s\n" "${url}.txt"
+	invstring=`expr substr "${url}" 1 7` # POSIX compliant
+	if [ "$invstring" = "Invalid" ]; then
+		echoerr "Invalid API key"
+		printf "File Location: %s\n" "$1"
+	else
+		printf "Paste URL: %s\n" "${url}.txt"
+		if [ "$2" = "1" ]; then
+			rm "$1"
+		fi
+	fi
 }
 
 get_backtrace() { # $1 = "1" to upload
@@ -1276,7 +1288,8 @@ elif [ "$cmd" = "install" ]; then
 		dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
 		
 		# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
-		autoreconf -i
+		# autoreconf -i
+		autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
 		./configure
 		make
 		if [ $? -ne 0 ]; then
@@ -1997,8 +2010,7 @@ elif [ "$cmd" = "trace" ]; then
 	echo "$settings" >> /var/log/asterisk/$channel # append helpful system info.
 	echo "------------------------------------------------------------------------" >> /var/log/asterisk/$channel
 	phreakscript_info >> /var/log/asterisk/$channel # append helpful system info.
-	paste_post "/var/log/asterisk/$channel"
-	rm /var/log/asterisk/$channel
+	paste_post "/var/log/asterisk/$channel" "1"
 elif [ "$cmd" = "paste" ]; then
 	if [ ${#2} -eq 0 ]; then
 		echoerr "Usage: phreaknet paste <filename>"
