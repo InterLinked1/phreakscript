@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.50 (2022-03-25)
+# v0.1.51 (2022-03-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-03-25 0.1.51 PhreakScript: add fail2ban
 # 2022-03-25 0.1.50 PhreakScript: add paste_post error handling
 # 2022-03-20 0.1.49 Asterisk: add func_dtmf_flash
 # 2022-03-17 0.1.48 PhreakScript: added swap commands
@@ -211,6 +212,7 @@ Commands:
    make               Add PhreakScript to path
    install            Install or upgrade PhreakNet Asterisk
    installts          Install Asterisk Test Suite
+   fail2ban           Install Asterisk fail2ban configuration
    apiban             Install apiban client
    freepbx            Install FreePBX GUI (not recommended)
    pulsar             Install Revertive Pulsing simulator
@@ -280,8 +282,8 @@ Options:
        --clli         config: CLLI code
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --disa         config: DISA number
-	   --drivers      install: Also install DAHDI drivers removed in 2018
-	   --freepbx      install: Install FreePBX GUI (not recommended)
+       --drivers      install: Also install DAHDI drivers removed in 2018
+       --freepbx      install: Install FreePBX GUI (not recommended)
        --api-key      config: InterLinked API key
        --rotate       keygen: Rotate/create keys
        --upstream     update: Specify upstream source
@@ -1161,9 +1163,9 @@ fi
 self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
 upstream=`curl --silent https://docs.phreaknet.org/script/phreaknet.sh | grep -m1 "# v" | cut -d'v' -f2`
 
-if [ "$self" != "$upstream" ]; then
+if [ "$self" != "$upstream" ] && [ "$cmd" != "update" ]; then
 	echoerr "WARNING: PhreakScript is out of date (most recent version is $upstream) - run 'phreaknet update' to update"
-	sleep 0.25
+	sleep 0.5
 fi
 
 if [ "$cmd" = "help" ]; then
@@ -1874,6 +1876,21 @@ elif [ "$cmd" = "keygen" ]; then
 	asterisk -rx "module reload res_crypto"
 	asterisk -rx "keys init"
 	asterisk -rx "keys show"
+elif [ "$cmd" = "fail2ban" ]; then
+	if [ ! -d /etc/fail2ban ]; then
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install -y fail2ban
+		fi
+		if [ ! -d /etc/fail2ban ]; then
+			echoerr "fail2ban was not installed and could not be auto-installed"
+			exit 1
+		fi
+	fi
+	if [ -f /etc/fail2ban/filter.d/asterisk.conf ]; then
+		echoerr "Existing fail2ban configuration for Asterisk already found, exiting..."
+		exit 1
+	fi
+	wget -q "https://raw.githubusercontent.com/fail2ban/fail2ban/master/config/filter.d/asterisk.conf" -O /etc/fail2ban/filter.d/asterisk.conf
 elif [ "$cmd" = "update" ]; then
 	assert_root
 	if [ ! -f "/tmp/phreakscript_update.sh" ]; then
