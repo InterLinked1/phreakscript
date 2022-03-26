@@ -128,11 +128,11 @@
 			<example title="Simulated city dial tone">
 			same => n,DialTone(num,my-digit-map,custom/dialtone,custom/dialsounds/sound${RAND(1,6)},32,,,pr)
 			</example>
-			<example title="Precise dial tone">
-			same => n,DialTone(num,my-digit-map,dial,,32,,,ip)
+			<example title="Precise dial tone with 5 second interdigit timeout">
+			same => n,DialTone(num,my-digit-map,dial,,32,5,,ip)
 			</example>
 			<example title="Terminate dialing with # key">
-			same => n,DialTone(num,my-digit-map,dial,,32,,,ipt)
+			same => n,DialTone(num,my-digit-map,dial,,32,10,,ipt)
 			</example>
 		</description>
 		<see-also>
