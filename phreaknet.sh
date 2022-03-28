@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.51 (2022-03-25)
+# v0.1.52 (2022-03-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-03-27 0.1.52 PhreakScript: added dialplanfiles
 # 2022-03-25 0.1.51 PhreakScript: add fail2ban
 # 2022-03-25 0.1.50 PhreakScript: add paste_post error handling
 # 2022-03-20 0.1.49 Asterisk: add func_dtmf_flash
@@ -236,6 +237,7 @@ Commands:
    disable-swap       Disable and deallocate temporary swap file
 
    *** Debugging ***
+   dialplanfiles      Verify what files are being parsed into the dialplan
    validate           Run dialplan validation and diagnostics and look for problems
    trace              Capture a CLI trace and upload to InterLinked Paste
    paste              Upload an arbitrary existing file to InterLinked Paste
@@ -1301,11 +1303,16 @@ elif [ "$cmd" = "install" ]; then
 		make install
 		make config
 		make install-config
-		dahdi_genconf modules # in case not in path
 		cat /etc/dahdi/modules
 		# modprobe <listed>
-		dahdi_genconf system # in case not in path
-		dahdi_cfg # in case not in path
+		dahdi_scan -vvvvv
+		dahdi_genconf -vvvvv
+		dahdi_cfg -vvvvv
+		dahdi_hardware
+		lsdahdi
+		cat /etc/dahdi/assigned-spans.conf
+		cat /etc/dahdi/system.conf
+		cat /etc/asterisk/dahdi-channels.conf
 		
 		# LibPRI # https://gist.github.com/debuggerboy/3028532
 		cd $AST_SOURCE_PARENT_DIR
@@ -2028,6 +2035,26 @@ elif [ "$cmd" = "trace" ]; then
 	echo "------------------------------------------------------------------------" >> /var/log/asterisk/$channel
 	phreakscript_info >> /var/log/asterisk/$channel # append helpful system info.
 	paste_post "/var/log/asterisk/$channel" "1"
+elif [ "$cmd" = "dialplanfiles" ]; then
+	debugtime=$EPOCHSECONDS
+	if [ "$debugtime" = "" ]; then
+		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
+	fi
+	if [ "$debugtime" = "" ]; then
+		echoerr "No debug time?"
+	fi
+	channel="debug_$debugtime.txt"
+	asterisk -rx "logger add channel $channel debug"
+	asterisk -rx "core set debug 1"
+	asterisk -rx "dialplan reload"
+	asterisk -rx "core set debug 0"
+	asterisk -rx "logger remove channel $channel"
+	if [ ! -f /var/log/asterisk/$channel ]; then
+		echoerr "CLI log trace file not found, aborting..."
+		exit 2
+	fi
+	grep "config.c: Parsing " /var/log/asterisk/$channel
+	rm /var/log/asterisk/$channel
 elif [ "$cmd" = "paste" ]; then
 	if [ ${#2} -eq 0 ]; then
 		echoerr "Usage: phreaknet paste <filename>"
