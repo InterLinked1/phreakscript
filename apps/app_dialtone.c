@@ -331,12 +331,13 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 				if (res < 1) {
 					tmp[x] = '\0';
 					done = 1;
-				}
-				tmp[x++] = res;
-				if (strchr(terminator, tmp[x-1])) {
-					ast_debug(1, "Received terminator, ending digit collection\n");
-					tmp[x-1] = '\0';
-					done = 1;
+				} else {
+					tmp[x++] = res;
+					if (strchr(terminator, tmp[x-1])) {
+						ast_debug(1, "Received terminator, ending digit collection\n");
+						tmp[x-1] = '\0';
+						done = 1;
+					}
 				}
 			} else if (timeoutoverride < 0) { /* wait in silence and see if there's another digit */
 				tmpdigit = tmp + x;
@@ -395,7 +396,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 		ts = ast_tone_zone_sound_unref(ts);
 	}
 
-	return 0;
+	return res;
 }
 
 static int unload_module(void)
