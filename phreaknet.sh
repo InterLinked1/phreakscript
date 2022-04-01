@@ -986,8 +986,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
 	fi
 
-	## Gerrit patches: merged, remove in 18.11
+	## Gerrit patches: merged, remove in 18.12
 	if [ "$AST_ALT_VER" != "master" ]; then # apply specified merged patches, unless we just cloned master
+		gerrit_patch 18077 "https://gerrit.asterisk.org/changes/asterisk~18077/revisions/1/patch?download" # bug fix to AGI SET MUSIC xmldocs
 		:
 	fi
 
@@ -996,10 +997,13 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
-	#gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 	gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
-	gerrit_patch 18077 "https://gerrit.asterisk.org/changes/asterisk~18077/revisions/1/patch?download" # bug fix to AGI SET MUSIC xmldocs
+
+	if [ "$TEST_SUITE" = "1" ]; then # highly experimental
+		gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
+		:
+	fi
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
@@ -1387,8 +1391,7 @@ elif [ "$cmd" = "install" ]; then
 	# Get DAHDI
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		if [ ! -d /etc/dahdi ] || [ "$FORCE_INSTALL" = "1" ]; then
-			#install_dahdi
-			sleep 1
+			install_dahdi
 		else
 			echoerr "DAHDI already present but install not forced, skipping..."
 			sleep 2
