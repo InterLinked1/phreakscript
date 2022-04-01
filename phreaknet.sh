@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.52 (2022-03-27)
+# v0.1.53 (2022-04-01)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-01 0.1.53 PhreakScript: allow standalone DAHDI install
 # 2022-03-27 0.1.52 PhreakScript: added dialplanfiles
 # 2022-03-25 0.1.51 PhreakScript: add fail2ban
 # 2022-03-25 0.1.50 PhreakScript: add paste_post error handling
@@ -211,7 +212,8 @@ Commands:
 
    *** First Use / Installation ***
    make               Add PhreakScript to path
-   install            Install or upgrade PhreakNet Asterisk
+   install            Install or upgrade PhreakNet-enhanced Asterisk
+   dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    installts          Install Asterisk Test Suite
    fail2ban           Install Asterisk fail2ban configuration
    apiban             Install apiban client
@@ -312,6 +314,14 @@ assert_root() {
 	if [ $(id -u) -ne 0 ]; then
 		echoerr "PhreakScript make must be run as root. Aborting..."
 		exit 2
+	fi
+}
+
+dahdi_checks() {
+	debv=`uname -a | cut -d' ' -f2`
+	if [ "$debv" = "debian11" ]; then
+		echoerr "DAHDI may not be fully compatible with Debian 11 yet, proceed at your own risk..."
+		sleep 3
 	fi
 }
 
@@ -747,6 +757,156 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Finished undoing DAHDI removals!"
 }
 
+install_dahdi() {
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y linux-headers-`uname -r` build-essential binutils-dev autoconf dh-autoreconf libusb-dev
+		apt install -y pkg-config m4 libtool automake autoconf
+	fi
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download system headers"
+		exit 2
+	fi
+	cd $AST_SOURCE_PARENT_DIR
+	wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz
+	wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz
+	DAHDI_LIN_SRC_DIR=`tar -tzf dahdi-linux-current.tar.gz | head -1 | cut -f1 -d"/"`
+	DAHDI_TOOLS_SRC_DIR=`tar -tzf dahdi-tools-current.tar.gz | head -1 | cut -f1 -d"/"`
+	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR" ]; then
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			rm -rf $DAHDI_LIN_SRC_DIR
+		else
+			echoerr "Directory $DAHDI_LIN_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
+			exit 1
+		fi
+	fi
+	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR" ]; then
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			rm -rf $DAHDI_TOOLS_SRC_DIR
+		else
+			echoerr "Directory $DAHDI_TOOLS_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
+			exit 1
+		fi
+	fi
+	tar -zxvf dahdi-linux-current.tar.gz && rm dahdi-linux-current.tar.gz
+	tar -zxvf dahdi-tools-current.tar.gz && rm dahdi-tools-current.tar.gz
+	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
+		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
+		exit 2
+	fi
+
+	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
+	cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
+
+	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
+		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
+	fi
+
+	# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
+	dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
+	dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
+	dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
+	dahdi_patch "c98f59eead28cf66b271b031288542e34e603c43"
+	dahdi_patch "34b9c77c9ab2794d4e912461e4c1080c4b1f6184"
+	dahdi_patch "26fb7c34cba98c08face72cf29b70dfdc71449c6"
+	dahdi_patch "90e8a54e3a482c3cee6afc6b430bb0aab7ee8f34"
+	dahdi_patch "97e744ad9604bd7611846da0b9c0c328dc80f262"
+	dahdi_patch "4df746fe3ffd6678f36b16c9b0750fa552da92e4"
+	dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
+	dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
+	dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
+	# dahdi_custom_patch "DAHLIN-395-hearpulsing" "$DAHDI_LIN_SRC_DIR/drivers/dahdi/dahdi-base.c" "https://issues.asterisk.org/jira/secure/attachment/61183/DAHLIN-395-hearpulsing.patch"
+	make
+	if [ $? -ne 0 ]; then
+		echoerr "DAHDI Linux compilation failed, aborting install"
+		exit 1
+	fi
+	make install
+	make all install config
+
+	# DAHDI Tools
+	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
+		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
+		exit 2
+	fi
+	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
+
+	#dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
+	
+	# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
+	# autoreconf -i
+	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
+	./configure
+	make
+	if [ $? -ne 0 ]; then
+		echoerr "DAHDI Tools compilation failed, aborting install"
+		exit 1
+	fi
+	make install
+	make config
+	make install-config
+
+	# All right, here we go...
+	dahdi_scan -vvvvv
+	if [ ! -f /etc/dahdi/system.conf ]; then
+		printf "%s\n" "Generating /etc/dahdi/system.conf for the first time..."
+		service dahdi restart
+		dahdi_genconf -vvvvv
+	else
+		echoerr "/etc/dahdi/system.conf already exists, not overwriting..."
+		service dahdi restart
+	fi
+	dahdi_cfg -vvvvv
+	dahdi_hardware
+	if [ -f /etc/dahdi/modules ]; then
+		cat /etc/dahdi/modules
+		# modprobe <listed>
+	else
+		echoerr "No DAHDI modules present"
+	fi
+	lsdahdi
+
+	# Verify what we did...
+	cat /etc/dahdi/system.conf
+	if [ $? -ne 0 ]; then
+		echo "Uh oh, no /etc/dahdi/system.conf ???"
+	fi
+	if [ -f /etc/dahdi/assigned-spans.conf ]; then
+		cat /etc/dahdi/assigned-spans.conf
+	else
+		echoerr "No assigned spans"
+	fi
+	if [ -f /etc/asterisk/dahdi-channels.conf ]; then
+		cat /etc/asterisk/dahdi-channels.conf
+	else
+		echoerr "No DAHDI channels"
+	fi
+
+	# LibPRI # https://gist.github.com/debuggerboy/3028532
+	cd $AST_SOURCE_PARENT_DIR
+	wget http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz
+	tar -zxvf ${PRI}.tar.gz
+	rm ${PRI}.tar.gz
+	cd ${LIBPRI_SOURCE_NAME}
+	make && make install
+
+	# Wanpipe
+	cd $AST_SOURCE_PARENT_DIR
+	wget https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
+	rm ${WANPIPE_SOURCE_NAME}.tgz
+	cd ${WANPIPE_SOURCE_NAME}
+	# ./Setup dahdi
+	./Setup install --silent
+	if [ $? -ne 0 ]; then
+		echoerr "wanpipe install failed: unsupported kernel?"
+	else
+		wanrouter stop
+		wanrouter start
+	fi
+	service dahdi restart
+}
+
 phreak_tree_module() { # $1 = file to patch
 	printf "Adding new module: %s\n" "$1"
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
@@ -923,6 +1083,7 @@ paste_post() { # $1 = file to upload, $2 = 1 to delete file on success.
 }
 
 get_backtrace() { # $1 = "1" to upload
+	dmesg | tail -4
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install gdb # for astcoredumper
 	fi
@@ -1187,6 +1348,15 @@ elif [ "$cmd" = "make" ]; then
 		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
 elif [ "$cmd" = "install" ]; then
+	if [ "$CHAN_DAHDI" = "1" ]; then
+		dahdi_checks
+	elif [ "$TEST_SUITE" = "1" ]; then
+		uname -a
+		apt-get install -y linux-headers-`uname -r` build-essential
+		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
+			echoerr "DAHDI is not compatible with this system"
+		fi
+	fi
 	assert_root
 	if [ "$FREEPBX_GUI" = "1" ]; then
 		install_freepbx_checks
@@ -1216,122 +1386,13 @@ elif [ "$cmd" = "install" ]; then
 	install_prereq
 	# Get DAHDI
 	if [ "$CHAN_DAHDI" = "1" ]; then
-		if [ "$PAC_MAN" = "apt-get" ]; then
-			apt-get install -y linux-headers-`uname -r` build-essential binutils-dev autoconf dh-autoreconf libusb-dev
-			apt install -y pkg-config m4 libtool automake autoconf
+		if [ ! -d /etc/dahdi ] || [ "$FORCE_INSTALL" = "1" ]; then
+			#install_dahdi
+			sleep 1
+		else
+			echoerr "DAHDI already present but install not forced, skipping..."
+			sleep 2
 		fi
-		if [ $? -ne 0 ]; then
-			echoerr "Failed to download system headers"
-			exit 2
-		fi
-		cd $AST_SOURCE_PARENT_DIR
-		wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz
-		wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz
-		DAHDI_LIN_SRC_DIR=`tar -tzf dahdi-linux-current.tar.gz | head -1 | cut -f1 -d"/"`
-		DAHDI_TOOLS_SRC_DIR=`tar -tzf dahdi-tools-current.tar.gz | head -1 | cut -f1 -d"/"`
-		if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR" ]; then
-			if [ "$FORCE_INSTALL" = "1" ]; then
-				rm -rf $DAHDI_LIN_SRC_DIR
-			else
-				echoerr "Directory $DAHDI_LIN_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
-			fi
-		fi
-		if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR" ]; then
-			if [ "$FORCE_INSTALL" = "1" ]; then
-				rm -rf $DAHDI_TOOLS_SRC_DIR
-			else
-				echoerr "Directory $DAHDI_TOOLS_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
-			fi
-		fi
-		tar -zxvf dahdi-linux-current.tar.gz && rm dahdi-linux-current.tar.gz
-		tar -zxvf dahdi-tools-current.tar.gz && rm dahdi-tools-current.tar.gz
-		if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
-			printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
-			exit 2
-		fi
-
-		# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
-		cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
-
-		if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
-			dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
-		fi
-
-		# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
-		dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
-		dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
-		dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
-		dahdi_patch "c98f59eead28cf66b271b031288542e34e603c43"
-		dahdi_patch "34b9c77c9ab2794d4e912461e4c1080c4b1f6184"
-		dahdi_patch "26fb7c34cba98c08face72cf29b70dfdc71449c6"
-		dahdi_patch "90e8a54e3a482c3cee6afc6b430bb0aab7ee8f34"
-		dahdi_patch "97e744ad9604bd7611846da0b9c0c328dc80f262"
-		dahdi_patch "4df746fe3ffd6678f36b16c9b0750fa552da92e4"
-		dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
-		dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
-		dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
-		# dahdi_custom_patch "DAHLIN-395-hearpulsing" "$DAHDI_LIN_SRC_DIR/drivers/dahdi/dahdi-base.c" "https://issues.asterisk.org/jira/secure/attachment/61183/DAHLIN-395-hearpulsing.patch"
-		make
-		if [ $? -ne 0 ]; then
-			echoerr "DAHDI Linux compilation failed, aborting install"
-			exit 1
-		fi
-		make install
-		make all install config
-
-		# DAHDI Tools
-		if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
-			printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
-			exit 2
-		fi
-		cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
-
-		#dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
-		dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
-		
-		# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
-		# autoreconf -i
-		autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
-		./configure
-		make
-		if [ $? -ne 0 ]; then
-			echoerr "DAHDI Tools compilation failed, aborting install"
-			exit 1
-		fi
-		make install
-		make config
-		make install-config
-		cat /etc/dahdi/modules
-		# modprobe <listed>
-		dahdi_scan -vvvvv
-		dahdi_genconf -vvvvv
-		dahdi_cfg -vvvvv
-		dahdi_hardware
-		lsdahdi
-		cat /etc/dahdi/assigned-spans.conf
-		cat /etc/dahdi/system.conf
-		cat /etc/asterisk/dahdi-channels.conf
-		
-		# LibPRI # https://gist.github.com/debuggerboy/3028532
-		cd $AST_SOURCE_PARENT_DIR
-		wget http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz
-		tar -zxvf ${PRI}.tar.gz
-		rm ${PRI}.tar.gz
-		cd ${LIBPRI_SOURCE_NAME}
-		make && make install
-		
-		# Wanpipe
-		cd $AST_SOURCE_PARENT_DIR
-		wget https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
-		tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
-		rm ${WANPIPE_SOURCE_NAME}.tgz
-		cd ${WANPIPE_SOURCE_NAME}
-		# ./Setup dahdi
-		./Setup install --silent
-		wanrouter stop
-		wanrouter start
 	fi
 	# Get latest Asterisk LTS version
 	cd $AST_SOURCE_PARENT_DIR
@@ -1461,7 +1522,8 @@ elif [ "$cmd" = "install" ]; then
 		configure_devmode
 	fi
 	if [ "$CHAN_DAHDI" = "1" ]; then
-		menuselect/menuselect --enable chan_dahdi --enable app_meetme menuselect.makeopts
+		# in reality, this will never fail, even if they can't be enabled...
+		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
 	fi
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
 		echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Please migrate to chan_pjsip at your convenience."
@@ -1605,6 +1667,7 @@ elif [ "$cmd" = "install" ]; then
 	printf "%s\n" "If you upgraded Asterisk, you will need to run 'core restart now' for the new version to load."
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		echog "Note that DAHDI was installed and requires a reboot before it can be used."
+		echog "Note that you will need to manually configure /etc/dahdi/system.conf appropriately for your spans."
 	fi
 	if [ "$FREEPBX_GUI" = "1" ]; then
 		printf "%s\n" "Installation of FreePBX GUI will begin in 5 seconds..."
@@ -1618,6 +1681,13 @@ elif [ "$cmd" = "freepbx" ]; then
 		sleep 2
 	fi
 	install_freepbx
+elif [ "$cmd" = "dahdi" ]; then
+	dahdi_checks
+	assert_root
+	install_dahdi
+elif [ "$cmd" = "installts" ]; then
+	assert_root
+	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "uninstall" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
@@ -1688,9 +1758,6 @@ elif [ "$cmd" = "ulaw" ]; then
 			sox $f --rate 8000 --channels 1 --type ul $withoutextension.ulaw lowpass 3400 highpass 300
 		done
 	fi
-elif [ "$cmd" = "installts" ]; then
-	assert_root
-	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "docverify" ]; then
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # show the XML validation errors
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml 2>&1 | grep "doc/core-en_US.xml:" | cut -d':' -f2 | cut -d'.' -f1 | xargs  -d "\n" -I{} sed "{}q;d" doc/core-en_US.xml # show the offending lines
