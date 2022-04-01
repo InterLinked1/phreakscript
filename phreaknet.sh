@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.53 (2022-04-01)
+# v0.1.54 (2022-04-01)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-01 0.1.54 PhreakScript: warn about updates only if behind master
 # 2022-04-01 0.1.53 PhreakScript: allow standalone DAHDI install
 # 2022-03-27 0.1.52 PhreakScript: added dialplanfiles
 # 2022-03-25 0.1.51 PhreakScript: add fail2ban
@@ -1329,11 +1330,17 @@ if [ -z "${AST_CC##*[!0-9]*}" ] ; then # POSIX compliant: https://unix.stackexch
 fi
 
 self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
-upstream=`curl --silent https://docs.phreaknet.org/script/phreaknet.sh | grep -m1 "# v" | cut -d'v' -f2`
+upstream=`curl --silent https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh | grep -m1 "# v" | cut -d'v' -f2`
 
 if [ "$self" != "$upstream" ] && [ "$cmd" != "update" ]; then
-	echoerr "WARNING: PhreakScript is out of date (most recent version is $upstream) - run 'phreaknet update' to update"
-	sleep 0.5
+	# Pull from GitHub here for version check for a) speed and b) stability reasons
+	# In this case, it's possible that our version number could actually be ahead of master, since we update from the dev upstream. We need to compare the versions, not merely check if they differ.
+	# Don't throw a warning if only the development tip is ahead of the master branch. But if master is ahead of us, then warn.
+	morerecent=`printf "%s\n%s" "$self" "$upstream" | sort | tail -1`
+	if [ "${morerecent}" != "${self}" ]; then
+		echoerr "WARNING: PhreakScript is out of date (most recent stable version is $upstream) - run 'phreaknet update' to update"
+		sleep 0.5
+	fi
 fi
 
 if [ "$cmd" = "help" ]; then
