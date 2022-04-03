@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.54 (2022-04-01)
+# v0.1.55 (2022-04-03)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-03 0.1.55 Asterisk: add app_selective
 # 2022-04-01 0.1.54 PhreakScript: warn about updates only if behind master
 # 2022-04-01 0.1.53 PhreakScript: allow standalone DAHDI install
 # 2022-03-27 0.1.52 PhreakScript: added dialplanfiles
@@ -50,7 +51,7 @@
 # 2021-12-17 0.1.20 PhreakScript: add tests for verify, added backtrace enable
 # 2021-12-16 0.1.19 PhreakScript: added support for building chan_sip with Cisco Call Manager phone support
 # 2021-12-15 0.1.18 PhreakScript: added runtests, Asterisk: update func_evalexten
-# 2021-12-14 0.1.17: Asterisk: update func_evalexten, PhreakScript: added gerrit command
+# 2021-12-14 0.1.17 Asterisk: update func_evalexten, PhreakScript: added gerrit command
 # 2021-12-13 0.1.16 Asterisk: patch updates, compiler fixes
 # 2021-12-12 0.1.15 Asterisk: add ReceiveText application
 # 2021-12-12 0.1.14 Asterisk: add app_verify, PhreakScript: fix double compiling with test framework
@@ -955,6 +956,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_pulsar.c"
 	phreak_tree_module "apps/app_randomplayback.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
+	phreak_tree_module "apps/app_selective.c"
 	phreak_tree_module "apps/app_softmodem.c"
 	phreak_tree_module "apps/app_streamsilence.c"
 	phreak_tree_module "apps/app_tonetest.c"
