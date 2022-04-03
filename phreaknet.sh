@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.55 (2022-04-03)
+# v0.1.56 (2022-04-03)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-03 0.1.56 PhreakScript: move boilerplate configs to GitHub
 # 2022-04-03 0.1.55 Asterisk: add app_selective
 # 2022-04-01 0.1.54 PhreakScript: warn about updates only if behind master
 # 2022-04-01 0.1.53 PhreakScript: allow standalone DAHDI install
@@ -392,18 +393,18 @@ install_boilerplate() {
 	printf "%s" "Installing boilerplate code to "
 	pwd
 	printf "\n"
-	wget -q --show-progress https://docs.phreaknet.org/verification.conf -O verification.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/phreaknet.conf -O phreaknet.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/verification.conf -O verification.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet.conf -O phreaknet.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
 	ls -l
 	cd $AST_CONFIG_DIR
-	wget -q --show-progress https://docs.phreaknet.org/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/extensions.conf -O $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE --no-cache
-	wget -q --show-progress https://docs.phreaknet.org/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/extensions.conf -O $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE --no-cache
+	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
 	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
 }
 
