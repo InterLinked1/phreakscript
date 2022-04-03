@@ -60,6 +60,17 @@
 			</parameter>
 			<parameter name="options" required="no">
 				<optionlist>
+					<option name="b">
+						<para>Filename to override blank.</para>
+					</option>
+					<option name="i">
+						<para>Allow DMTF interrupt.</para>
+						<para>Additionally, if the channel variable
+						<variable>SAY_DTMF_INTERRUPT</variable> is set to 'true' (case insensitive),
+						then this application will also allow DTMF interrupt.</para>
+						<para>If a digit is entered, it will be contained in the
+						<literal>SAYTELNUM_DIGIT</literal> variable upon exit.</para>
+					</option>
 					<option name="m">
 						<para>Enable triple inflection mode,
 						and specifically use MCI inflections.
@@ -143,6 +154,11 @@
 			<example title="Simple ANAC using built-in prompts">
 			same => n,SayTelephoneNumber(digits,${CALLERID(num)})
 			</example>
+			<variablelist>
+				<variable name="SAYTELNUM_DIGIT">
+					<para>The digit entered, if interrupted.</para>
+				</variable>
+			</variablelist>
 		</description>
 		<see-also>
 			<ref type="application">SayDigits</ref>
@@ -183,6 +199,7 @@ enum say_option_flags {
 	OPT_DOUBLEUP  = (1 << 4),
 	OPT_BLANK     = (1 << 5),
 	OPT_PREPLAY   = (1 << 6),
+	OPT_INTERRUPT = (1 << 7),
 };
 
 enum {
@@ -197,6 +214,7 @@ enum {
 
 AST_APP_OPTIONS(say_app_options, {
 	AST_APP_OPTION_ARG('b', OPT_BLANK, OPT_ARG_BLANK),
+	AST_APP_OPTION('i', OPT_INTERRUPT),
 	AST_APP_OPTION('m', OPT_MCI),
 	AST_APP_OPTION_ARG('n', OPT_NORMAL, OPT_ARG_NORMAL),
 	AST_APP_OPTION_ARG('p', OPT_PREPLAY, OPT_ARG_PREPLAY),
@@ -213,6 +231,7 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 #define DOUBLE_UP_SUFFIX "__" /* highest pitch */
 #define BLANK "blank"
 	int d, dirlen, res = 0, triple = 0, triplemci = 0, addlen = 0, waitms = DEFAULT_WAITMS;
+	int interrupt = 0;
 	char *preplay = NULL;
 	char *tmp, *num, *orignum, *file;
 	double sec;
@@ -250,6 +269,9 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 	if (!ast_strlen_zero(args.options)) {
 		int x;
 		ast_app_parse_options(say_app_options, &flags, optargs, args.options);
+		if (ast_test_flag(&flags, OPT_INTERRUPT)) {
+			interrupt = 1;
+		}
 		if (ast_test_flag(&flags, OPT_TRIPLE)) {
 			triple = 1; /* use triple inflection mode instead of double inflection mode */
 		}
@@ -289,6 +311,12 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 		}
 	}
 
+	if (!interrupt) {
+		ast_channel_lock(chan);
+		interrupt = ast_true(pbx_builtin_getvar_helper(chan, "SAY_DTMF_INTERRUPT"));
+		ast_channel_unlock(chan);
+	}
+
 	num = filter_number(args.number, &d, 1);
 	orignum = num;
 	dirlen = strlen(args.directory);
@@ -312,8 +340,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 			if (ast_fileexists(file, NULL, NULL)) {
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 				if (res) {
 					goto next;
@@ -327,8 +358,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 				n = 3;
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 				goto next;
 			}
@@ -339,8 +373,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 				n = 2;
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 				goto next;
 			}
@@ -351,8 +388,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 				n = 2;
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 				goto next;
 			}
@@ -363,8 +403,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 				n = 3;
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 				goto next;
 			}
@@ -376,8 +419,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 				n = 2;
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 				goto next;
 			}
@@ -416,8 +462,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 			if (ast_fileexists(file, NULL, NULL)) {
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 				goto next;
 			}
@@ -427,8 +476,11 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 		if (ast_fileexists(file, NULL, NULL)) {
 			res = ast_streamfile(chan, file, ast_channel_language(chan));
 			if (!res) {
-				res = ast_waitstream(chan, "");
+				res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 				ast_stopstream(chan);
+				if (res > 0) {
+					break;
+				}
 			}
 			goto next;
 		}
@@ -444,8 +496,11 @@ next:
 			if (*blank && ast_fileexists(file, NULL, NULL)) {
 				res = ast_streamfile(chan, file, ast_channel_language(chan));
 				if (!res) {
-					res = ast_waitstream(chan, "");
+					res = ast_waitstream(chan, interrupt ? AST_DIGIT_ANY : "");
 					ast_stopstream(chan);
+					if (res > 0) {
+						break;
+					}
 				}
 			} else {
 				res = ast_safe_sleep(chan, waitms);
@@ -455,6 +510,14 @@ next:
 
 	ast_free(file);
 	ast_free(orignum);
+
+	if (res > 0) { /* got a DTMF */
+		char digit[2];
+		ast_verb(3, "User entered '%c', ending announcement\n", res);
+		snprintf(digit, 2, "%c", res);
+		pbx_builtin_setvar_helper(chan, "SAYTELNUM_DIGIT", digit); /* this is sloppy, but what other way do we have to communicate it? */
+		res = 0;
+	}
 
 	return res;
 }
