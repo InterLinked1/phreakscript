@@ -1,0 +1,72 @@
+diff --git a/drivers/dahdi/dahdi-base.c b/drivers/dahdi/dahdi-base.c
+index bcd6147..6e181e6 100644
+--- a/drivers/dahdi/dahdi-base.c
++++ b/drivers/dahdi/dahdi-base.c
+@@ -8449,9 +8449,10 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
+ 						chan->pulsecount++;
+ 
+ 						chan->pulsetimer = DAHDI_PULSETIMEOUT;
+-                                                chan->itimerset = chan->itimer = 0;
++						chan->itimerset = chan->itimer = 0;
+ 						if (chan->pulsecount == 1)
+ 							__qevent(chan,DAHDI_EVENT_PULSE_START);
++						__qevent(chan,DAHDI_EVENT_PULSE);
+ 					}
+ 			    }
+ 			    break;
+@@ -8463,6 +8464,7 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
+ 		    case DAHDI_RXSIG_ONHOOK: /* went on hook */
+ 			/* This interface is now going on hook.
+ 			   Check for WINK, etc */
++			__qevent(chan,DAHDI_EVENT_PULSE_BREAK);
+ 			if (chan->itimer)
+ 				__qevent(chan,DAHDI_EVENT_WINKFLASH);
+ #if defined(EMFLASH) || defined(EMPULSE)
+@@ -8550,6 +8552,7 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
+ 						chan->itimer = chan->itimerset;
+ 						if (chan->pulsecount == 1)
+ 							__qevent(chan,DAHDI_EVENT_PULSE_START);
++						__qevent(chan,DAHDI_EVENT_PULSE);
+ 					}
+ 			    } else
+ 					__qevent(chan,DAHDI_EVENT_WINKFLASH);
+@@ -8565,6 +8568,7 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
+ 			break;
+ 		    case DAHDI_RXSIG_ONHOOK: /* went on hook */
+ 			  /* if not during offhook debounce time */
++			__qevent(chan,DAHDI_EVENT_PULSE_BREAK);
+ 			if ((chan->txstate != DAHDI_TXSTATE_DEBOUNCE) &&
+ 			    (chan->txstate != DAHDI_TXSTATE_KEWL) &&
+ 			    (chan->txstate != DAHDI_TXSTATE_AFTERKEWL)) {
+diff --git a/drivers/dahdi/xpp/dahdi_debug.h b/drivers/dahdi/xpp/dahdi_debug.h
+index 0488451..f4e625b 100644
+--- a/drivers/dahdi/xpp/dahdi_debug.h
++++ b/drivers/dahdi/xpp/dahdi_debug.h
+@@ -180,6 +180,10 @@ static inline char *event2str(int event)
+ 		return "BITSCHANGED";
+ 	case DAHDI_EVENT_PULSE_START:
+ 		return "PULSE_START";
++	case DAHDI_EVENT_PULSE:
++		return "PULSE";
++	case DAHDI_EVENT_PULSE_BREAK:
++		return "PULSE_BREAK";
+ 	case DAHDI_EVENT_TIMER_EXPIRED:
+ 		return "TIMER_EXPIRED";
+ 	case DAHDI_EVENT_TIMER_PING:
+diff --git a/include/dahdi/user.h b/include/dahdi/user.h
+index 68e72e0..db05257 100644
+--- a/include/dahdi/user.h
++++ b/include/dahdi/user.h
+@@ -453,6 +453,12 @@ enum {
+ /* The channel's write buffer encountered an underrun condition */
+ #define DAHDI_EVENT_WRITE_UNDERRUN	30
+ 
++/* A pulse was detected on a channel */
++#define DAHDI_EVENT_PULSE		31
++
++/* Momentary on-hook (pulse break) */
++#define DAHDI_EVENT_PULSE_BREAK		32
++
+ #define DAHDI_EVENT_PULSEDIGIT		(1 << 16)	/* This is OR'd with the digit received */
+ #define DAHDI_EVENT_DTMFDOWN		(1 << 17)	/* Ditto for DTMF key down event */
+ #define DAHDI_EVENT_DTMFUP		(1 << 18)	/* Ditto for DTMF key up event */
