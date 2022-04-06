@@ -39,8 +39,11 @@
 #include "asterisk/app.h"
 #include "asterisk/module.h"
 #include "asterisk/indications.h"
+
+#ifdef HAVE_DAHDI
 #include "../channels/sig_analog.h"
 #include "../channels/chan_dahdi.h"
+#endif
 
 /*** DOCUMENTATION
 	<application name="DialSpeedTest" language="en_US">
