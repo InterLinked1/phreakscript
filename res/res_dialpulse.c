@@ -288,7 +288,7 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 		ast_verb(3, "Dial speed was %.3f pps (%s) (took %d ms for %d pps test)", dialpps, result, res, pps);
 		pbx_builtin_setvar_helper(chan, "DIALPULSERESULT", result);
 
-#if HAVE_DAHDI
+#ifdef HAVE_DAHDI
 		if (!strcasecmp(ast_channel_tech(chan)->type, "DAHDI")) {
 			struct dahdi_pvt *pvt = ast_channel_tech_pvt(chan);
 			if (dahdi_analog_lib_handles(pvt->sig, 0, 0)) {
