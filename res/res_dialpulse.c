@@ -303,9 +303,6 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 				 *
 				 */
 				for (i = 0; i < j; i++) {
-					int makems, breakms;
-					makems = analog_p->pulsemakes[i];
-					breakms = analog_p->pulsebreaks[i];
 					maketime += analog_p->pulsebreaks[i] - analog_p->pulsemakes[i];
 					if (i) {
 						breaktime += analog_p->pulsemakes[i] - analog_p->pulsebreaks[i - 1];
