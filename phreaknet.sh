@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.56 (2022-04-03)
+# v0.1.57 (2022-04-05)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-05 0.1.57 PhreakScript: added res_dialpulse, misc. fixes
 # 2022-04-03 0.1.56 PhreakScript: move boilerplate configs to GitHub
 # 2022-04-03 0.1.55 Asterisk: add app_selective
 # 2022-04-01 0.1.54 PhreakScript: warn about updates only if behind master
@@ -742,6 +743,17 @@ dahdi_patch() {
 	rm /tmp/$1.patch
 }
 
+git_patch() {
+	printf "Applying git patch: %s\n" "$1"
+	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$1" -O /tmp/$1 --no-cache
+	git apply "/tmp/$1"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply git patch... this should be reported..."
+		exit 2
+	fi
+	rm "/tmp/$1"
+}
+
 dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Reverting patches that removed driver support in DAHDI..."
 	dahdi_undo $1 "dahdi_pci_module" "Remove unnecessary dahdi_pci_module macro" "4af6f69fff19ea3cfb9ab0ff86a681be86045215"
@@ -770,6 +782,13 @@ install_dahdi() {
 		exit 2
 	fi
 	cd $AST_SOURCE_PARENT_DIR
+	# just in case, for some reason, these already existed... don't let them throw everything off:
+	if [ -f dahdi-linux-current.tar.gz ]; then
+		rm dahdi-linux-current.tar.gz
+	fi
+	if [ -f dahdi-tools-current.tar.gz ]; then
+		rm dahdi-tools-current.tar.gz
+	fi
 	wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz
 	wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz
 	DAHDI_LIN_SRC_DIR=`tar -tzf dahdi-linux-current.tar.gz | head -1 | cut -f1 -d"/"`
@@ -817,7 +836,13 @@ install_dahdi() {
 	dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
 	dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
 	dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
+
+	# New Features
+	git_patch "dahdi_rtoutpulse.diff"
+
+	# needs to be rebased for master:
 	# dahdi_custom_patch "DAHLIN-395-hearpulsing" "$DAHDI_LIN_SRC_DIR/drivers/dahdi/dahdi-base.c" "https://issues.asterisk.org/jira/secure/attachment/61183/DAHLIN-395-hearpulsing.patch"
+
 	make
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
@@ -833,10 +858,15 @@ install_dahdi() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
-	#dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+	# Compiler fixes
+	dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
 	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
-	
+
+	# New Features
+
+	# needs to be rebased for master:
 	# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
+
 	# autoreconf -i
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
 	./configure
@@ -888,8 +918,8 @@ install_dahdi() {
 	# LibPRI # https://gist.github.com/debuggerboy/3028532
 	cd $AST_SOURCE_PARENT_DIR
 	wget http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz
-	tar -zxvf ${PRI}.tar.gz
-	rm ${PRI}.tar.gz
+	tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
+	rm ${LIBPRI_SOURCE_NAME}.tar.gz
 	cd ${LIBPRI_SOURCE_NAME}
 	make && make install
 
@@ -970,6 +1000,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_numpeer.c"
 	phreak_tree_module "funcs/func_ochannel.c"
 	phreak_tree_module "res/res_coindetect.c"
+	phreak_tree_module "res/res_dialpulse.c"
 
 	## Third Party Modules
 	printf "Adding new module: %s\n" "apps/app_tdd.c"
@@ -997,12 +1028,26 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	## Gerrit patches: remove once merged
-	phreak_tree_module "apps/app_if.c"
+	# phreak_tree_module "apps/app_if.c"
+	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
 
 	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
 	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 	gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
+	gerrit_patch 18003 "https://gerrit.asterisk.org/changes/asterisk~18003/revisions/1/patch?download" # menuselect: recompile fix
+	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
+	gerrit_patch 18079 "https://gerrit.asterisk.org/changes/asterisk~18079/revisions/4/patch?download" # chan_pjsip: add flash event TX
+	gerrit_patch 18240 "https://gerrit.asterisk.org/changes/asterisk~18240/revisions/2/patch?download" # func_db: add DB_KEYCOUNT
+	gerrit_patch 18250 "https://gerrit.asterisk.org/changes/asterisk~18250/revisions/2/patch?download" # res_calendar: prevent crash
+	gerrit_patch 18363 "https://gerrit.asterisk.org/changes/asterisk~18363/revisions/1/patch?download" # chan_iax2: prevent crash for RSA
+	gerrit_patch 18305 "https://gerrit.asterisk.org/changes/asterisk~18305/revisions/6/patch?download" # fix buggy callerid
+	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
+	gerrit_patch 18301 "https://gerrit.asterisk.org/changes/asterisk~18301/revisions/2/patch?download" # chan_dahdi: fix cadence parsing
+	# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/2/patch?download" # chan_dahdi: add dialmode
+	gerrit_patch 18308 "https://gerrit.asterisk.org/changes/asterisk~18308/revisions/1/patch?download" # chan_dahdi: fix MWI FSK
+	gerrit_patch 18309 "https://gerrit.asterisk.org/changes/asterisk~18309/revisions/1/patch?download" # chan_dahdi: fix round robin
+	gerrit_patch 18362 "https://gerrit.asterisk.org/changes/asterisk~18362/revisions/1/patch?download" # chan_dahdi: add POLARITY function
 
 	if [ "$TEST_SUITE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
@@ -1091,18 +1136,22 @@ paste_post() { # $1 = file to upload, $2 = 1 to delete file on success.
 	fi
 }
 
-get_backtrace() { # $1 = "1" to upload
-	dmesg | tail -4
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install gdb # for astcoredumper
-	fi
+quell_mysql() {
 	if [ -f "/etc/init.d/mysql" ]; then
 		if [ "$FORCE_INSTALL" = "1" ]; then
 			printf "%s\n" "Restarting MySQL/MariaDB service..."
-			# mysql uses up a lot of CPU and memory, and will really slow down the coredumper script
+			# mysql uses up a lot of CPU and memory, and will really slow down the coredumper script (or compilation)
 			service mysql restart
 		fi
 	fi
+}
+
+get_backtrace() { # $1 = "1" to upload
+	dmesg | tail -4
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y gdb # for astcoredumper
+	fi
+	quell_mysql
 	printf "%s" "Core dump pattern is: "
 	sysctl -n kernel.core_pattern # sysctl -w kernel.core_pattern=core
 	printf "%s\n" "Finding core dump to process, this may take a moment..."
@@ -1390,13 +1439,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
-	if [ -f "/etc/init.d/mysql" ]; then
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			printf "%s\n" "Restarting MySQL/MariaDB service..."
-			# mysql uses up a lot of CPU and memory, and will kill/really slow down the compilation process
-			service mysql restart
-		fi
-	fi
+	quell_mysql
 	printf "%s\n" "Installing prerequisites..."
 	install_prereq
 	# Get DAHDI
@@ -1668,7 +1711,7 @@ elif [ "$cmd" = "install" ]; then
 	# Development Mode (Asterisk Test Suite)
 	if [ "$TEST_SUITE" = "1" ]; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
-			apt-get install gdb # for astcoredumper
+			apt-get install -y gdb # for astcoredumper
 		fi
 		install_testsuite_itself
 	fi
