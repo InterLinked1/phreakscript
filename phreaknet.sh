@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.57 (2022-04-05)
+# v0.1.58 (2022-04-07)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-07 0.1.58 PhreakScript: add autocompletion integration
 # 2022-04-05 0.1.57 PhreakScript: added res_dialpulse, misc. fixes
 # 2022-04-03 0.1.56 PhreakScript: move boilerplate configs to GitHub
 # 2022-04-03 0.1.55 Asterisk: add app_selective
@@ -203,6 +204,11 @@ phreakscript_info() {
 	echo "To report bugs or request feature additions, please report at https://issues.interlinked.us (also see https://docs.phreaknet.org/#contributions) and/or post to the PhreakNet mailing list: https://groups.io/g/phreaknet" | fold -s -w 120
 }
 
+if [ "$1" = "commandlist" ]; then
+	echo "about help examples info make install dahdi installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
+	exit 0
+fi
+
 usage() {
 	#complete -W "make help install installts pulsar sounds config keygen edit genpatch patch update upgrade trace backtrace" phreaknet # has to be manually entered, at present
 	#source ~/.bash_profile
@@ -239,6 +245,7 @@ Commands:
    patch              Patch PhreakNet Asterisk configuration
    genpatch           Generate a PhreakPatch
    freedisk           Free up disk space
+   topdisk            Show top files taking up disk space
    enable-swap        Temporarily allocate and enable swap file
    disable-swap       Disable and deallocate temporary swap file
 
@@ -2029,6 +2036,13 @@ elif [ "$cmd" = "update" ]; then
 		chmod +x /tmp/phreakscript_update.sh
 	fi
 	printf "%s\n" "Updating PhreakScript..."
+	if [ -d /etc/bash_completion.d ]; then
+		if [ ! -f /etc/bash_completion.d/phreaknet ]; then # try to add auto-completion
+			printf "Download auto-completion binding script\n"
+			wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_autocompletion.sh" -O /tmp/phreakscript_autocompletion.sh
+			mv /tmp/phreaknet_autocompletion.sh /etc/bash_completion.d/phreaknet
+		fi
+	fi
 	exec /tmp/phreakscript_update.sh "$SCRIPT_UPSTREAM" "$FILE_PATH" "/tmp/phreakscript_update.sh"
 elif [ "$cmd" = "patch" ]; then
 	printf "%s\n" "Updating PhreakNet Asterisk configuration..."
@@ -2365,17 +2379,27 @@ elif [ "$cmd" = "sngrep" ]; then
 		apt-get install -y sngrep
 	fi
 	exec sngrep
-elif [ "$cmd" = "freedisk" ] ; then
+elif [ "$cmd" = "freedisk" ]; then
+	df -h /
 	apt-get clean
 	logrotate -f /etc/logrotate.conf
-	rm /var/log/*.gz
-	rm /var/log/asterisk/*.gz
+	rm -f /var/log/*.gz
+	rm -f /var/log/asterisk/*.gz
 	if [ -f /var/log/asterisk/full.1 ]; then
 		rm /var/log/asterisk/full.1
 	fi
 	if [ -f /var/log/apache2/modsec_audit.log ]; then
 		echo "" > /var/log/apache2/modsec_audit.log
 	fi
+	rm -rf /var/lib/snapd/cache/* # can be safely removed: https://askubuntu.com/questions/1075050/how-to-remove-uninstalled-snaps-from-cache/1156686#1156686
+	snap services
+	service fail2ban stop
+	rm -rf /var/lib/fail2ban
+	service fail2ban start
+	rm -f /tmp/core*
+	df -h /
+elif [ "$cmd" = "topdisk" ]; then
+	find / -printf '%s %p\n'| sort -nr | head -50
 elif [ "$cmd" = "enable-swap" ]; then
 # https://www.digitalocean.com/community/tutorials/how-to-add-swap-space-on-debian-10
 	assert_root
