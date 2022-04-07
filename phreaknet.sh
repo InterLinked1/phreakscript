@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.58 (2022-04-07)
+# v0.1.59 (2022-04-07)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-07 0.1.59 PhreakScript: improved odbc installation
 # 2022-04-07 0.1.58 PhreakScript: add autocompletion integration
 # 2022-04-05 0.1.57 PhreakScript: added res_dialpulse, misc. fixes
 # 2022-04-03 0.1.56 PhreakScript: move boilerplate configs to GitHub
@@ -124,6 +125,7 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 AST_SOURCE_NAME="asterisk-18-current"
 LIBPRI_SOURCE_NAME="libpri-1.6.0"
 WANPIPE_SOURCE_NAME="wanpipe-7.0.34"
+ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.7.0"
 AST_ALT_VER=""
 MIN_ARGS=1
@@ -181,6 +183,11 @@ echoerr() { # https://stackoverflow.com/questions/2990414/echo-that-outputs-to-s
 	fi
 }
 
+die() {
+	echoerr "$1"
+	exit 1
+}
+
 if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	PAC_MAN="pkg"
 	AST_SOURCE_PARENT_DIR="/usr/local/src"
@@ -205,7 +212,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help examples info make install dahdi installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
+	echo "about help examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
 	exit 0
 fi
 
@@ -224,6 +231,7 @@ Commands:
    make               Add PhreakScript to path
    install            Install or upgrade PhreakNet-enhanced Asterisk
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
+   odbc               Install ODBC
    installts          Install Asterisk Test Suite
    fail2ban           Install Asterisk fail2ban configuration
    apiban             Install apiban client
@@ -1116,6 +1124,51 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 	printf "%s\n" "FreeBSD patching complete..."
 }
 
+install_odbc() {
+	# https://wiki.asterisk.org/wiki/display/AST/Getting+Asterisk+Connected+to+MySQL+via+ODBC
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y unixodbc unixodbc-dev unixodbc-bin mariadb-server
+	fi
+	cd $AST_SOURCE_PARENT_DIR
+	# http://www.unixodbc.org/ to get isql (if desired for manual testing)
+	# https://mariadb.com/downloads/#connectors
+	# |-> https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/
+	# |---> https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/mariadb-connector-odbc-3.1.11-debian-buster-amd64.tar.gz
+	wget https://downloads.mariadb.com/Connectors/odbc/connector-odbc-$ODBC_VER/mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
+	if [ $? -ne 0 ]; then
+		die "MariaDB ODBC download failed"
+	fi
+	tar -zxvf mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
+	cd mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64/lib/mariadb
+	cp libmaodbc.so /usr/lib/x86_64-linux-gnu/odbc/
+	cp libmariadb.so /usr/lib/x86_64-linux-gnu/odbc/
+	cd $AST_SOURCE_PARENT_DIR
+	odbcinst -j
+	if [ $? -ne 0 ]; then
+		die "odbcinst failed"
+	fi
+	echo "[MariaDB]" > mariadb.ini
+	echo "Description	= Maria DB" >> mariadb.ini
+	echo "Driver = /usr/lib/x86_64-linux-gnu/odbc/libmaodbc.so" >> mariadb.ini
+	echo "Setup = /usr/lib/x86_64-linux-gnu/odbc/libodbcmyS.so" >> mariadb.ini
+	odbcinst -i -d -f mariadb.ini
+	rm mariadb.ini
+	# https://wiki.asterisk.org/wiki/display/AST/Getting+Asterisk+Connected+to+MySQL+via+ODBC
+	# https://wiki.asterisk.org/wiki/display/AST/Configuring+res_odbc
+	# http://www.asteriskdocs.org/en/3rd_Edition/asterisk-book-html-chunk/installing_configuring_odbc.html#database_validating-odbc
+	if grep "asterisk" /etc/odbc.ini > /dev/null ; then
+		printf "%s\n" "Asterisk-related ODBC config already detected in /etc/odbc.ini"
+	else
+		echo "[asterisk-connector]" > /etc/odbc.ini
+		echo "Description = MySQL connection to 'asterisk' database" >> /etc/odbc.ini
+		echo "Driver = MariaDB" >> /etc/odbc.ini
+		echo "Database = asterisk" >> /etc/odbc.ini
+		echo "Server = localhost" >> /etc/odbc.ini
+		echo "Port = 3306" >> /etc/odbc.ini
+		echo "Socket = /var/run/mysqld/mysqld.sock" >> /etc/odbc.ini
+	fi
+}
+
 paste_post() { # $1 = file to upload, $2 = 1 to delete file on success.
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
@@ -1670,34 +1723,36 @@ elif [ "$cmd" = "install" ]; then
 	$AST_MAKE install-logrotate # auto compress and rotate log files
 
 	if [ "$ODBC" = "1" ]; then # MariaDB ODBC for Asterisk
-		apt-get install -y unixodbc unixodbc-dev mariadb-server
-		cd $AST_SOURCE_PARENT_DIR
-		wget https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/mariadb-connector-odbc-3.1.11-debian-buster-amd64.tar.gz # https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/
-		tar -zxvf mariadb-connector-odbc-3.1.11-debian-buster-amd64/lib/mariadb
-		cd mariadb-connector-odbc-3.1.11-debian-buster-amd64/lib/mariadb
-		cp libmaodbc.so /usr/lib/x86_64-linux-gnu/odbc/
-		cp libmariadb.so /usr/lib/x86_64-linux-gnu/odbc/
-		cd $AST_SOURCE_PARENT_DIR
-		odbcinst -j
-		echo "[MariaDB]" > mariadb.ini && echo "Description	= Maria DB" >> mariadb.ini && echo "Driver = /usr/lib/x86_64-linux-gnu/odbc/libmaodbc.so" >> mariadb.ini && echo "Setup = /usr/lib/x86_64-linux-gnu/odbc/libodbcmyS.so" >> mariadb.ini
-		odbcinst -i -d -f mariadb.ini
-		rm mariadb.ini
+		install_odbc
 	fi
 
 	if [ ${#AST_USER} -gt 0 ]; then
-		id -u asterisk
+		id -u "$AST_USER"
 		# Create a user, if needed
 		if [ $? -ne 0 ]; then
-			adduser -c "Asterisk" $AST_USER --disabled-password --gecos ""
+			adduser -c "Asterisk" $AST_USER --disabled-password --gecos "" # don't allow any password logins, e.g. su - asterisk. Use passwd asterisk to manually set.
 		fi
-		# su - asterisk
 		sed -i 's/ASTARGS=""/ASTARGS="-U $AST_USER"/g' /sbin/safe_asterisk
 		sed -i 's/#AST_USER="asterisk"/AST_USER="$AST_USER"/g' /etc/default/asterisk
 		sed -i 's/#AST_GROUP="asterisk"/AST_GROUP="$AST_USER"/g' /etc/default/asterisk
 		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /var/cache/asterisk /usr/sbin/asterisk
 		sed -i 's/create 640 root root/create 640 $AST_USER $AST_USER/g' /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
+		# by default, it has the asterisk user, so simply uncomment it:
 		sed -i 's/;runuser =/runuser =/' $AST_CONFIG_DIR/asterisk.conf
 		sed -i 's/;rungroup =/rungroup =/' $AST_CONFIG_DIR/asterisk.conf
+		if [ "${AST_USER}" != "asterisk" ]; then # but if we're not actually running as "asterisk", change that:
+			sed -i "s/runuser = asterisk/runuser = $AST_USER/g"
+			sed -i "s/rungroup = asterisk/runuser = $AST_USER/g"
+		fi
+		chgrp $AST_USER $AST_VARLIB_DIR/astdb.sqlite3
+		# If we're using Let's Encrypt for our cert, then Asterisk needs to be able to read it. Otherwise, SIP/PJSIP will be very unhappy when they start.
+		if [ -d /etc/letsencrypt/live/ ]; then
+			chmod -R 740 /etc/letsencrypt/live/
+			chmod -R 740 /etc/letsencrypt/archive/
+			# Make the relevant letsencrypt folders owned by said group.
+			chgrp -R $AST_USER /etc/letsencrypt/live
+			chgrp -R $AST_USER /etc/letsencrypt/archive
+		fi
 	fi
 
 	if [ "$CHAN_SCCP" = "1" ]; then
@@ -1749,6 +1804,9 @@ elif [ "$cmd" = "dahdi" ]; then
 	dahdi_checks
 	assert_root
 	install_dahdi
+elif [ "$cmd" = "odbc" ]; then
+	assert_root
+	install_odbc
 elif [ "$cmd" = "installts" ]; then
 	assert_root
 	install_testsuite "$FORCE_INSTALL"
@@ -2036,11 +2094,28 @@ elif [ "$cmd" = "update" ]; then
 		chmod +x /tmp/phreakscript_update.sh
 	fi
 	printf "%s\n" "Updating PhreakScript..."
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		if [ ! -d /etc/bash_completion.d ]; then
+			apt-get install -y bash-completion
+		fi
+	fi
 	if [ -d /etc/bash_completion.d ]; then
+		if [ -f /tmp/phreakscript_autocomplete.sh ]; then
+			rm /tmp/phreakscript_autocomplete.sh
+		fi
 		if [ ! -f /etc/bash_completion.d/phreaknet ]; then # try to add auto-completion
-			printf "Download auto-completion binding script\n"
-			wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_autocompletion.sh" -O /tmp/phreakscript_autocompletion.sh
-			mv /tmp/phreaknet_autocompletion.sh /etc/bash_completion.d/phreaknet
+			printf "Downloading auto-completion binding script\n"
+			wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_autocomplete.sh" -O /tmp/phreakscript_autocomplete.sh
+			mv /tmp/phreakscript_autocomplete.sh /etc/bash_completion.d/phreaknet
+			# by default, auto completion isn't active, so activate it:
+			# there has GOT to be a much better way to do this, but technically this will work:
+			sed -i -r "s|#if ! shopt -oq posix; then|if ! shopt -oq posix; then|g" /etc/bash.bashrc
+			sed -i -r "s|#  if|  if|g" /etc/bash.bashrc
+			sed -i -r "s|#    . /usr/share/bash-completion/bash_completion|    . /usr/share/bash-completion/bash_completion|g" /etc/bash.bashrc
+			sed -i -r "s|#  elif|  elif|g" /etc/bash.bashrc
+			sed -i -r "s|#    . /etc/bash_completion|    . /etc/bash_completion|g" /etc/bash.bashrc
+			sed -i -r "s|#  fi|  fi|g" /etc/bash.bashrc
+			sed -i -r "s|#fi|fi|g" /etc/bash.bashrc
 		fi
 	fi
 	exec /tmp/phreakscript_update.sh "$SCRIPT_UPSTREAM" "$FILE_PATH" "/tmp/phreakscript_update.sh"
@@ -2393,12 +2468,19 @@ elif [ "$cmd" = "freedisk" ]; then
 	fi
 	rm -rf /var/lib/snapd/cache/* # can be safely removed: https://askubuntu.com/questions/1075050/how-to-remove-uninstalled-snaps-from-cache/1156686#1156686
 	snap services
+	snap remove hello-world
+	set -eu
+	snap list --all | awk '/disabled/{print $1, $3}' |
+    while read snapname revision; do
+        snap remove "$snapname" --revision="$revision"
+    done
 	service fail2ban stop
 	rm -rf /var/lib/fail2ban
 	service fail2ban start
 	rm -f /tmp/core*
 	df -h /
 elif [ "$cmd" = "topdisk" ]; then
+	df -h -x squashfs -x tmpfs -x devtmpfs
 	find / -printf '%s %p\n'| sort -nr | head -50
 elif [ "$cmd" = "enable-swap" ]; then
 # https://www.digitalocean.com/community/tutorials/how-to-add-swap-space-on-debian-10
