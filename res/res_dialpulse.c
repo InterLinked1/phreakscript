@@ -252,18 +252,33 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 #define BUFFER_LEN 8
 		const char *result;
 		char buf[BUFFER_LEN];
-		double dialpps = 10000.0 / res; /* pps = 10000 / elapsed time */
+		double dialpps;
 		struct ast_tone_zone_sound *ts = NULL;
 
+		if (!pps) { /* try to determine whether this is a 10 pps or 20 pps dial */
+			pps = res < 650 ? 20 : 10; /* if it took less than 650 ms for 10 pulses, assume it's a 20 pps dial */
+		}
+
+		/*
+		 * We are counting from receiving the first pulse to the end of the last pulse.
+		 * With a perfect 10 pps dial, this would be 900 ms, not 1000 ms as may be thought.
+		 * Imagine we receive 2 pulses. Only 100 ms (not 200 ms) elapsed between getting
+		 * pulse "1" and pulse "2". That initial dial pulse isn't really "counted".
+		 *
+		 * Hence, the time for a perfect test is really n-1 * (100 for 10pps and 50 for 20pps).
+		 * For 10 pps, that is 9 pulses * 100ms = 900 ms.
+		 * For 20 pps, that is 9 pulses * 50ms = 450 ms.
+		 *
+		 * Accordingly the formula is PPS = x / ms.
+		 * For a 10 PPS dial we have 10 = x / 900.
+		 * For a 20 PPS dial we have 20 = x / 450.
+		 *
+		 * So, whether it's 10 or 20 pps, x = 9000.
+		 */
+		dialpps = 9000.0 / res; /* 10 pps = (10000 - 1000) / elapsed time */
 		snprintf(buf, BUFFER_LEN, "%.3f", dialpps);
 		pbx_builtin_setvar_helper(chan, "DIALPULSESPEED", buf);
 
-		if (!pps) { /* try to determine whether this is a 10 pps or 20 pps dial */
-			pps = dialpps >= 15 ? 20 : 10;
-		}
-
-		/*! \todo allow playing file override? Is that even possible? StartPlayback? actually, yeah... */
-		/*! \todo get the right timings/thresholds. And if over even a bit right now it's FAST - fix that. */
 		/* These timings (8-11 and 9.5-10.5, for 10pps dials) are found in a number of telephone documents. */
 		if (dialpps < pps - 2) {
 			result = "SLOW";
