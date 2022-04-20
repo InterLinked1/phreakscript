@@ -699,7 +699,7 @@ static int wait_exec(struct ast_channel *chan, const char *data)
 	if (ast_test_flag(&flags, OPT_APP_RELAX)) {
 		features |= DSP_DIGITMODE_RELAXDTMF;
 	}
-	if (ast_test_flag(&flags, OPT_SF)) {
+	if (ast_test_flag(&flags, OPT_APP_SF)) {
 		features |= DSP_FEATURE_FREQ_DETECT;
 		ast_dsp_set_freqmode(dsp, 2200, 50, 16, 0);
 	}
