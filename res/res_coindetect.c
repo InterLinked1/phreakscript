@@ -154,6 +154,10 @@
 						may be necessary for detection of tones present in bidirectional
 						or non-ideal audio.</para>
 					</option>
+					<option name="s">
+						<para>Target single-frequency totalizers (2200 Hz). Default
+						is dual-frequency 1700 + 2200 Hz.</para>
+					</option>
 				</optionlist>
 			</parameter>
 		</syntax>
@@ -213,6 +217,10 @@
 					</option>
 					<option name="r">
 						<para>Apply to received frames only. Default is both directions.</para>
+					</option>
+					<option name="s">
+						<para>Target single-frequency totalizers (2200 Hz). Default
+						is dual-frequency 1700 + 2200 Hz.</para>
 					</option>
 					<option name="t">
 						<para>Apply to transmitted frames only. Default is both directions.</para>
@@ -274,6 +282,7 @@ enum td_opts {
 	OPT_HITS_REQ = (1 << 6),
 	OPT_DELAY = (1 << 7),
 	OPT_RELAX = (1 << 8),
+	OPT_SF = (1 << 9),
 };
 
 enum {
@@ -293,6 +302,7 @@ AST_APP_OPTIONS(td_opts, {
 	AST_APP_OPTION('l', OPT_RELAX),
 	AST_APP_OPTION('t', OPT_TX),
 	AST_APP_OPTION('r', OPT_RX),
+	AST_APP_OPTION('s', OPT_SF),
 	AST_APP_OPTION('x', OPT_END_DETECTOR),
 });
 
@@ -457,7 +467,7 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 	frame = ast_dsp_process(chan, di->dsp, frame);
 	if (frame->frametype == AST_FRAME_DTMF) {
 		char result = frame->subclass.integer;
-		if (result == '$') {
+		if (result == '$' || result == 'q') {
 			if (direction == AST_AUDIOHOOK_DIRECTION_READ) {
 				di->rxcount = di->rxcount + 1;
 				now = di->rxcount;
@@ -596,6 +606,10 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 	if (ast_test_flag(&flags, OPT_RELAX)) {
 		features |= DSP_DIGITMODE_RELAXDTMF;
 	}
+	if (ast_test_flag(&flags, OPT_SF)) {
+		features |= DSP_FEATURE_FREQ_DETECT;
+		ast_dsp_set_freqmode(di->dsp, 2200, 50, 16, 0);
+	}
 	ast_dsp_set_features(di->dsp, DSP_FEATURE_DIGIT_DETECT);
 	ast_dsp_set_digitmode(di->dsp, DSP_DIGITMODE_DTMF | features);
 	di->gotorx = NULL;
@@ -629,10 +643,12 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 
 enum {
 	OPT_APP_RELAX =  (1 << 0),
+	OPT_APP_SF =     (1 << 1),
 };
 
 AST_APP_OPTIONS(wait_exec_options, BEGIN_OPTIONS
 	AST_APP_OPTION('l', OPT_APP_RELAX),
+	AST_APP_OPTION('s', OPT_APP_SF),
 END_OPTIONS);
 
 static int wait_exec(struct ast_channel *chan, const char *data)
@@ -683,6 +699,10 @@ static int wait_exec(struct ast_channel *chan, const char *data)
 	if (ast_test_flag(&flags, OPT_APP_RELAX)) {
 		features |= DSP_DIGITMODE_RELAXDTMF;
 	}
+	if (ast_test_flag(&flags, OPT_SF)) {
+		features |= DSP_FEATURE_FREQ_DETECT;
+		ast_dsp_set_freqmode(dsp, 2200, 50, 16, 0);
+	}
 	ast_dsp_set_features(dsp, DSP_FEATURE_DIGIT_DETECT);
 	ast_dsp_set_digitmode(dsp, DSP_DIGITMODE_DTMF | features);
 	pbx_builtin_setvar_helper(chan, "WAITFORDEPOSITAMOUNT", "0");
@@ -705,7 +725,7 @@ static int wait_exec(struct ast_channel *chan, const char *data)
 				frame = ast_dsp_process(chan, dsp, frame);
 				if (frame->frametype == AST_FRAME_DTMF) {
 					char result = frame->subclass.integer;
-					if (result == '$') {
+					if (result == '$' || result == 'q') {
 						hits++;
 						debouncedhits++;
 						debounce = 0;
