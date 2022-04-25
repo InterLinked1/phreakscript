@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.60 (2022-04-24)
+# v0.1.61 (2022-04-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-25 0.1.61 PhreakScript: remove antipatterns
 # 2022-04-24 0.1.60 DAHDI: add critical DAHDI Tools fix
 # 2022-04-07 0.1.59 PhreakScript: improved odbc installation
 # 2022-04-07 0.1.58 PhreakScript: add autocompletion integration
@@ -140,6 +141,7 @@ PAC_MAN="apt-get"
 AST_SOUNDS_DIR="$AST_VARLIB_DIR/sounds/en"
 AST_MOH_DIR="$AST_VARLIB_DIR/moh"
 AST_MAKE="make"
+WGET="wget -q --show-progress"
 XMLSTARLET="/usr/bin/xmlstarlet"
 PATH="/sbin:$PATH" # in case su used without path
 
@@ -402,18 +404,18 @@ install_boilerplate() {
 	printf "%s" "Installing boilerplate code to "
 	pwd
 	printf "\n"
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/verification.conf -O verification.conf --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet.conf -O phreaknet.conf --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/verification.conf -O verification.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet.conf -O phreaknet.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
 	ls -l
 	cd $AST_CONFIG_DIR
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/extensions.conf -O $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE --no-cache
-	wget -q --show-progress https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/extensions.conf -O $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
 	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
 }
 
@@ -791,14 +793,9 @@ install_dahdi() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR
 	# just in case, for some reason, these already existed... don't let them throw everything off:
-	if [ -f dahdi-linux-current.tar.gz ]; then
-		rm dahdi-linux-current.tar.gz
-	fi
-	if [ -f dahdi-tools-current.tar.gz ]; then
-		rm dahdi-tools-current.tar.gz
-	fi
-	wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz
-	wget -q --show-progress http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz
+	rm -f dahdi-linux-current.tar.gz dahdi-tools-current.tar.gz
+	$WGET http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz
+	$WGET http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz
 	DAHDI_LIN_SRC_DIR=`tar -tzf dahdi-linux-current.tar.gz | head -1 | cut -f1 -d"/"`
 	DAHDI_TOOLS_SRC_DIR=`tar -tzf dahdi-tools-current.tar.gz | head -1 | cut -f1 -d"/"`
 	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR" ]; then
@@ -1090,7 +1087,7 @@ phreak_gerrit_off() {
 
 freebsd_port_patch() {
 	filename=$( basename $1 )
-	wget -q --show-progress "$1" -O "$filename" --no-cache
+	$WGET "$1" -O "$filename" --no-cache
 	affectedfile=$( head -n 2 $filename | tail -n 1 | cut -d' ' -f2 )
 	if [ ! -f "$affectedfile" ]; then
 		echoerr "File does not exist: $affectedfile (patched by $filename)"
@@ -1520,7 +1517,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
-		wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
 	elif [ "$AST_ALT_VER" = "master" ]; then # clone master branch
 		if [ -d "asterisk" ]; then
 			if [ "$FORCE_INSTALL" = "1" ]; then
@@ -1545,7 +1542,7 @@ elif [ "$cmd" = "install" ]; then
 		fi
 		mv asterisk asterisk-master
 	else
-		wget -q --show-progress https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
+		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
 	fi
 	if [ $? -ne 0 ]; then
 		if [ "$AST_ALT_VER" != "master" ]; then
