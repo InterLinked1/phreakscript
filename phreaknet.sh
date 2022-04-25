@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.59 (2022-04-07)
+# v0.1.60 (2022-04-24)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-24 0.1.60 DAHDI: add critical DAHDI Tools fix
 # 2022-04-07 0.1.59 PhreakScript: improved odbc installation
 # 2022-04-07 0.1.58 PhreakScript: add autocompletion integration
 # 2022-04-05 0.1.57 PhreakScript: added res_dialpulse, misc. fixes
@@ -333,14 +334,6 @@ assert_root() {
 	if [ $(id -u) -ne 0 ]; then
 		echoerr "PhreakScript make must be run as root. Aborting..."
 		exit 2
-	fi
-}
-
-dahdi_checks() {
-	debv=`uname -a | cut -d' ' -f2`
-	if [ "$debv" = "debian11" ]; then
-		echoerr "DAHDI may not be fully compatible with Debian 11 yet, proceed at your own risk..."
-		sleep 3
 	fi
 }
 
@@ -876,6 +869,7 @@ install_dahdi() {
 	# Compiler fixes
 	dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
 	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
+	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xtalk_sync.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xtalk.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-95
 
 	# New Features
 
@@ -1056,6 +1050,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 18240 "https://gerrit.asterisk.org/changes/asterisk~18240/revisions/2/patch?download" # func_db: add DB_KEYCOUNT
 	gerrit_patch 18250 "https://gerrit.asterisk.org/changes/asterisk~18250/revisions/2/patch?download" # res_calendar: prevent crash
 	gerrit_patch 18363 "https://gerrit.asterisk.org/changes/asterisk~18363/revisions/1/patch?download" # chan_iax2: prevent crash for RSA
+	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix
 	gerrit_patch 18305 "https://gerrit.asterisk.org/changes/asterisk~18305/revisions/6/patch?download" # fix buggy callerid
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 	gerrit_patch 18301 "https://gerrit.asterisk.org/changes/asterisk~18301/revisions/2/patch?download" # chan_dahdi: fix cadence parsing
@@ -1472,9 +1467,7 @@ elif [ "$cmd" = "make" ]; then
 		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
 elif [ "$cmd" = "install" ]; then
-	if [ "$CHAN_DAHDI" = "1" ]; then
-		dahdi_checks
-	elif [ "$TEST_SUITE" = "1" ]; then
+	if [ "$TEST_SUITE" = "1" ]; then
 		uname -a
 		apt-get install -y linux-headers-`uname -r` build-essential
 		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
@@ -1801,7 +1794,6 @@ elif [ "$cmd" = "freepbx" ]; then
 	fi
 	install_freepbx
 elif [ "$cmd" = "dahdi" ]; then
-	dahdi_checks
 	assert_root
 	install_dahdi
 elif [ "$cmd" = "odbc" ]; then
