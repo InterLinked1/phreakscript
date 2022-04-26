@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.61 (2022-04-25)
+# v0.1.62 (2022-04-26)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-04-26 0.1.62 PhreakScript: add restart command
 # 2022-04-25 0.1.61 PhreakScript: remove antipatterns
 # 2022-04-24 0.1.60 DAHDI: add critical DAHDI Tools fix
 # 2022-04-07 0.1.59 PhreakScript: improved odbc installation
@@ -234,7 +235,7 @@ Commands:
    make               Add PhreakScript to path
    install            Install or upgrade PhreakNet-enhanced Asterisk
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
-   odbc               Install ODBC
+   odbc               Install ODBC (MariaDB)
    installts          Install Asterisk Test Suite
    fail2ban           Install Asterisk fail2ban configuration
    apiban             Install apiban client
@@ -259,6 +260,7 @@ Commands:
    topdisk            Show top files taking up disk space
    enable-swap        Temporarily allocate and enable swap file
    disable-swap       Disable and deallocate temporary swap file
+   restart            Fully restart DAHDI and Asterisk
 
    *** Debugging ***
    dialplanfiles      Verify what files are being parsed into the dialplan
@@ -1433,17 +1435,19 @@ if [ -z "${AST_CC##*[!0-9]*}" ] ; then # POSIX compliant: https://unix.stackexch
 	exit 1
 fi
 
-self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
-upstream=`curl --silent https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh | grep -m1 "# v" | cut -d'v' -f2`
+if which curl > /dev/null; then # only execute if we have curl
+	self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
+	upstream=`curl --silent https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh | grep -m1 "# v" | cut -d'v' -f2`
 
-if [ "$self" != "$upstream" ] && [ "$cmd" != "update" ]; then
-	# Pull from GitHub here for version check for a) speed and b) stability reasons
-	# In this case, it's possible that our version number could actually be ahead of master, since we update from the dev upstream. We need to compare the versions, not merely check if they differ.
-	# Don't throw a warning if only the development tip is ahead of the master branch. But if master is ahead of us, then warn.
-	morerecent=`printf "%s\n%s" "$self" "$upstream" | sort | tail -1`
-	if [ "${morerecent}" != "${self}" ]; then
-		echoerr "WARNING: PhreakScript is out of date (most recent stable version is $upstream) - run 'phreaknet update' to update"
-		sleep 0.5
+	if [ "$self" != "$upstream" ] && [ "$cmd" != "update" ]; then
+		# Pull from GitHub here for version check for a) speed and b) stability reasons
+		# In this case, it's possible that our version number could actually be ahead of master, since we update from the dev upstream. We need to compare the versions, not merely check if they differ.
+		# Don't throw a warning if only the development tip is ahead of the master branch. But if master is ahead of us, then warn.
+		morerecent=`printf "%s\n%s" "$self" "$upstream" | sort | tail -1`
+		if [ "${morerecent}" != "${self}" ]; then
+			echoerr "WARNING: PhreakScript is out of date (most recent stable version is $upstream) - run 'phreaknet update' to update"
+			sleep 0.5
+		fi
 	fi
 fi
 
@@ -2182,6 +2186,50 @@ elif [ "$cmd" = "genpatch" ]; then
 	else
 		printf "%s\n" "Patch file is empty. Aborting."
 	fi
+elif [ "$cmd" = "restart" ]; then
+	service asterisk stop # stop Asterisk
+	lsmod | grep dahdi
+	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
+	printf "Current drivers: --- %s ---\n", "$curdrivers"
+	if which wanrouter > /dev/null; then
+		printf "Stopping wanpipe spans\n"
+		if ! wanrouter stop all; then # stop all T1 spans on wanpipe
+			die "Failed to stop wanpipe spans"
+		elif ! service wanrouter stop; then # stop wanpipe service
+			die "Failed to stop wanrouter"
+		elif ! modprobe -r dahdi_echocan_mg2; then # remove DAHDI echocan
+			die "Failed to remove DAHDI echocan"
+		fi
+	fi
+	printf "Stopping DAHDI...\n" # XXX extraneous comma in output???
+	if ! service dahdi stop; then
+		printf "Returned %d\n" $?
+		die "Failed to stop DAHDI"
+	elif ! modprobe -r dahdi; then
+		die "Failed to remove DAHDI from kernel"
+	elif ! service dahdi stop; then # do it again, just to be sure
+		die "Failed to stop DAHDI the second time"
+	fi
+	printf "DAHDI shutdown complete\n"
+	sleep 1
+	printf "Starting DAHDI...\n"
+	if which wanrouter > /dev/null; then
+		printf "Starting wanpipe\n"
+		service wanrouter start
+		wanrouter status
+	fi
+	modprobe dahdi
+	# e.g. modprobe wcte13xp
+	echo "$curdrivers" | tr ',' '\n' | xargs -i sh -c 'echo Starting driver: {}; modprobe {}'
+	if ! service dahdi start; then
+		die "DAHDI failed to start"
+	fi
+	sleep 1
+	if ! dahdi_cfg; then # reload configs for all spans
+		die "DAHDI failed to start"
+	fi
+	printf "DAHDI is now running normally...\n"
+	service asterisk start
 elif [ "$cmd" = "edit" ]; then
 	exec nano $FILE_PATH
 elif [ "$cmd" = "validate" ]; then
