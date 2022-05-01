@@ -188,14 +188,14 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 			ast_log(LOG_WARNING, "Invalid epoch threshold: %s\n", epochthreshold);
 			return -1;
 		}
-		ast_debug(4, "Pruning entries with keys < %d\n", epochparse);
+		ast_debug(2, "Pruning entries with keys < %d\n", epochparse);
 	}
 
 	while ((family = strsep(&parse, ","))) {
 		size_t parselen = strlen(family);
 		char *parallel = family;
 		family = strsep(&parallel, "|");
-		ast_debug(3, "%s: original family: %s, parallel family: %s\n", cmd, family, parallel ? parallel : "(null)");
+		ast_debug(1, "%s: original family: %s, parallel family: %s\n", cmd, family, parallel ? parallel : "(null)");
 		if (parallel && !strcmp(family, parallel)) {
 			ast_log(LOG_WARNING, "%s: original family '%s' is same as parallel family '%s', skipping\n", cmd, family, parallel);
 			continue;
@@ -219,6 +219,7 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 
 		/* Nothing within the database at that prefix? */
 		if (!(orig_dbe = dbe = ast_db_gettree(family, NULL))) {
+			ast_debug(1, "Nothing within database at prefix '%s'\n", family);
 			continue;
 		}
 
@@ -241,6 +242,11 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 				continue;
 			}
 			last = curkey;
+
+			if (ast_strlen_zero(curkey)) {
+				ast_debug(1, "Key is empty\n");
+				continue;
+			}
 
 			if (ast_db_get(family, curkey, channel, BUFFER_SIZE)) {
 				ast_log(LOG_WARNING, "%s: Couldn't find %s/%s in database\n", cmd, family, curkey);
@@ -265,18 +271,18 @@ static int db_chan_helper(struct ast_channel *chan, const char *cmd, char *parse
 			if (prune == 2) { /* but only if it's staler than the required epoch time */
 				int keyepoch = atoi(curkey);
 				if (!(keyepoch < epochparse)) { /* if not older than threshold, don't delete */
-					ast_debug(3, "%s: %d is newer than %d, not old enough to purge\n", cmd, keyepoch, epochparse);
+					ast_debug(1, "%s: %d is newer than %d, not old enough to purge\n", cmd, keyepoch, epochparse);
 					continue;
 				}
-				ast_debug(3, "%s: %d is older than %d, okay to purge\n", cmd, keyepoch, epochparse);
+				ast_debug(1, "%s: %d is older than %d, okay to purge\n", cmd, keyepoch, epochparse);
 			} else {
-				ast_debug(3, "%s: Channel %s doesn't exist, saying goodbye\n", cmd, channel);
+				ast_debug(1, "%s: Channel %s doesn't exist, saying goodbye\n", cmd, channel);
 			}
 			pruned++;
 			if (ast_db_del(family, curkey)) {
 				ast_log(LOG_WARNING, "%s: %s/%s could not be deleted from the database\n", cmd, family, curkey);
 			} else if (parallel) {
-				ast_debug(3, "%s: Also saying goodbye to %s/%s, if it exists\n", cmd, parallel, curkey);
+				ast_debug(1, "%s: Also saying goodbye to %s/%s, if it exists\n", cmd, parallel, curkey);
 				if (!ast_db_get(parallel, curkey, buf, len - 1)) {
 					if (ast_db_del(parallel, curkey)) {
 						ast_debug(1, "%s/%s could not be deleted from the database\n", parallel, curkey);
@@ -371,7 +377,7 @@ static int db_extreme_helper(char *parse, char *buf, size_t len, int newest)
 	}
 	/* now we know the key we want, so go back and find it */
 	while ((family = strsep(&parse, ","))) {
-		int found;
+		int found = 0;
 		size_t parselen = strlen(family);
 		/* Remove leading and trailing slashes */
 		while (family[0] == '/') {
@@ -397,7 +403,7 @@ static int db_extreme_helper(char *parse, char *buf, size_t len, int newest)
 			if ((slash = strchr(curkey, '/'))) {
 				*slash = '\0';
 			}
-			if (atoi(curkey) == winner) {
+			if (atof(curkey) == winner) {
 				snprintf(buf, len, "%s/%s", family, curkey);
 				found =  1;
 				break;
@@ -407,6 +413,9 @@ static int db_extreme_helper(char *parse, char *buf, size_t len, int newest)
 		if (found) {
 			break;
 		}
+	}
+	if (ast_strlen_zero(buf)) {
+		ast_log(LOG_WARNING, "BUG! Found winner but buffer empty?\n");
 	}
 	return 0;
 }
