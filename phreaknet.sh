@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.62 (2022-04-26)
+# v0.1.64 (2022-05-05)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-05-05 0.1.64 PhreakScript: enhance installation compatibility
+# 2022-05-01 0.1.63 Asterisk: add app_predial
 # 2022-04-26 0.1.62 PhreakScript: add restart command
 # 2022-04-25 0.1.61 PhreakScript: remove antipatterns
 # 2022-04-24 0.1.60 DAHDI: add critical DAHDI Tools fix
@@ -149,6 +151,7 @@ PATH="/sbin:$PATH" # in case su used without path
 # Defaults
 AST_CC=1 # Country Code (default: 1 - NANPA)
 AST_USER=""
+EXTRA_FEATURES=1
 WEAK_TLS=0
 CHAN_SIP=0
 SIP_CISCO=0
@@ -302,7 +305,7 @@ Options:
    -s, --sip          Install chan_sip instead of or in addition to chan_pjsip
    -t, --testsuite    Compile with developer support for Asterisk test suite and unit tests
    -u, --user         User as which to run Asterisk (non-root)
-   -v, --version      Specific version of Asterisk to install (M.m.b e.g. 18.8.0)
+   -v, --version      Specific version of Asterisk to install (M.m.b e.g. 18.8.0). Also, see --vanilla.
    -w, --weaktls      Allow less secure TLS versions down to TLS 1.0 (default is 1.2+)
        --cisco        Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         Install chan_sccp channel driver (Cisco Skinny)
@@ -315,6 +318,7 @@ Options:
        --api-key      config: InterLinked API key
        --rotate       keygen: Rotate/create keys
        --upstream     update: Specify upstream source
+	   --vanilla      vanilla: Do not install extra features or enhancements. Bug fixes are always installed. (May be required for older versions)
 "
 	phreakscript_info
 	exit 2
@@ -845,7 +849,9 @@ install_dahdi() {
 	dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
 
 	# New Features
-	git_patch "dahdi_rtoutpulse.diff"
+	if [ "$EXTRA_FEATURES" = "1"] ; then
+		git_patch "dahdi_rtoutpulse.diff"
+	fi
 
 	# needs to be rebased for master:
 	# dahdi_custom_patch "DAHLIN-395-hearpulsing" "$DAHDI_LIN_SRC_DIR/drivers/dahdi/dahdi-base.c" "https://issues.asterisk.org/jira/secure/attachment/61183/DAHLIN-395-hearpulsing.patch"
@@ -953,7 +959,9 @@ phreak_tree_module() { # $1 = file to patch
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download module: $2"
-		exit 2
+		if [ "$2" != "1" ]; then # unless failure is acceptable, abort
+			exit 2
+		fi
 	fi
 }
 
@@ -992,6 +1000,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
 	phreak_tree_module "apps/app_playdigits.c"
+	phreak_tree_module "apps/app_predial.c"
 	phreak_tree_module "apps/app_pulsar.c"
 	phreak_tree_module "apps/app_randomplayback.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
@@ -1001,7 +1010,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
-	phreak_tree_module "configs/samples/verify.conf.sample"
+	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_dtmf_flash.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
@@ -1167,7 +1176,7 @@ paste_post() { # $1 = file to upload, $2 = 1 to delete file on success.
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
-			echoerr "Failed to find InterLinked API key. For future use, please set your [global] variables, e.g. by running phreaknet config"
+			echoerr "Failed to find InterLinked API key. For future use, please set your [globals] variables, e.g. by running phreaknet config"
 			printf '\a' # alert the user
 			read -r -p "InterLinked API key: " INTERLINKED_APIKEY
 			if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
@@ -1376,7 +1385,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,boilerplate,upstream: -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,boilerplate,upstream:,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1416,6 +1425,7 @@ while true; do
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
 		--upstream ) SCRIPT_UPSTREAM=$2; shift 2;;
+		--vanilla ) EXTRA_FEATURES=0; shift ;;
 		# -- means the end of the arguments; drop this, and break out of the while loop
 		--) shift; break ;;
 		# If invalid options were passed, then getopt should have reported an error,
@@ -1585,10 +1595,18 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	AST_SRC_DIR2=`get_newest_astdir`
 	AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
-	if [ "$AST_SRC_DIR" != "$AST_SRC_DIR2" ]; then
-		echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
-		exit 2
-	fi
+	while [ "$AST_SRC_DIR" != "$AST_SRC_DIR2" ]; do
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			echoerr "Deleting $AST_SRC_DIR2 to prevent ordering conflict"
+			rm -rf $AST_SRC_DIR2
+		else
+			echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
+			exit 2
+		fi
+		sleep 1 # don't tight loop in case something goes wrong.
+		AST_SRC_DIR2=`get_newest_astdir`
+		AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
+	done
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
 		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
@@ -1656,10 +1674,12 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=1/g' /etc/ssl/openssl.cnf
 		printf "%s\n" "Successfully patched OpenSSL to allow TLS 1.0..."
 	fi
-	# Add PhreakNet patches
-	printf "%s\n" "Beginning custom patches..."
-	phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
-	printf "%s\n" "Custom patching completed..."
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		# Add PhreakNet patches
+		printf "%s\n" "Beginning custom patches..."
+		phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
+		printf "%s\n" "Custom patching completed..."
+	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		freebsd_port_patches
 	fi
@@ -2016,7 +2036,7 @@ elif [ "$cmd" = "keygen" ]; then
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
-			echoerr "Failed to find InterLinked API key. For future use, please set your [global] variables, e.g. by running phreaknet config"
+			echoerr "Failed to find InterLinked API key. For future use, please set your [globals] variables, e.g. by running phreaknet config"
 			printf '\a'
 			read -r -p "InterLinked API key: " INTERLINKED_APIKEY
 			if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
@@ -2027,7 +2047,7 @@ elif [ "$cmd" = "keygen" ]; then
 	if [ ${#PHREAKNET_CLLI} -eq 0 ]; then
 		PHREAKNET_CLLI=`grep -R "clli=" $AST_CONFIG_DIR | grep -v "5551111" | grep -v "curl " | grep -v "<switch-clli>" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#PHREAKNET_CLLI} -ne 11 ]; then
-			echoerr "Failed to find PhreakNet CLLI. For future use, please set your [global] variables, e.g. by running phreaknet config"
+			echoerr "Failed to find PhreakNet CLLI. For future use, please set your [globals] variables, e.g. by running phreaknet config"
 			printf '\a'
 			read -r -p "PhreakNet CLLI: " PHREAKNET_CLLI
 			if [ ${#PHREAKNET_CLLI} -ne 11 ]; then
