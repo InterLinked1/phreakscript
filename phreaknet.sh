@@ -1048,23 +1048,14 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	# phreak_tree_module "apps/app_if.c"
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
 
-	gerrit_patch 16075 "https://gerrit.asterisk.org/changes/asterisk~16075/revisions/21/patch?download" # func_evalexten
-	gerrit_patch 17714 "https://gerrit.asterisk.org/changes/asterisk~17714/revisions/3/patch?download" # CLI command to eval dialplan functions
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 	gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
-	gerrit_patch 18003 "https://gerrit.asterisk.org/changes/asterisk~18003/revisions/1/patch?download" # menuselect: recompile fix
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
-	gerrit_patch 18079 "https://gerrit.asterisk.org/changes/asterisk~18079/revisions/4/patch?download" # chan_pjsip: add flash event TX
-	gerrit_patch 18240 "https://gerrit.asterisk.org/changes/asterisk~18240/revisions/2/patch?download" # func_db: add DB_KEYCOUNT
 	gerrit_patch 18250 "https://gerrit.asterisk.org/changes/asterisk~18250/revisions/2/patch?download" # res_calendar: prevent crash
-	gerrit_patch 18363 "https://gerrit.asterisk.org/changes/asterisk~18363/revisions/1/patch?download" # chan_iax2: prevent crash for RSA
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix
 	gerrit_patch 18305 "https://gerrit.asterisk.org/changes/asterisk~18305/revisions/6/patch?download" # fix buggy callerid
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
-	gerrit_patch 18301 "https://gerrit.asterisk.org/changes/asterisk~18301/revisions/2/patch?download" # chan_dahdi: fix cadence parsing
 	# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/2/patch?download" # chan_dahdi: add dialmode
-	gerrit_patch 18308 "https://gerrit.asterisk.org/changes/asterisk~18308/revisions/1/patch?download" # chan_dahdi: fix MWI FSK
-	gerrit_patch 18309 "https://gerrit.asterisk.org/changes/asterisk~18309/revisions/1/patch?download" # chan_dahdi: fix round robin
 	gerrit_patch 18362 "https://gerrit.asterisk.org/changes/asterisk~18362/revisions/1/patch?download" # chan_dahdi: add POLARITY function
 
 	if [ "$TEST_SUITE" = "1" ]; then # highly experimental
