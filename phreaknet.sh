@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.64 (2022-05-05)
+# v0.1.65 (2022-05-12)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-05-12 0.1.65 Asterisk: target 18.12.0
 # 2022-05-05 0.1.64 PhreakScript: enhance installation compatibility
 # 2022-05-01 0.1.63 Asterisk: add app_predial
 # 2022-04-26 0.1.62 PhreakScript: add restart command
@@ -214,7 +215,7 @@ phreakscript_info() {
 	printf "%s" "PhreakScript "
 	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
 	echo "https://github.com/InterLinked1/phreakscript"
-	echo "(C) 2021 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
+	echo "(C) 2021-2022 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
 	echo "To report bugs or request feature additions, please report at https://issues.interlinked.us (also see https://docs.phreaknet.org/#contributions) and/or post to the PhreakNet mailing list: https://groups.io/g/phreaknet" | fold -s -w 120
 }
 
@@ -1038,9 +1039,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
 	fi
 
-	## Gerrit patches: merged, remove in 18.12
+	## Gerrit patches: merged, remove in 18.13
 	if [ "$AST_ALT_VER" != "master" ]; then # apply specified merged patches, unless we just cloned master
-		gerrit_patch 18077 "https://gerrit.asterisk.org/changes/asterisk~18077/revisions/1/patch?download" # bug fix to AGI SET MUSIC xmldocs
 		:
 	fi
 
