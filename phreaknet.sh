@@ -1066,7 +1066,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
 	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
-	gerrit_patch 18063 "https://gerrit.asterisk.org/changes/asterisk~18063/revisions/1/patch?download" # func_channel: Add TECH_EXISTS
+	# gerrit_patch 18063 "https://gerrit.asterisk.org/changes/asterisk~18063/revisions/1/patch?download" # func_channel: Add TECH_EXISTS ### todo: does not cleanly apply.
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 
 	## Menuselect updates
