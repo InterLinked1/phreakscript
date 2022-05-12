@@ -713,7 +713,7 @@ gerrit_patch() {
 	fi
 	git apply $1.diff
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply Gerrit patch... this should be reported..."
+		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
 		if [ "$FORCE_INSTALL" = "1" ]; then
 			sleep 2
 		else
