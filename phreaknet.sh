@@ -851,8 +851,10 @@ install_dahdi() {
 	dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
 
 	# New Features
-	if [ "$EXTRA_FEATURES" = "1"] ; then
+	if [ "$EXTRA_FEATURES" = "1" ]; then
 		git_patch "dahdi_rtoutpulse.diff"
+	else
+		echoerr "Skipping feature patches..."
 	fi
 
 	# needs to be rebased for master:
@@ -1438,7 +1440,7 @@ if [ "$FLAG_TEST" = "1" ]; then
 	exit 0
 fi
 
-if [ -z "${AST_CC##*[!0-9]*}" ] ; then # POSIX compliant: https://unix.stackexchange.com/a/574169/
+if [ -z "${AST_CC##*[!0-9]*}" ]; then # POSIX compliant: https://unix.stackexchange.com/a/574169/
 	echoerr "Country code must be an integer."
 	exit 1
 fi
@@ -1677,6 +1679,8 @@ elif [ "$cmd" = "install" ]; then
 		printf "%s\n" "Beginning custom patches..."
 		phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
 		printf "%s\n" "Custom patching completed..."
+	else
+		echoerr "Skipping feature patches..."
 	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		freebsd_port_patches
@@ -2064,7 +2068,7 @@ elif [ "$cmd" = "keygen" ]; then
 	else
 		printf "%s\n" "--rotate flag not provided, skipping key rotation or creation."
 	fi
-	if [ ${#INTERLINKED_APIKEY} -gt 30 ] && [ ${#PHREAKNET_CLLI} -eq 11 ] ; then
+	if [ ${#INTERLINKED_APIKEY} -gt 30 ] && [ ${#PHREAKNET_CLLI} -eq 11 ]; then
 		wanip=`dig +short myip.opendns.com @resolver4.opendns.com`
 		printf "%s %s\n" "Autodetected WAN IP address is" $wanip
 		wanfqdn=`dig +short -x $wanip`
