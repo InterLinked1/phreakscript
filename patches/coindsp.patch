@@ -1,0 +1,53 @@
+diff --git a/main/dsp.c b/main/dsp.c
+index 8b4e3ee60f..f0a754dc18 100644
+--- a/main/dsp.c
++++ b/main/dsp.c
+@@ -165,7 +165,7 @@ enum gsamp_thresh {
+ 
+ #define	MAX_DTMF_DIGITS		128
+ 
+-#define DTMF_MATRIX_SIZE	4
++#define DTMF_MATRIX_SIZE	5
+ 
+ /* Basic DTMF (AT&T) specs:
+  *
+@@ -317,15 +317,15 @@ typedef struct
+ } digit_detect_state_t;
+ 
+ static const float dtmf_row[] = {
+-	697.0,  770.0,  852.0,  941.0
++	697.0,  770.0,  852.0,  941.0, 1700
+ };
+ static const float dtmf_col[] = {
+-	1209.0, 1336.0, 1477.0, 1633.0
++	1209.0, 1336.0, 1477.0, 1633.0, 2200
+ };
+ static const float mf_tones[] = {
+ 	700.0, 900.0, 1100.0, 1300.0, 1500.0, 1700.0
+ };
+-static const char dtmf_positions[] = "123A" "456B" "789C" "*0#D";
++static const char dtmf_positions[] = "123A-" "456B-" "789C-" "*0#D-" "----$";
+ static const char bell_mf_positions[] = "1247C-358A--69*---0B----#";
+ static int thresholds[THRESHOLD_MAX];
+ static float dtmf_normal_twist;		/* AT&T = 8dB */
+@@ -734,6 +734,8 @@ static int dtmf_detect(struct ast_dsp *dsp, digit_detect_state_t *s, int16_t amp
+ 			goertzel_sample(s->td.dtmf.col_out + 2, samp);
+ 			goertzel_sample(s->td.dtmf.row_out + 3, samp);
+ 			goertzel_sample(s->td.dtmf.col_out + 3, samp);
++			goertzel_sample(s->td.dtmf.row_out + 4, samp);
++			goertzel_sample(s->td.dtmf.col_out + 4, samp);
+ 			/* go up to DTMF_MATRIX_SIZE - 1 */
+ 		}
+ 		s->td.dtmf.current_sample += (limit - sample);
+@@ -776,9 +778,9 @@ static int dtmf_detect(struct ast_dsp *dsp, digit_detect_state_t *s, int16_t amp
+ 			}
+ 			/* ... and fraction of total energy test */
+ 			if (i >= DTMF_MATRIX_SIZE &&
+-			    (row_energy[best_row] + col_energy[best_col]) > DTMF_TO_TOTAL_ENERGY * s->td.dtmf.energy) {
++				(row_energy[best_row] + col_energy[best_col]) > (DTMF_TO_TOTAL_ENERGY / (relax ? 2 : 1)) * s->td.dtmf.energy) {
+ 				/* Got a hit */
+-				hit = dtmf_positions[(best_row << 2) + best_col];
++				hit = dtmf_positions[(best_row * DTMF_MATRIX_SIZE) + best_col];
+ 				ast_debug(10, "DTMF hit '%c'\n", hit);
+ 			}
+ 		}
