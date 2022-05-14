@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.65 (2022-05-12)
+# v0.1.66 (2022-05-14)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-05-14 0.1.66 PhreakScript: add trace notify and custom expiry
 # 2022-05-12 0.1.65 Asterisk: target 18.12.0
 # 2022-05-05 0.1.64 PhreakScript: enhance installation compatibility
 # 2022-05-01 0.1.63 Asterisk: add app_predial
@@ -1163,7 +1164,7 @@ install_odbc() {
 	fi
 }
 
-paste_post() { # $1 = file to upload, $2 = 1 to delete file on success.
+paste_post() { # $1 = file to upload, $2 = 1 to delete file on success, $3 = auto-email to business office
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
@@ -1177,7 +1178,13 @@ paste_post() { # $1 = file to upload, $2 = 1 to delete file on success.
 			fi
 		fi
 	fi
-	url=`curl -X POST -F "body=@$1" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
+
+	if [ "$3" = "1" ]; then
+		url=`curl -X POST -F "body=@$1" -F "key=$INTERLINKED_APIKEY" -F "notifyuser=InterLinked" -F "expiry=259200" https://paste.interlinked.us/api/`
+	else
+		url=`curl -X POST -F "body=@$1" -F "key=$INTERLINKED_APIKEY" https://paste.interlinked.us/api/`
+	fi
+
 	invstring=`expr substr "${url}" 1 7` # POSIX compliant
 	if [ "$invstring" = "Invalid" ]; then
 		echoerr "Invalid API key"
@@ -2295,7 +2302,7 @@ elif [ "$cmd" = "trace" ]; then
 	echo "$settings" >> /var/log/asterisk/$channel # append helpful system info.
 	echo "------------------------------------------------------------------------" >> /var/log/asterisk/$channel
 	phreakscript_info >> /var/log/asterisk/$channel # append helpful system info.
-	paste_post "/var/log/asterisk/$channel" "1"
+	paste_post "/var/log/asterisk/$channel" "1" "1"
 elif [ "$cmd" = "dialplanfiles" ]; then
 	debugtime=$EPOCHSECONDS
 	if [ "$debugtime" = "" ]; then
@@ -2602,8 +2609,8 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"phreaknet keygen --rotate          Create or rotate PhreakNet RSA keypair, then upload public key to PhreakNet"
 	printf "%s\n"		"phreaknet validate                 Validate your dialplan configuration and check for errors"
 	printf "\n%s\n\n"	"Debugging commands:"
-	printf "%s\n"		"phreaknet trace                    Perform a trace with verbosity 10 and no debug level"
-	printf "%s\n"		"phreaknet trace --debug 1          Perform a trace with verbosity 10 and debug level 1"
+	printf "%s\n"		"phreaknet trace                    Perform a trace with verbosity 10 and no debug level (notify Bus. Ofc.)"
+	printf "%s\n"		"phreaknet trace --debug 1          Perform a trace with verbosity 10 and debug level 1 (notify Bus. Ofc.)"
 	printf "%s\n"		"phreaknet backtrace      		    Process, extract, and upload a core dump"
 	printf "\n%s\n\n"	"Maintenance commands:"
 	printf "%s\n"		"phreaknet update                   Update PhreakScript. No Asterisk or configuration modification will occur."
