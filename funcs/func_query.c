@@ -137,8 +137,17 @@ static int acf_query_read(struct ast_channel *chan, const char *cmd, char *data,
 		ast_func_write(c, "CDR_PROP(disable)", "1");
 	}
 
+	/* Copy Caller ID, if we have it. */
+	if (chan && ast_channel_caller(chan)->id.number.valid) {
+		ast_channel_caller(c)->id.number.valid = 1;
+		ast_channel_caller(c)->id.number.str = ast_strdup(ast_channel_caller(chan)->id.number.str);
+		/* It's really the connected line that matters here, not the caller id, because that's what'll be the Caller ID on the channel we call. */
+		ast_channel_connected(c)->id.number.valid = 1;
+		ast_channel_connected(c)->id.number.str = ast_strdup(ast_channel_caller(chan)->id.number.str);
+	}
+
 	if (ast_call(c, destination, 0)) {
-		ast_log(LOG_ERROR, "Unable to place outbound call to %s\n", args.dialstr);
+		ast_log(LOG_ERROR, "Unable to place outbound call to %s/%s\n", tech, destination);
 		ast_hangup(c);
 		return -1;
 	}
@@ -159,7 +168,7 @@ static int acf_query_read(struct ast_channel *chan, const char *cmd, char *data,
 		return -1;
 	}
 
-	ast_copy_string(buf, rbuf, sizeof(buf));
+	ast_copy_string(buf, rbuf, len);
 
 	return 0;
 }
