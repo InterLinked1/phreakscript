@@ -22,6 +22,8 @@ PhreakScript installs:
       - ``SayTelephoneNumber``
       - ``FeatureProcess``
       - ``SelectiveFeature``
+      - ``RequestCallback``
+      - ``CancelCallback``
       - ``PreDial``
       - ``PlayDigits``
       - ``StreamSilence``
@@ -45,6 +47,7 @@ PhreakScript installs:
       - ``DTMF_FLASH``
       - ``POLARITY``
       - ``NUM2DEVICE``
+      - ``TEXT_QUERY``
       - ``COIN_DETECT``
       - ``OTHER_CHANNEL``
       - ``NOTCH_FILTER``
