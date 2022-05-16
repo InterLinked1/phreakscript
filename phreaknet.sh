@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.66 (2022-05-14)
+# v0.1.67 (2022-05-16)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-05-16 0.1.67 Asterisk: add func_query and app_callback
 # 2022-05-14 0.1.66 PhreakScript: add trace notify and custom expiry
 # 2022-05-12 0.1.65 Asterisk: target 18.12.0
 # 2022-05-05 0.1.64 PhreakScript: enhance installation compatibility
@@ -998,6 +999,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	cd $AST_SOURCE_PARENT_DIR/$2
 
 	## Add Standalone PhreakNet Modules
+	phreak_tree_module "apps/app_callback.c"
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_loopplayback.c"
@@ -1020,6 +1022,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_numpeer.c"
 	phreak_tree_module "funcs/func_ochannel.c"
+	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "res/res_coindetect.c"
 	phreak_tree_module "res/res_dialpulse.c"
 
@@ -2525,6 +2528,10 @@ elif [ "$cmd" = "freedisk" ]; then
 	if [ -f /var/log/apache2/modsec_audit.log ]; then
 		echo "" > /var/log/apache2/modsec_audit.log
 	fi
+	if [ -d /var/crash ]; then
+		rm -f /var/crash/core*
+	fi
+	rm -f /tmp/core*
 	rm -rf /var/lib/snapd/cache/* # can be safely removed: https://askubuntu.com/questions/1075050/how-to-remove-uninstalled-snaps-from-cache/1156686#1156686
 	snap services
 	snap remove hello-world
