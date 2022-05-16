@@ -159,6 +159,7 @@ static int acf_query_read(struct ast_channel *chan, const char *cmd, char *data,
 	ast_channel_ref(c);
 	rbuf = ast_recvtext(c, timeout_ms);
 	ast_channel_unref(c);
+	ast_hangup(c);
 	if (chan) {
 		ast_autoservice_stop(chan);
 	}
