@@ -1579,7 +1579,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 		success = 0;
 	}
 
-	if (*clli && !ast_strlen_zero(clli) && !strstr(cnam, " via ") && !ast_strlen_zero(currentcode)) {
+	if (*clli && !ast_strlen_zero(clli) && (!ast_strlen_zero(cnam) && !strstr(cnam, " via ")) && !ast_strlen_zero(currentcode)) {
 		int pstn = 0;
 		int len = strlen(cnam) + strlen(clli) + 11 + (*region ? strlen(region) + 2 : 0);
 		/* if the call didn't originate here, tag the call so people know how it got there, if it isn't tagged already */
