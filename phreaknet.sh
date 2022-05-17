@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.68 (2022-05-17)
+# v0.1.69 (2022-05-17)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-05-17 0.1.69 Asterisk: readd hearpulsing
 # 2022-05-17 0.1.68 PhreakScript: enhanced install control
 # 2022-05-16 0.1.67 Asterisk: add func_query and app_callback
 # 2022-05-14 0.1.66 PhreakScript: add trace notify and custom expiry
@@ -897,7 +898,7 @@ install_dahdi() {
 	fi
 
 	# needs to be rebased for master:
-	# dahdi_custom_patch "DAHLIN-395-hearpulsing" "$DAHDI_LIN_SRC_DIR/drivers/dahdi/dahdi-base.c" "https://issues.asterisk.org/jira/secure/attachment/61183/DAHLIN-395-hearpulsing.patch"
+	git_patch "hearpulsing-dahlin.diff"
 
 	make
 	if [ $? -ne 0 ]; then
@@ -922,7 +923,8 @@ install_dahdi() {
 	# New Features
 
 	# needs to be rebased for master:
-	# dahdi_custom_patch "DAHTOOL-91-hearpulsing" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://issues.asterisk.org/jira/secure/attachment/61182/DAHTOOL-91-hearpulsing.patch"
+	# hearpulsing
+	git_patch "hearpulsing-dahtool.patch"
 
 	# autoreconf -i
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
@@ -1078,6 +1080,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
 	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
+
+	git_patch "hearpulsing-ast.diff"
 
 	if [ "$WEAK_TLS" = "1" ]; then
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
