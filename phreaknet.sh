@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.67 (2022-05-16)
+# v0.1.68 (2022-05-17)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-05-17 0.1.68 PhreakScript: enhanced install control
 # 2022-05-16 0.1.67 Asterisk: add func_query and app_callback
 # 2022-05-14 0.1.66 PhreakScript: add trace notify and custom expiry
 # 2022-05-12 0.1.65 Asterisk: target 18.12.0
@@ -163,6 +164,8 @@ CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
 TEST_SUITE=0
 FORCE_INSTALL=0
+ENHANCED_INSTALL=1
+MANUAL_MENUSELECT=0
 ENABLE_BACKTRACES=0
 ASTKEYGEN=0
 DEFAULT_PATCH_DIR="/var/www/html/interlinked/sites/phreak/code/asterisk/patches" # for new patches
@@ -209,6 +212,7 @@ phreakscript_info() {
 	printf "%s" "Hostname: "
 	hostname
 	echo $OS_DIST_INFO
+	uname -a
 	echo "Package Manager: $PAC_MAN"
 	asterisk -V 2> /dev/null # Asterisk might or might not exist...
 	if [ -d /etc/dahdi ]; then
@@ -267,6 +271,8 @@ Commands:
    enable-swap        Temporarily allocate and enable swap file
    disable-swap       Disable and deallocate temporary swap file
    restart            Fully restart DAHDI and Asterisk
+   kill               Forcibly kill Asterisk
+   forcerestart       Forcibly restart Asterisk
 
    *** Debugging ***
    dialplanfiles      Verify what files are being parsed into the dialplan
@@ -310,18 +316,20 @@ Options:
    -u, --user         User as which to run Asterisk (non-root)
    -v, --version      Specific version of Asterisk to install (M.m.b e.g. 18.8.0). Also, see --vanilla.
    -w, --weaktls      Allow less secure TLS versions down to TLS 1.0 (default is 1.2+)
-       --cisco        Add full support for Cisco Call Manager phones (chan_sip only)
-       --sccp         Install chan_sccp channel driver (Cisco Skinny)
-       --boilerplate  sounds: Also install boilerplate sounds
-       --clli         config: CLLI code
-       --debug        trace: Debug level (default is 0/OFF, max is 10)
-       --disa         config: DISA number
-       --drivers      install: Also install DAHDI drivers removed in 2018
-       --freepbx      install: Install FreePBX GUI (not recommended)
        --api-key      config: InterLinked API key
+       --clli         config: CLLI code
+       --disa         config: DISA number
        --rotate       keygen: Rotate/create keys
        --upstream     update: Specify upstream source
-	   --vanilla      vanilla: Do not install extra features or enhancements. Bug fixes are always installed. (May be required for older versions)
+       --debug        trace: Debug level (default is 0/OFF, max is 10)
+       --boilerplate  sounds: Also install boilerplate sounds
+       --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
+       --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
+       --drivers      install: Also install DAHDI drivers removed in 2018
+       --freepbx      install: Install FreePBX GUI (not recommended)
+       --manselect    install: Manually run menuselect yourself
+       --minimal      install: Do not upgrade the kernel or install nonrequired dependencies (such as utilities that may be useful on typical Asterisk servers)
+       --vanilla      install: Do not install extra features or enhancements. Bug fixes are always installed. (May be required for older versions)
 "
 	phreakscript_info
 	exit 2
@@ -339,6 +347,17 @@ cd_ast() {
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
+}
+
+ast_kill() {
+	pid=`cat /var/run/asterisk/asterisk.pid`
+	if [ ${#pid} -eq 0 ]; then
+		echoerr "Asterisk is not currently running."
+	elif ! kill -9 $pid; then
+		echoerr "Failed to stop Asterisk ($pid)"
+	else
+		echog "Successfully killed Asterisk ($pid)"
+	fi
 }
 
 assert_root() {
@@ -361,8 +380,16 @@ install_prereq() {
 		apt-get clean
 		apt-get update -y
 		apt-get upgrade -y
-		apt-get dist-upgrade -y
-		apt-get install -y ntp iptables tcpdump wget curl sox libcurl4-openssl-dev mpg123 dnsutils php festival bc fail2ban mariadb-server git xmlstarlet
+		if [ "$ENHANCED_INSTALL" = "1" ]; then
+			apt-get dist-upgrade -y
+		fi
+		apt-get install -y wget curl sox libcurl4-openssl-dev dnsutils bc git # necessary for install and basic operation.
+		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
+			apt-get install -y ntp iptables tcpdump sox mpg123 php festival fail2ban mariadb-server
+		fi
+		if [ "$TEST_SUITE" = "1" ]; then
+			apt-get install -y xmlstarlet # only needed in developer mode for doc validation.
+		fi
 		# used to feed the country code non-interactively
 		apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		apt-get install -y debconf-utils
@@ -381,6 +408,16 @@ install_prereq() {
 		#fi
 	else
 		echoerr "Could not determine what package manager to use..."
+	fi
+}
+
+ensure_installed() {
+	if ! which "$1" > /dev/null; then
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install -y "$1"
+		else
+			echoerr "Not sure how to satisfy requirement $1"
+		fi
 	fi
 }
 
@@ -416,9 +453,10 @@ install_boilerplate() {
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/verification.conf -O verification.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet.conf -O phreaknet.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
-	ls -l
 	cd $AST_CONFIG_DIR
+	pwd
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/modules.conf -O $AST_CONFIG_DIR/modules.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
@@ -1388,7 +1426,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,boilerplate,upstream:,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1428,6 +1466,8 @@ while true; do
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
 		--upstream ) SCRIPT_UPSTREAM=$2; shift 2;;
+		--manselect ) MANUAL_MENUSELECT=1; shift ;;
+		--minimal ) ENHANCED_INSTALL=0; shift ;;
 		--vanilla ) EXTRA_FEATURES=0; shift ;;
 		# -- means the end of the arguments; drop this, and break out of the while loop
 		--) shift; break ;;
@@ -1639,13 +1679,15 @@ elif [ "$cmd" = "install" ]; then
 	cp contrib/scripts/voicemailpwcheck.py /usr/local/bin
 	chmod +x /usr/local/bin/voicemailpwcheck.py
 	# Change Compile Options: https://wiki.asterisk.org/wiki/display/AST/Using+Menuselect+to+Select+Asterisk+Options
-	make menuselect.makeopts
+	$AST_MAKE menuselect.makeopts
 	menuselect/menuselect --enable format_mp3 menuselect.makeopts # add mp3 support
 	# We want ulaw, not gsm (default)
 	menuselect/menuselect --disable-category MENUSELECT_MOH --disable-category MENUSELECT_CORE_SOUNDS --disable-category MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
 	# Only grab sounds if this is the first time
 	if [ ! -d "$AST_SOUNDS_DIR" ]; then
 		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW --enable MOH-OPSOUND-ULAW --enable EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
+	else
+		echo "Sounds already installed, skipping installation of sound files."
 	fi
 	if [ "$ENABLE_BACKTRACES" = "1" ]; then
 		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
@@ -1671,6 +1713,7 @@ elif [ "$cmd" = "install" ]; then
 	menuselect/menuselect --disable chan_skinny --disable chan_mgcp menuselect.makeopts
 	# Who's actually using this?
 	menuselect/menuselect --disable app_osplookup menuselect.makeopts
+
 	# Expand TLS support from 1.2 to 1.0 for older ATAs, if needed
 	if [ "$WEAK_TLS" = "1" ]; then
 		sed -i 's/TLSv1.2/TLSv1.0/g' /etc/ssl/openssl.cnf
@@ -1688,6 +1731,11 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		freebsd_port_patches
 	fi
+
+	if [ "$MANUAL_MENUSELECT" = "1" ]; then
+		$AST_MAKE menuselect # allow user to run menuselect manually if requested. This will block until user finishes.
+	fi
+
 	# Compile Asterisk
 	if [ "$AST_MAKE" = "gmake" ]; then # jansson fails to compile nicely on its own with gmake
 		cd third-party/jansson
@@ -1720,6 +1768,7 @@ elif [ "$cmd" = "install" ]; then
 	# Install Asterisk
 	if [ ! -d "$AST_CONFIG_DIR" ]; then
 		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
+		rm $AST_CONFIG_DIR/users.conf # remove users.conf, because a) it's stupid, and shouldn't be used, and b) it creates warnings when reloading other modules, e.g. chan_dahdi.
 	fi
 	if [ -d /usr/lib/asterisk/modules ]; then
 		rm -f /usr/lib/asterisk/modules/*.so
@@ -1884,11 +1933,7 @@ elif [ "$cmd" = "sounds" ]; then
 elif [ "$cmd" = "boilerplate-sounds" ]; then
 	install_boilerplate_sounds
 elif [ "$cmd" = "ulaw" ]; then
-	if ! which sox > /dev/null; then
-		if [ "$PAC_MAN" = "apt-get" ]; then
-			apt-get install -y sox
-		fi
-	fi
+	ensure_installed sox
 	if [ ${#2} -gt 0 ]; then # a specific file
 		withoutextension=`printf '%s\n' "$2" | sed -r 's|^(.*?)\.\w+$|\1|'` # see comment on https://stackoverflow.com/a/26753382
 		sox "$2" --rate 8000 --channels 1 --type ul $withoutextension.ulaw lowpass 3400 highpass 300
@@ -2211,6 +2256,16 @@ elif [ "$cmd" = "genpatch" ]; then
 	else
 		printf "%s\n" "Patch file is empty. Aborting."
 	fi
+elif [ "$cmd" = "kill" ]; then
+	ast_kill
+elif [ "$cmd" = "forcerestart" ]; then
+	ast_kill
+	sleep 1
+	if ! asterisk -g; then
+		echoerr "Failed to start Asterisk again."
+	else
+		echog "Successfully started Asterisk again."
+	fi
 elif [ "$cmd" = "restart" ]; then
 	service asterisk stop # stop Asterisk
 	lsmod | grep dahdi
@@ -2359,11 +2414,7 @@ elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/
 	paste_post "/tmp/asteriskvalgrind.txt"
 	ls /tmp/asteriskvalgrind.txt
 elif [ "$cmd" = "cppcheck" ]; then
-	if ! which tshark > /dev/null; then
-		if [ "$PAC_MAN" = "apt-get" ]; then
-			apt-get install -y cppcheck
-		fi
-	fi
+	ensure_installed cppcheck
 	cd_ast
 	printf "%s\n" "Running cppcheck and dumping errors to cppcheck.txt"
 	cppcheck --enable=all --suppress=unknownMacro . 2> cppcheck.txt
@@ -2464,14 +2515,10 @@ elif [ "$cmd" = "iaxping" ]; then
 			exit 2
 		fi
 	fi
-	if ! which nmap > /dev/null; then
-		apt-get install -y nmap
-	fi
+	ensure_installed nmap
 	exec nmap -sU ${host} -p ${port}
 elif [ "$cmd" = "pcap" ]; then
-	if ! which tshark > /dev/null; then
-		apt-get install -y tshark
-	fi
+	ensure_installed tshark
 	debugtime=$EPOCHSECONDS
 	if [ "$debugtime" = "" ]; then
 		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
@@ -2490,9 +2537,7 @@ elif [ "$cmd" = "pcap" ]; then
 	wait $BGPID
 	printf "Packet capture successfully saved to %s\n" "/tmp/pcap_$debugtime.pcap"
 elif [ "$cmd" = "pcaps" ]; then
-	if ! which tshark > /dev/null; then
-		apt-get install -y tshark
-	fi
+	ensure_installed tshark
 	debugtime=$EPOCHSECONDS
 	if [ "$debugtime" = "" ]; then
 		debugtime=`awk 'BEGIN {srand(); print srand()}'` # https://stackoverflow.com/a/41324810
@@ -2512,9 +2557,7 @@ elif [ "$cmd" = "pcaps" ]; then
 	printf "Packet capture successfully saved to %s\n" "/tmp/pcap_$debugtime.pcap"
 	exec sngrep -I /tmp/pcap_$debugtime.pcap
 elif [ "$cmd" = "sngrep" ]; then
-	if ! which sngrep > /dev/null; then
-		apt-get install -y sngrep
-	fi
+	ensure_installed sngrep
 	exec sngrep
 elif [ "$cmd" = "freedisk" ]; then
 	df -h /
