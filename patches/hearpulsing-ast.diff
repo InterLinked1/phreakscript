@@ -1,0 +1,104 @@
+diff --git a/channels/chan_dahdi.c b/channels/chan_dahdi.c
+index 9135937a41..f6b32abf94 100644
+--- a/channels/chan_dahdi.c
++++ b/channels/chan_dahdi.c
+@@ -1016,6 +1016,7 @@ static struct dahdi_chan_conf dahdi_chan_conf_default(void)
+ 			.use_callerid = 1,
+ 			.sig = -1,
+ 			.outsigmod = -1,
++			.hearpulsing = 0,
+ 
+ 			.cid_rxgain = +5.0,
+ 
+@@ -8754,7 +8755,7 @@ static struct ast_frame *dahdi_read(struct ast_channel *ast)
+ #if 0
+ 	ast_debug(1, "Read %d of voice on %s\n", p->subs[idx].f.datalen, ast->name);
+ #endif
+-	if ((p->dialing && !p->waitingfordt.tv_sec) ||  p->radio || /* Transmitting something */
++	if ((!p->hearpulsing && ( (p->dialing && !p->waitingfordt.tv_sec) ||  p->radio )) || /* Transmitting something */
+ 		(idx && (ast_channel_state(ast) != AST_STATE_UP)) || /* Three-way or callwait that isn't up */
+ 		((idx == SUB_CALLWAIT) && !p->subs[SUB_CALLWAIT].inthreeway) /* Inactive and non-confed call-wait */
+ 		) {
+@@ -12723,6 +12724,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 		tmp->dahditrcallerid = conf->chan.dahditrcallerid;
+ 		tmp->restrictcid = conf->chan.restrictcid;
+ 		tmp->use_callingpres = conf->chan.use_callingpres;
++		tmp->hearpulsing = conf->chan.hearpulsing;
+ 		if (tmp->usedistinctiveringdetection) {
+ 			if (!tmp->use_callerid) {
+ 				ast_log(LOG_NOTICE, "Distinctive Ring detect requires 'usecallerid' be on\n");
+@@ -12874,6 +12876,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 		tmp->ani_wink_time = conf->chan.ani_wink_time;
+ 		tmp->ani_timeout = conf->chan.ani_timeout;
+ 		tmp->hanguponpolarityswitch = conf->chan.hanguponpolarityswitch;
++		tmp->hearpulsing = conf->chan.hearpulsing;
+ 		tmp->sendcalleridafter = conf->chan.sendcalleridafter;
+ 		ast_cc_copy_config_params(tmp->cc_params, conf->chan.cc_params);
+ 
+@@ -12982,6 +12985,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 				analog_p->ani_timeout = conf->chan.ani_timeout;
+ 				analog_p->ani_wink_time = conf->chan.ani_wink_time;
+ 				analog_p->hanguponpolarityswitch = conf->chan.hanguponpolarityswitch;
++				analog_p->hearpulsing = conf->chan.hearpulsing;
+ 				analog_p->permcallwaiting = conf->chan.callwaiting; /* permcallwaiting possibly modified in analog_config_complete */
+ 				analog_p->callreturn = conf->chan.callreturn;
+ 				analog_p->cancallforward = conf->chan.cancallforward;
+@@ -18287,6 +18291,8 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct
+ 			confp->chan.hanguponpolarityswitch = ast_true(v->value);
+ 		} else if (!strcasecmp(v->name, "sendcalleridafter")) {
+ 			confp->chan.sendcalleridafter = atoi(v->value);
++		} else if(!strcasecmp(v->name, "hearpulsing")) {
++			confp->chan.hearpulsing = ast_true(v->value);
+ 		} else if (!strcasecmp(v->name, "mwimonitornotify")) {
+ 			ast_copy_string(mwimonitornotify, v->value, sizeof(mwimonitornotify));
+ 		} else if (ast_cc_is_config_param(v->name)) {
+diff --git a/channels/chan_dahdi.h b/channels/chan_dahdi.h
+index de813f21bf..7432f1cfb3 100644
+--- a/channels/chan_dahdi.h
++++ b/channels/chan_dahdi.h
+@@ -441,6 +441,11 @@ struct dahdi_pvt {
+ 	struct sig_pri_span *pri;
+ 	int logicalspan;
+ #endif	/* defined(HAVE_PRI) */
++
++	/*!\brief TRUE if the caller should hear signaling on analog
++	 * \analog channels
++	 */
++	unsigned int hearpulsing:1;
+ 	/*!
+ 	 * \brief TRUE if SMDI (Simplified Message Desk Interface) is enabled
+ 	 * \note Set from the "usesmdi" value read in from chan_dahdi.conf
+diff --git a/channels/sig_analog.c b/channels/sig_analog.c
+index ea507fe078..2f97b80d93 100644
+--- a/channels/sig_analog.c
++++ b/channels/sig_analog.c
+@@ -1247,6 +1247,13 @@ int analog_call(struct analog_pvt *p, struct ast_channel *ast, const char *rdest
+ 		ast_debug(1, "not yet implemented\n");
+ 		return -1;
+ 	}
++
++	/* Allows callers to hear pulsing on analog channels */
++	if (p->hearpulsing) {
++		ast_debug(1, "Enqueueing progress frame when dialling has begun in chan %d\n", p->channel);
++		ast_queue_control(p->owner, AST_CONTROL_PROGRESS);
++	}
++
+ 	return 0;
+ }
+ 
+diff --git a/channels/sig_analog.h b/channels/sig_analog.h
+index 488be3662e..1c3cfc2e98 100644
+--- a/channels/sig_analog.h
++++ b/channels/sig_analog.h
+@@ -304,6 +304,11 @@ struct analog_pvt {
+ 	/*! \brief The SMDI interface to get SMDI messages from. */
+ 	struct ast_smdi_interface *smdi_iface;
+ 
++	/*!\brief TRUE if the caller should hear signaling on analog
++	 * \analog channels
++	 */
++	unsigned int hearpulsing:1;
++
+ 	/* Not used for anything but log messages.  Could be just the TCID */
+ 	int channel;					/*!< Channel Number */
+ 

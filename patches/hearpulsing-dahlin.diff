@@ -1,0 +1,59 @@
+diff --git a/drivers/dahdi/dahdi-base.c b/drivers/dahdi/dahdi-base.c
+index bcd6147..487ba09 100644
+--- a/drivers/dahdi/dahdi-base.c
++++ b/drivers/dahdi/dahdi-base.c
+@@ -4987,6 +4987,8 @@ static int dahdi_ioctl_chanconfig(struct file *file, unsigned long data)
+ 	    !dahdi_have_netdev(chan))
+ 		module_printk(KERN_NOTICE, "Unable to register HDLC device for channel %s\n", chan->name);
+ 	if (!res) {
++		/* Make pulsing audible */
++		chan->hearpulsing = ch.hearpulsing;
+ 		/* Setup default law */
+ 		chan->deflaw = ch.deflaw;
+ 		/* Copy back any modified settings */
+@@ -7831,7 +7833,8 @@ static inline void __dahdi_process_getaudio_chunk(struct dahdi_chan *ss, unsigne
+ 	}
+ #endif
+ 
+-	if ((!ms->confmute && !ms->dialing) || (is_pseudo_chan(ms))) {
++	/* heapulsing is configured on a per-channel basis in system.conf */
++	if ((!ms->confmute && ((!ms->dialing) || (ms->hearpulsing))) || (is_pseudo_chan(ms))) {
+ 		struct dahdi_chan *const conf_chan = ms->conf_chan;
+ 		/* Handle conferencing on non-clear channel and non-HDLC channels */
+ 		switch(ms->confmode & DAHDI_CONF_MODE_MASK) {
+@@ -8883,7 +8886,8 @@ static inline void __dahdi_process_putaudio_chunk(struct dahdi_chan *ss, unsigne
+ 
+ 	if (ms->dialing) ms->afterdialingtimer = 50;
+ 	else if (ms->afterdialingtimer) ms->afterdialingtimer--;
+-	if (ms->afterdialingtimer && !is_pseudo_chan(ms)) {
++	/* heapulsing is configured on a per-channel basis in system.conf */
++	if (ms->afterdialingtimer && !is_pseudo_chan(ms) && (!ms->hearpulsing)) {
+ 		/* Be careful since memset is likely a macro */
+ 		rxb[0] = DAHDI_LIN2X(0, ms);
+ 		memset(&rxb[1], rxb[0], DAHDI_CHUNKSIZE - 1);  /* receive as silence if dialing */
+diff --git a/include/dahdi/kernel.h b/include/dahdi/kernel.h
+index 22b9b66..c84650c 100644
+--- a/include/dahdi/kernel.h
++++ b/include/dahdi/kernel.h
+@@ -570,6 +570,9 @@ struct dahdi_chan {
+ 	/*! Idle signalling if CAS signalling */
+ 	int idlebits;
+ 
++	/* Cut audio through early to hear pulsing */
++	short hearpulsing;
++
+ 	int deflaw;		/*! 1 = mulaw, 2=alaw, 0=undefined */
+ 	short *xlaw;
+ #ifdef	OPTIMIZE_CHANMUTE
+diff --git a/include/dahdi/user.h b/include/dahdi/user.h
+index 68e72e0..ef3478b 100644
+--- a/include/dahdi/user.h
++++ b/include/dahdi/user.h
+@@ -685,6 +685,7 @@ struct dahdi_chanconfig {
+ 	int	idlebits;	/* Idle bits (if this is a CAS channel) or
+ 				   channel to monitor (if this is DACS channel) */
+ 	char	netdev_name[16];/* name for the hdlc network device*/
++	int	hearpulsing; 	/* make outpulsing audible to caller */
+ };
+ 
+ #define DAHDI_CHANCONFIG		_IOW(DAHDI_CODE, 19, struct dahdi_chanconfig)

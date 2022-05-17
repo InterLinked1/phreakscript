@@ -1,0 +1,59 @@
+From 8a9040c89cf6ff515874feb30865a3afc7e3cdfd Mon Sep 17 00:00:00 2001
+From: Sarah Autumn <sarah@connectionsmuseum.org>
+Date: Mon, 9 Aug 2021 12:50:36 -0700
+Subject: [PATCH] configure hearpulsing per channel
+
+---
+ dahdi_cfg.c | 29 +++++++++++++++++++++++++++++
+ 1 file changed, 29 insertions(+)
+
+diff --git a/dahdi_cfg.c b/dahdi_cfg.c
+index ecd4477..566c604 100644
+--- a/dahdi_cfg.c
++++ b/dahdi_cfg.c
+@@ -785,6 +785,33 @@ static int setfiftysixkhdlc(char *keyword, char *args)
+ 	return 0;
+ }
+ 
++/* Allows hearpulsing to be a configurable option */
++static int sethearpulsing(char *keyword, char *args)
++{
++	int res;
++	short setting;
++	int x;
++	int chans[DAHDI_MAX_CHANNELS];
++
++	bzero(chans, sizeof(chans));
++	res = apply_channels(chans, args);
++	if (res <= 0)
++		return -1;
++	if (!strcasecmp(keyword, "hearpulsing")) {
++		setting = 1;
++	} else {
++		fprintf(stderr, "Huh??? Don't know about '%s' hearpulsing setting\n", keyword);
++		return -1;
++	}
++	for (x=0;x<DAHDI_MAX_CHANNELS;x++) {
++		if (chans[x])
++			cc[x].hearpulsing = setting;
++	}
++	return 0;
++}
++
++
++
+ static int apply_fiftysix(void)
+ {
+ 	int x;
+@@ -1447,6 +1474,8 @@ static struct handler {
+ 	{ "channels", rad_chanconfig },
+ 	{ "echocanceller", setechocan },
+ 	{ "56k", setfiftysixkhdlc },
++	{ "hearpulsing", sethearpulsing }, /* Make outpulsing audible to caller */
++
+ };
+ 
+ static char *readline()
+-- 
+2.11.0
+
