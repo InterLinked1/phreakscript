@@ -1081,6 +1081,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
 	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
 
+	# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
 	git_patch "hearpulsing-ast.diff"
 
 	if [ "$WEAK_TLS" = "1" ]; then
@@ -1095,9 +1096,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Gerrit patches: remove once merged
 	# phreak_tree_module "apps/app_if.c"
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
-
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
-	gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
 	gerrit_patch 18250 "https://gerrit.asterisk.org/changes/asterisk~18250/revisions/2/patch?download" # res_calendar: prevent crash
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix
