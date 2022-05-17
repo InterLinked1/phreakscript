@@ -182,7 +182,7 @@ struct callback_monitor_item {
 	char *callbackwatched;
 	unsigned int require_local_idle:1;
 	unsigned int cancel:1;
-	AST_LIST_ENTRY(callback_monitor_item) entry;		/*!< Next record */
+	AST_RWLIST_ENTRY(callback_monitor_item) entry;		/*!< Next record */
 };
 
 static AST_RWLIST_HEAD_STATIC(callbacks, callback_monitor_item);
@@ -321,7 +321,7 @@ static void *callback_monitor(void *data)
 	char endpoints[256];
 	char callerhint[256];
 	int remote, poll_ms = 0;
-	struct callback_monitor_item *cb2, *cb = data;
+	struct callback_monitor_item *cb2 = NULL, *cb = data;
 	struct timeval start, pollstart;
 	int timeout;
 
@@ -398,16 +398,18 @@ static void *callback_monitor(void *data)
 
 	ast_debug(1, "Callback monitor from %s to %s is terminating\n", cb->caller, cb->number);
 
-	AST_RWLIST_WRLOCK(&callbacks);
-	/* Look for an existing one */
-	AST_LIST_TRAVERSE_SAFE_BEGIN(&callbacks, cb2, entry) {
-		if (cb == cb2) { /* Remove this callback from the list, if we find it. */
-			AST_LIST_REMOVE_CURRENT(entry);
-			break;
+	if (!cb->cancel) { /* If we were cancelled, the list is already locked by someone traversing it, and locking would lead to deadlock since they're waiting for us to die. */
+		AST_RWLIST_WRLOCK(&callbacks);
+		/* Look for an existing one */
+		AST_RWLIST_TRAVERSE_SAFE_BEGIN(&callbacks, cb2, entry) {
+			if (cb == cb2) { /* Remove this callback from the list, if we find it. */
+				AST_RWLIST_REMOVE_CURRENT(entry);
+				break;
+			}
 		}
+		AST_RWLIST_TRAVERSE_SAFE_END;
+		AST_RWLIST_UNLOCK(&callbacks);
 	}
-	AST_LIST_TRAVERSE_SAFE_END;
-	AST_RWLIST_UNLOCK(&callbacks);
 
 	if (cb2) {
 		ast_debug(3, "Removed entry from list ourselves.\n");
@@ -451,15 +453,15 @@ static int cancel_exec(struct ast_channel *chan, const char *data)
 
 	AST_RWLIST_WRLOCK(&callbacks);
 	/* Look for an existing one */
-	AST_LIST_TRAVERSE_SAFE_BEGIN(&callbacks, cb, entry) {
+	AST_RWLIST_TRAVERSE_SAFE_BEGIN(&callbacks, cb, entry) {
 		if (!strcmp(cb->caller, caller)) { /* Cancel any callbacks requested by the caller. */
 			success = 1;
 			ast_verb(3, "Cancelling callback from %s to %s\n", cb->caller, cb->number);
-			AST_LIST_REMOVE_CURRENT(entry);
+			AST_RWLIST_REMOVE_CURRENT (entry);
 			cancel_thread(cb, 1);
 		}
 	}
-	AST_LIST_TRAVERSE_SAFE_END;
+	AST_RWLIST_TRAVERSE_SAFE_END;
 	AST_RWLIST_UNLOCK(&callbacks);
 
 	pbx_builtin_setvar_helper(chan, CANCEL_STATUS, success ? "SUCCESS" : "FAILURE");
@@ -542,7 +544,7 @@ static int callback_exec(struct ast_channel *chan, const char *data)
 
 	AST_RWLIST_WRLOCK(&callbacks);
 	/* Look for an existing one */
-	AST_LIST_TRAVERSE(&callbacks, cb, entry) {
+	AST_RWLIST_TRAVERSE(&callbacks, cb, entry) {
 		ast_debug(3, "Comparing %s with %s\n", cb->caller, caller);
 		if ((ast_strlen_zero(cb->caller) && ast_strlen_zero(caller)) || !strcmp(cb->caller, caller)) {
 			already_had++;
@@ -613,7 +615,7 @@ static char *handle_show_callbacks(struct ast_cli_entry *e, int cmd, struct ast_
 
 	ast_cli(a->fd, "%4s | %15s | %15s | %14s | %14s\n", "#", "Caller No.", "Watched No.", "Time Elapsed", "Time Remaining");
 	AST_RWLIST_RDLOCK(&callbacks);
-	AST_LIST_TRAVERSE(&callbacks, cb, entry) {
+	AST_RWLIST_TRAVERSE(&callbacks, cb, entry) {
 		int elapsed = (int) time(NULL) - cb->watch_start;
 		int remaining = cb->remaining / 1000;
 		ast_cli(a->fd, "%4d | %15s | %15s | %11d:%02d | %11d:%02d\n", ++i, cb->caller, cb->number, elapsed / 60, elapsed % 60, remaining / 60, remaining % 60);
@@ -646,14 +648,14 @@ static char *handle_cancel(struct ast_cli_entry *e, int cmd, struct ast_cli_args
 	all = !strcasecmp(a->argv[2], "all") ? 1 : 0;
 
 	AST_RWLIST_WRLOCK(&callbacks);
-	AST_LIST_TRAVERSE_SAFE_BEGIN(&callbacks, cb, entry) {
+	AST_RWLIST_TRAVERSE_SAFE_BEGIN(&callbacks, cb, entry) {
 		if (all || !strcmp(cb->caller, a->argv[2])) {
 			ast_cli(a->fd, "Cancelling callback from %s to %s\n", cb->caller, cb->number);
-			AST_LIST_REMOVE_CURRENT(entry);
+			AST_RWLIST_REMOVE_CURRENT(entry);
 			cancel_thread(cb, 1);
 		}
 	}
-	AST_LIST_TRAVERSE_SAFE_END;
+	AST_RWLIST_TRAVERSE_SAFE_END;
 	AST_RWLIST_UNLOCK(&callbacks);
 
 	return CLI_SUCCESS;
