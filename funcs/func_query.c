@@ -130,8 +130,6 @@ static int acf_query_read(struct ast_channel *chan, const char *cmd, char *data,
 		return -1;
 	}
 
-	ast_channel_unlock(c);
-
 	/* Disable CDR for this temporary channel. */
 	if (cdr_prop_func) {
 		ast_func_write(c, "CDR_PROP(disable)", "1");
