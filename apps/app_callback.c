@@ -58,8 +58,8 @@
 			<parameter name="localdevicestate">
 				<para>Context providing local device state.</para>
 			</parameter>
-			<parameter name="remotedialstr">
-				<para>Dial string providing remote device state.</para>
+			<parameter name="remotedialcontext">
+				<para>Context providing remote device state. Will be dialed using a Local channel. Use Dial in this context if needed.</para>
 				<para>This will use the <literal>TEXT_QUERY</literal> function under the hood.</para>
 				<para>The remote endpoint needs to send a textual transfer of the queried
 				device state, e.g. <literal>SendText(${DEVICE_STATE(MYDEVICE)})</literal>.</para>
@@ -84,6 +84,11 @@
 				To specify both local and remote interval, delimit using a pipe.</para>
 				<para>Default is 5 seconds for local destinations and 30 seconds for remote destinations.</para>
 				<para>WARNING: A low interval for remote polling could significantly increase network traffic.</para>
+			</parameter>
+			<parameter name="tagname">
+				<para>An optional tag name to specify the type of service. This allows callbacks for different services
+				to be treated separately.</para>
+				<para>The s option as well as cancel requests only apply to callbacks with the same tag (including the default "empty" tag).</para>
 			</parameter>
 			<parameter name="options">
 				<optionlist>
@@ -125,6 +130,9 @@
 					<value name="ALREADY">
 						Callback to a destination (but not the requested one) already exists. No callback queued.
 					</value>
+					<value name="UNSUPPORTED">
+						Callback to a destination is not possible (no route available for busy determination).
+					</value>
 				</variable>
 			</variablelist>
 		</description>
@@ -141,17 +149,21 @@
 				<para>The globally unique number performing the callback.</para>
 				<para>Default is CALLERID(num).</para>
 			</parameter>
+			<parameter name="tag">
+				<para>Optional tag name. Only callbacks with the specified tag will be cancelled.</para>
+				<para>If not provided, only callbacks with no tag name will be cancelled.</para>
+			</parameter>
 		</syntax>
 		<description>
 			<para>Cancels all callbacks currently queued for a caller.</para>
 			<variablelist>
 				<variable name="CALLBACK_CANCEL_STATUS">
-					<para>This indicates the result of the callback origination.</para>
+					<para>This indicates the result of the callback cancellation.</para>
 					<value name="FAILURE">
 						No callbacks could be cancelled.
 					</value>
 					<value name="SUCCESS">
-						All callbacks by this caller cancelled.
+						All callbacks by this caller (with matching tag) cancelled.
 					</value>
 				</variable>
 			</variablelist>
@@ -177,9 +189,10 @@ struct callback_monitor_item {
 	int poll_local;
 	int poll_remote;
 	char *localstate;
-	char *remotedialstr;
+	char *remotedialcontext;
 	char *callbackcaller;
 	char *callbackwatched;
+	char *tagname;
 	unsigned int require_local_idle:1;
 	unsigned int cancel:1;
 	AST_RWLIST_ENTRY(callback_monitor_item) entry;		/*!< Next record */
@@ -219,9 +232,10 @@ static void callback_free(struct callback_monitor_item *cb)
 {
 	/* Don't free anything that's NULL. */
 	free_if_exists(cb->localstate);
-	free_if_exists(cb->remotedialstr);
+	free_if_exists(cb->remotedialcontext);
 	free_if_exists(cb->callbackcaller);
 	free_if_exists(cb->callbackwatched);
+	free_if_exists(cb->tagname);
 	ast_free(cb);
 }
 
@@ -252,15 +266,15 @@ static int local_endpoint_busy(const char *endpoints, const char *number)
 	return res;
 }
 
-static int remote_endpoint_busy(const char *remotedialstr, const char *caller, int timeout)
+static int remote_endpoint_busy(const char *number, const char *remotedialcontext, const char *caller, int timeout)
 {
 	struct ast_channel *chan;
 	char devstate[32];
 	int res = 0;
-	int len = strlen(remotedialstr);
+	int len = strlen(remotedialcontext);
 	char queryread[len + 30];
 
-	snprintf(queryread, sizeof(queryread), "TEXT_QUERY(%s,%d)", remotedialstr, timeout);
+	snprintf(queryread, sizeof(queryread), "TEXT_QUERY(Local/%s@%s,%d)", number, remotedialcontext, timeout);
 	devstate[0] = '\0';
 
 	/* Need a channel so that we can propogate our Caller ID */
@@ -305,7 +319,7 @@ static int remote_endpoint_busy(const char *remotedialstr, const char *caller, i
 		}
 		ast_channel_unlock(chan);
 	} else {
-		ast_debug(2, "Device state queried at %s returned %s\n", remotedialstr, devstate);
+		ast_debug(2, "Device state queried at Local/%s@%s returned %s\n", number, remotedialcontext, devstate);
 		if (strcmp(devstate, "NOT_INUSE")) {
 			res = -1; /* If not NOT_INUSE, then busy. */
 		}
@@ -362,7 +376,7 @@ static void *callback_monitor(void *data)
 		}
 		if (ast_remaining_ms(pollstart, poll_ms) <= 0) {
 			ast_debug(2, "Polling availability of %s...\n", cb->number);
-			if ((!remote && !local_endpoint_busy(endpoints, cb->number)) || (remote && !remote_endpoint_busy(cb->remotedialstr, cb->caller, timeout))) {
+			if ((!remote && !local_endpoint_busy(endpoints, cb->number)) || (remote && !remote_endpoint_busy(cb->number, cb->remotedialcontext, cb->caller, timeout))) {
 				if (cb->require_local_idle && local_endpoint_busy(callerhint, cb->caller)) {
 					ast_debug(1, "%s is now free, but caller (%s) is not, delaying callback...\n", cb->number, cb->caller);
 				} else {
@@ -445,20 +459,35 @@ static void cancel_thread(struct callback_monitor_item *cb, int join)
 
 static int cancel_exec(struct ast_channel *chan, const char *data)
 {
-	const char *caller;
+	const char *caller = NULL, *tagname = NULL;
 	struct callback_monitor_item *cb;
 	int success = 0;
+	char *appdata;
 
-	caller = !ast_strlen_zero(data) ? data : S_OR(ast_channel_caller(chan)->id.number.str, "");
+	AST_DECLARE_APP_ARGS(args,
+		AST_APP_ARG(caller);
+		AST_APP_ARG(tagname);
+	);
+
+	if (!ast_strlen_zero(data)) {
+		appdata = ast_strdupa(data);
+		AST_STANDARD_APP_ARGS(args, appdata);
+		caller = args.caller;
+		tagname = args.tagname;
+	}
+
+	caller = !ast_strlen_zero(caller) ? caller : S_OR(ast_channel_caller(chan)->id.number.str, "");
 
 	AST_RWLIST_WRLOCK(&callbacks);
 	/* Look for an existing one */
 	AST_RWLIST_TRAVERSE_SAFE_BEGIN(&callbacks, cb, entry) {
 		if (!strcmp(cb->caller, caller)) { /* Cancel any callbacks requested by the caller. */
-			success = 1;
-			ast_verb(3, "Cancelling callback from %s to %s\n", cb->caller, cb->number);
-			AST_RWLIST_REMOVE_CURRENT (entry);
-			cancel_thread(cb, 1);
+			if ((ast_strlen_zero(cb->tagname) && ast_strlen_zero(tagname)) || (!ast_strlen_zero(cb->tagname) && !ast_strlen_zero(tagname) && !strcmp(cb->tagname, tagname))) {
+				success = 1;
+				ast_verb(3, "Cancelling callback from %s to %s\n", cb->caller, cb->number);
+				AST_RWLIST_REMOVE_CURRENT (entry);
+				cancel_thread(cb, 1);
+			}
 		}
 	}
 	AST_RWLIST_TRAVERSE_SAFE_END;
@@ -481,12 +510,13 @@ static int callback_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(callbackcaller);
 		AST_APP_ARG(callbackwatched);
 		AST_APP_ARG(localdevicestate);
-		AST_APP_ARG(remotedialstr);
+		AST_APP_ARG(remotedialcontext);
 		AST_APP_ARG(number);
 		AST_APP_ARG(caller);
 		AST_APP_ARG(timeout);
 		AST_APP_ARG(ringtime);
 		AST_APP_ARG(poll);
+		AST_APP_ARG(tagname);
 		AST_APP_ARG(options);
 	);
 
@@ -498,7 +528,7 @@ static int callback_exec(struct ast_channel *chan, const char *data)
 	appdata = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, appdata);
 
-	if (ast_strlen_zero(args.callbackcaller) || ast_strlen_zero(args.callbackwatched) || ast_strlen_zero(args.localdevicestate) || ast_strlen_zero(args.remotedialstr) || ast_strlen_zero(args.number)) {
+	if (ast_strlen_zero(args.callbackcaller) || ast_strlen_zero(args.callbackwatched) || ast_strlen_zero(args.localdevicestate) || ast_strlen_zero(args.remotedialcontext) || ast_strlen_zero(args.number)) {
 		ast_log(LOG_WARNING, "Missing required arguments\n");
 		return -1;
 	}
@@ -563,6 +593,7 @@ static int callback_exec(struct ast_channel *chan, const char *data)
 	if (!cb) { /* We're good to request a callback */
 		cb = alloc_callback(caller, args.number);
 		if (cb) {
+			char tmpbuf[1]; /* Result not needed */
 			cb->thread = AST_PTHREADT_NULL;
 			cb->timeout_ms = timeout_ms;
 			cb->ringtime = ringtime;
@@ -570,13 +601,24 @@ static int callback_exec(struct ast_channel *chan, const char *data)
 			cb->poll_remote = poll_remote ? poll_remote * 1000 : 30000;
 			cb->require_local_idle = require_local_idle;
 			cb->localstate = args.localdevicestate ? ast_strdup(args.localdevicestate) : NULL;
-			cb->remotedialstr = args.remotedialstr ? ast_strdup(args.remotedialstr) : NULL;
+			cb->remotedialcontext = args.remotedialcontext ? ast_strdup(args.remotedialcontext) : NULL;
 			cb->callbackcaller = args.callbackcaller ? ast_strdup(args.callbackcaller) : NULL;
 			cb->callbackwatched = args.callbackwatched ? ast_strdup(args.callbackwatched) : NULL;
+			cb->tagname = args.tagname ? ast_strdup(args.tagname) : NULL;
 
 			remote = ast_get_hint(endpoints, sizeof(endpoints), NULL, 0, NULL, cb->localstate, cb->number) ? 0 : 1;
 			/* Check if it's available now. */
-			if ((!remote && !local_endpoint_busy(endpoints, cb->number)) || (remote && !remote_endpoint_busy(cb->remotedialstr, cb->caller, 4))) {
+			if (!remote && !local_endpoint_busy(endpoints, cb->number)) {
+				ast_verb(3, "Destination %s is currently idle.\n", cb->number);
+				pbx_builtin_setvar_helper(chan, SET_STATUS, "IDLE");
+				/* The call can just complete directly now, no callback is necessary. */
+				callback_free(cb);
+			} else if (ast_get_extension_data(tmpbuf, sizeof(tmpbuf), chan, cb->remotedialcontext, cb->number, 1)) {
+				ast_verb(3, "Can't determine status of destination %s.\n", cb->number);
+				pbx_builtin_setvar_helper(chan, SET_STATUS, "UNSUPPORTED");
+				/* Not a local endpoint, and no route to the remote status. */
+				callback_free(cb);
+			} else if (remote && !remote_endpoint_busy(cb->number, cb->remotedialcontext, cb->caller, 4)) {
 				ast_verb(3, "Destination %s is currently idle.\n", cb->number);
 				pbx_builtin_setvar_helper(chan, SET_STATUS, "IDLE");
 				/* The call can just complete directly now, no callback is necessary. */
