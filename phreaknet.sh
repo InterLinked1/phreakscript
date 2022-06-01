@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.69 (2022-05-17)
+# v0.1.70 (2022-06-01)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-06-01 0.1.70 PhreakScript: fix patch conflicts
 # 2022-05-17 0.1.69 Asterisk: readd hearpulsing
 # 2022-05-17 0.1.68 PhreakScript: enhanced install control
 # 2022-05-16 0.1.67 Asterisk: add func_query and app_callback
@@ -227,6 +228,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
+	# todo: this is outdated, missing recent commands
 	echo "about help examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
 	exit 0
 fi
@@ -287,6 +289,7 @@ Commands:
    enable-backtraces  Enables backtraces to be extracted from the core dumper (new or existing installs)
    backtrace          Use astcoredumper to process a backtrace and upload to InterLinked Paste
    backtrace-only     Use astcoredumper to process a backtrace
+   rundump            Get a backtrace from the running Asterisk process
 
    *** Developer Debugging ***
    valgrind           Run Asterisk under valgrind
@@ -1063,6 +1066,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_numpeer.c"
 	phreak_tree_module "funcs/func_ochannel.c"
 	phreak_tree_module "funcs/func_query.c"
+	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "res/res_coindetect.c"
 	phreak_tree_module "res/res_dialpulse.c"
 
@@ -1112,7 +1116,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	# Gerrit patches: never going to be merged upstream (do not remove):
-	gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
+	if [ "$SIP_CISCO" != "1" ]; then # this patch has a merge conflict with SIP usecallmanager patches
+		gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
+	fi
 	# gerrit_patch 18063 "https://gerrit.asterisk.org/changes/asterisk~18063/revisions/1/patch?download" # func_channel: Add TECH_EXISTS ### todo: does not cleanly apply.
 	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 
@@ -2448,6 +2454,8 @@ elif [ "$cmd" = "backtrace-only" ]; then
 	get_backtrace 0
 elif [ "$cmd" = "backtrace" ]; then
 	get_backtrace 1
+elif [ "$cmd" = "rundump" ]; then
+	$AST_VARLIB_DIR/scripts/ast_coredumper --RUNNING
 elif [ "$cmd" = "ccache" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://github.com/ccache/ccache/releases/download/v4.5.1/ccache-4.5.1.tar.gz
@@ -2576,6 +2584,9 @@ elif [ "$cmd" = "freedisk" ]; then
 	fi
 	if [ -d /var/crash ]; then
 		rm -f /var/crash/core*
+	fi
+	if [ -f /var/log/asterisk/refs ]; then
+		echo "" > /var/log/asterisk/refs
 	fi
 	rm -f /tmp/core*
 	rm -rf /var/lib/snapd/cache/* # can be safely removed: https://askubuntu.com/questions/1075050/how-to-remove-uninstalled-snaps-from-cache/1156686#1156686
