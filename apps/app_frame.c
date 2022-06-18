@@ -92,6 +92,9 @@
 				before dialplan execution continues, if the timer has not yet
 				expired.</para>
 			</parameter>
+			<parameter name="file">
+				<para>Optional audio file to play in a loop while application is running.</para>
+			</parameter>
 		</syntax>
 		<description>
 			<para>Waits for a specified frame type to be received before
@@ -99,10 +102,13 @@
 			is useful if the channel needs to wait for a certain type of control
 			frame to be received in order for call setup or progression to
 			continue.</para>
+			<para>If a digit is dialed during execution and a single-digit extension
+			matches in the current context, execution will continue there.</para>
 			<variablelist>
 				<variable name="WAITFORFRAMESTATUS">
 					<para>This is the status of waiting for the frame.</para>
 					<value name="SUCCESS" />
+					<value name="DIGIT" />
 					<value name="ERROR" />
 					<value name="HANGUP" />
 					<value name="TIMEOUT" />
@@ -239,23 +245,30 @@ static int waitframe_exec(struct ast_channel *chan, const char *data)
 	unsigned short int validframe = 0;
 	enum ast_frame_type waitframe;
 	char *argcopy = NULL;
+	int res = 0;
+	char *audiofile = NULL;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(frametype);
 		AST_APP_ARG(timeout);
 		AST_APP_ARG(reqmatches);
+		AST_APP_ARG(file);
 	);
 
 	if (ast_strlen_zero(data)) {
 		ast_log(LOG_WARNING, "WaitForFrame requires an argument (frametype)\n");
 		return -1;
 	}
+
 	argcopy = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, argcopy);
+
 	if (ast_strlen_zero(args.frametype)) {
 		ast_log(LOG_WARNING, "Invalid! Usage: WaitForFrame(frametype[,timeout])\n");
 		return -1;
 	}
+	audiofile = args.file;
+
 	for (i = 0; i < ARRAY_LEN(frametype2str); i++) {
 		if (strcasestr(args.frametype, frametype2str[i].str)) {
 			waitframe = frametype2str[i].type;
@@ -287,6 +300,11 @@ static int waitframe_exec(struct ast_channel *chan, const char *data)
 		return -1;
 	}
 	start = ast_tvnow();
+
+	if (audiofile) {
+		ast_streamfile(chan, audiofile, ast_channel_language(chan));
+	}
+
 	do {
 		if (timeout > 0) {
 			remaining_time = ast_remaining_ms(start, timeout);
@@ -300,6 +318,7 @@ static int waitframe_exec(struct ast_channel *chan, const char *data)
 			if (!frame) {
 				ast_debug(1, "Channel '%s' did not return a frame; probably hung up.\n", ast_channel_name(chan));
 				pbx_builtin_setvar_helper(chan, "WAITFORFRAMESTATUS", "HANGUP");
+				res = -1;
 				break;
 			} else if (frame->frametype == waitframe && (frame->frametype != AST_FRAME_CONTROL ||
 				subtype == frame->subclass.integer)) {
@@ -307,12 +326,31 @@ static int waitframe_exec(struct ast_channel *chan, const char *data)
 					pbx_builtin_setvar_helper(chan, "WAITFORFRAMESTATUS", "SUCCESS");
 					break;
 				}
+			} else if (frame->frametype == AST_FRAME_DTMF_END) {
+				char exten[2];
+				char digit = frame->subclass.integer;
+				*exten = digit;
+				*(exten + 1) = '\0';
+				if (ast_exists_extension(chan, ast_channel_context(chan), exten, 1, NULL)) {
+					pbx_builtin_setvar_helper(chan, "WAITFORFRAMESTATUS", "DIGIT");
+					ast_explicit_goto(chan, NULL, exten, 1);
+					break;
+				}
+			}
+			if (audiofile && ast_channel_streamid(chan) == -1 && ast_channel_timingfunc(chan) == NULL) {
+				/* Stream ended, start it again */
+				ast_streamfile(chan, audiofile, ast_channel_language(chan));
 			}
 		} else {
 			pbx_builtin_setvar_helper(chan, "WAITFORFRAMESTATUS", "HANGUP");
 		}
 	} while (timeout == 0 || remaining_time > 0);
-	return 0;
+
+	if (!res && audiofile) {
+		ast_stopstream(chan);
+	}
+
+	return res;
 }
 
 static int unload_module(void)
