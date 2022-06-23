@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.70 (2022-06-01)
+# v0.1.71 (2022-06-23)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-06-23 0.1.71 Asterisk: target 18.13.0
 # 2022-06-01 0.1.70 PhreakScript: fix patch conflicts
 # 2022-05-17 0.1.69 Asterisk: readd hearpulsing
 # 2022-05-17 0.1.68 PhreakScript: enhanced install control
@@ -276,6 +277,7 @@ Commands:
    restart            Fully restart DAHDI and Asterisk
    kill               Forcibly kill Asterisk
    forcerestart       Forcibly restart Asterisk
+   ban                Manually ban an IP address using iptables
 
    *** Debugging ***
    dialplanfiles      Verify what files are being parsed into the dialplan
@@ -1102,7 +1104,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
-	gerrit_patch 18250 "https://gerrit.asterisk.org/changes/asterisk~18250/revisions/2/patch?download" # res_calendar: prevent crash
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix
 	gerrit_patch 18305 "https://gerrit.asterisk.org/changes/asterisk~18305/revisions/6/patch?download" # fix buggy callerid
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -2159,6 +2160,12 @@ elif [ "$cmd" = "fail2ban" ]; then
 		exit 1
 	fi
 	wget -q "https://raw.githubusercontent.com/fail2ban/fail2ban/master/config/filter.d/asterisk.conf" -O /etc/fail2ban/filter.d/asterisk.conf
+elif [ "$cmd" = "ban" ]; then
+	if [ ${#2} -lt 1 ]; then
+		echoerr "Must specify an IP address or CIDR range"
+		exit 1
+	fi
+	iptables -A INPUT -s $2 -j DROP
 elif [ "$cmd" = "update" ]; then
 	assert_root
 	if [ ! -f "/tmp/phreakscript_update.sh" ]; then
@@ -2600,6 +2607,9 @@ elif [ "$cmd" = "freedisk" ]; then
 	service fail2ban stop
 	rm -rf /var/lib/fail2ban
 	service fail2ban start
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt autoremove -y
+	fi
 	rm -f /tmp/core*
 	df -h /
 elif [ "$cmd" = "topdisk" ]; then
