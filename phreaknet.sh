@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.71 (2022-06-23)
+# v0.1.72 (2022-06-26)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-06-26 0.1.72 PhreakScript: added wizard command
 # 2022-06-23 0.1.71 Asterisk: target 18.13.0
 # 2022-06-01 0.1.70 PhreakScript: fix patch conflicts
 # 2022-05-17 0.1.69 Asterisk: readd hearpulsing
@@ -230,7 +231,7 @@ phreakscript_info() {
 
 if [ "$1" = "commandlist" ]; then
 	# todo: this is outdated, missing recent commands
-	echo "about help examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
+	echo "about help wizard examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
 	exit 0
 fi
 
@@ -244,6 +245,7 @@ Commands:
    help               Program usage
    examples           Example usages
    info               System info
+   wizard             Interactive installation command wizard
 
    *** First Use / Installation ***
    make               Add PhreakScript to path
@@ -1514,9 +1516,75 @@ if which curl > /dev/null; then # only execute if we have curl
 	fi
 fi
 
+dialog_result() {
+	if [ "$1" = "$2" ]; then
+		wizardresult="$wizardresult $3"
+	fi
+}
+
 if [ "$cmd" = "help" ]; then
 	usage
 	exit 2
+elif [ "$cmd" = "wizard" ]; then
+	wizardresult=""
+	ensure_installed "dialog"
+
+	# DAHDI
+	ans=$(dialog --nocancel --menu "Do you need support for traditional telephony equipment? (DAHDI)" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--dahdi"
+	if [ "$ans" = "y" ]; then
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you need drivers for any of the following cards?\nWCTDM800, WCAEX800, WCTDM410, WXAEX410, WXTE120XP, WCTE11XP, WCTDM, WCT1XXP, WCFXO" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	fi
+	dialog_result "$ans" "y" "--drivers"
+
+	# Channel Drivers
+	ans=$(dialog --nocancel --default-item 'n' --menu "Do you need support for the deprecated chan_sip (SIP) module?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--sip"
+	ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install the chan_sccp (Skinny) channel driver?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--sccp"
+	ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install the usecallmanager chan_sip patches?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--cisco"
+
+	# General
+	ans=$(dialog --nocancel --default-item 'n' --menu "Do you need support for TLS 1.0?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--weaktls"
+	ans=$(dialog --nocancel --menu "Do you wish to overwrite/upgrade an existing Asterisk install?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--force"
+	ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install the FreePBX GUI? (not recommended)" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--freepbx"
+
+	# "Advanced" options
+	ans=$(dialog --nocancel --menu "Do you want to to configure additional advanced options?\n" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	if [ "$ans" = "y" ]; then
+		ans=$(dialog --nocancel --inputbox "What version of Asterisk do you want to install?\n e.g. latestlts = latest LTS version, master = Git master, 18.12.0 = 18.2.0" 20 60 "latestlts" 2>&1 >/dev/tty)
+		if [ "$ans" != "latestlts" ]; then
+			wizardresult="$wizardresult --version=$ans"
+		fi
+		ans=$(dialog --nocancel --inputbox "Your country code?" 20 60 "1" 2>&1 >/dev/tty)
+		if [ "$ans" != "1" ]; then
+			wizardresult="$wizardresult --cc=$ans"
+		fi
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to enable backtraces for debugging?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--backtraces"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install in development mode?\nThis will install the test framework and test suite, and compile with certain development compilation options." 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--testsuite"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to manually run menuselect?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--manselect"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install only generic Asterisk, without any PhreakNet enhancements?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--vanilla"
+	fi
+
+	ans=$(dialog --nocancel --default-item 'n' --menu "Last question! Do you want to begin installation automatically?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--vanilla"
+
+	printf "\n\n"
+	echog "You have completed the installation command wizard. You may use the following command to install according to your preferences:"
+	printf "phreaknet install%s\n" "$wizardresult"
+	if [ "$ans" = "y" ]; then
+		printf "Automatically installing with the determined options...\n"
+		sleep 1
+		exec phreaknet install "$wizardresult"
+	fi
 elif [ "$cmd" = "make" ]; then
 	# chmod +x phreaknet.sh
 	# ./phreaknet.sh make
