@@ -3,7 +3,7 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 18.12.0 (latest LTS release of Asterisk)
+- Asterisk 18.13.0 (latest LTS release of Asterisk)
 - next branch of DAHDI Linux (newer than 3.1.0, with optional DAHDI install flag)
 - DAHDI Tools 3.1.0 (with optional DAHDI install flag)
 - many additional features and stability improvements (see change log for full details)
@@ -91,6 +91,8 @@ In a nutshell, run:
 ```pkg install -y wget && cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
 
 Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet examples``` to get started.
+
+For a guided, interactive installation, you can also run `phreaknet wizard`. The wizard will determine what installation options are best for you, based on your preferences.
 
 PhreakScript must be run as root, even if Asterisk does not run as root.
 
