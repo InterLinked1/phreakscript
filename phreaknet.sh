@@ -1556,6 +1556,11 @@ elif [ "$cmd" = "wizard" ]; then
 	# "Advanced" options
 	ans=$(dialog --nocancel --menu "Do you want to to configure additional advanced options?\n" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 	if [ "$ans" = "y" ]; then
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install Asterisk to run as another user?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		if [ "$ans" = "y" ]; then
+			ans=$(dialog --nocancel --inputbox "What user do you want to run Asterisk under?" 20 60 "asterisk" 2>&1 >/dev/tty)
+			wizardresult="$wizardresult --version=$ans"
+		fi
 		ans=$(dialog --nocancel --inputbox "What version of Asterisk do you want to install?\n e.g. latestlts = latest LTS version, master = Git master, 18.12.0 = 18.2.0" 20 60 "latestlts" 2>&1 >/dev/tty)
 		if [ "$ans" != "latestlts" ]; then
 			wizardresult="$wizardresult --version=$ans"
@@ -1572,6 +1577,8 @@ elif [ "$cmd" = "wizard" ]; then
 		dialog_result "$ans" "y" "--manselect"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install only generic Asterisk, without any PhreakNet enhancements?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		dialog_result "$ans" "y" "--vanilla"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to prevent installation of nonrequired dependencies?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--minimal"
 	fi
 
 	ans=$(dialog --nocancel --default-item 'n' --menu "Last question! Do you want to begin installation automatically?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
