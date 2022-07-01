@@ -40,6 +40,7 @@ PhreakScript installs:
       - ``OutVerify``
       - ``KeyPrefetch``
       - ``SIPAddParameter``
+      - ``IRCSendMessage``
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:

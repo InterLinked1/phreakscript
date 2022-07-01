@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.73 (2022-07-01)
+# v0.1.74 (2022-07-01)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-01 0.1.74 Asterisk: add res_irc
 # 2022-07-01 0.1.73 PhreakScript: fix RSA chown
 # 2022-06-26 0.1.72 PhreakScript: added wizard command
 # 2022-06-23 0.1.71 Asterisk: target 18.13.0
@@ -1065,6 +1066,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_verify.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
+	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_dtmf_flash.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
@@ -1074,6 +1076,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "res/res_coindetect.c"
 	phreak_tree_module "res/res_dialpulse.c"
+	phreak_tree_module "res/res_irc.c"
 
 	## Third Party Modules
 	printf "Adding new module: %s\n" "apps/app_tdd.c"
