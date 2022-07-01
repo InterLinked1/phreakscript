@@ -258,7 +258,7 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		char *tmp_filename;
 		char curl_errbuf[CURL_ERROR_SIZE + 1];
 		int fd;
-		int failure;
+		int failure = 0;
 
 		ast_debug(1, "Planning to curl '%s' for public key\n", args.url);
 		needreload = 1;
