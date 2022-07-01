@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.72 (2022-06-26)
+# v0.1.73 (2022-07-01)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-01 0.1.73 PhreakScript: fix RSA chown
 # 2022-06-26 0.1.72 PhreakScript: added wizard command
 # 2022-06-23 0.1.71 Asterisk: target 18.13.0
 # 2022-06-01 0.1.70 PhreakScript: fix patch conflicts
@@ -2214,9 +2215,15 @@ elif [ "$cmd" = "keygen" ]; then
 	fi
 	touch $AST_CONFIG_DIR/iax-phreaknet-rsa-in.conf
 	# touch $AST_CONFIG_DIR/iax-phreaknet-rsa-out.conf # no longer necessary for >= 18.9
-	## If you are running Asterisk as not root, make the user as which Asterisk runs own the private key and the new files:
-	# chown asterisk phreaknetrsa.key
-	# chown asterisk $AST_CONFIG_DIR/iax-phreaknet*
+	# Determine what user Asterisk is running as.
+	# cut on ; before = so that we properly handled commented out lines.
+	astrunuser=$( grep "runuser" $AST_CONFIG_DIR/asterisk.conf | cut -d';' -f1 | cut -d'=' -f2 | xargs | tr -d '\n' )
+	if [ ${#astrunuser} -gt 0 ]; then
+		## If you are running Asterisk as non-root, make the user as which Asterisk runs own the private key and the new files:
+		chown "$astrunuser" phreaknetrsa.key
+		chown "$astrunuser" $AST_CONFIG_DIR/iax.conf
+		chown "$astrunuser" $AST_CONFIG_DIR/iax-phreaknet*
+	fi
 	asterisk -rx "module reload res_crypto"
 	asterisk -rx "keys init"
 	asterisk -rx "keys show"
