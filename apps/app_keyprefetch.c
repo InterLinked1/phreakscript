@@ -120,7 +120,7 @@ AST_APP_OPTIONS(fetch_app_options, {
 
 static const char *app = "KeyPrefetch";
 
-/*! \todo remove url_is_vulnerable and create_temp_file, if/once refactored */
+/*! \todo remove url_is_vulnerable, if/once refactored */
 
 /* Copied from func_curl.c. */
 static int url_is_vulnerable(const char *url)
@@ -130,39 +130,6 @@ static int url_is_vulnerable(const char *url)
 	}
 
 	return 0;
-}
-
-/* from res/res_stir_shaken/curl.c */
-/*!
- * \brief Create a temporary file located at path
- *
- * \note This function assumes path does not end with a '/'
- *
- * \param path The directory path to create the file in
- * \param filename Function allocates memory and stores full filename (including path) here
- *
- * \retval -1 on failure
- * \return file descriptor on success
- */
-static int create_temp_file(const char *path, char **filename)
-{
-	const char *template_name = "certXXXXXX";
-	int fd;
-
-	if (ast_asprintf(filename, "%s/%s", path, template_name) < 0) {
-		ast_log(LOG_ERROR, "Failed to set up temporary file path for CURL\n");
-		return -1;
-	}
-
-	ast_mkdir(path, 0644);
-
-	if ((fd = mkstemp(*filename)) < 0) {
-		ast_log(LOG_NOTICE, "Failed to create temporary file for CURL\n");
-		ast_free(*filename);
-		return -1;
-	}
-
-	return fd;
 }
 
 static int fetch_exec(struct ast_channel *chan, const char *data)
@@ -230,6 +197,7 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		if (stat(filepath, &s)) {
 			ast_debug(1, "Inkey '%s' currently loaded, but not found on file system. Redownloading.\n", args.keyname); /* could happen if somebody deleted the key, but hasn't reloaded yet */
 			inkey = NULL;
+			/* don't set newkey = 1, because we assume that the key was already written to the config before */
 		}
 		if (inkey) {
 			created = (int) s.st_ctime;
@@ -244,6 +212,7 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 			} else if (keytime < keymax) {
 				ast_debug(1, "Key is older (%d) than maxage %d, marked for replacement\n", now - keytime, maxage);
 				inkey = NULL;
+				/* don't set newkey = 1, because we assume that the key was already written to the config before */
 			} else {
 				pbx_builtin_setvar_helper(chan, "KEYPREFETCHSTATUS", "UNMODIFIED");
 			}
@@ -256,6 +225,7 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		long http_code;
 		CURL **curl;
 		char *tmp_filename;
+		const char *template_name = "pkeyXXXXXX";
 		char curl_errbuf[CURL_ERROR_SIZE + 1];
 		int fd;
 		int failure = 0;
@@ -274,17 +244,15 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 			goto done;
 		}
 
-		fd = create_temp_file(ast_config_AST_KEY_DIR, &tmp_filename);
+		fd = ast_file_fdtemp(ast_config_AST_KEY_DIR, &tmp_filename, template_name);
 		if (fd == -1) {
 			ast_log(LOG_ERROR, "Failed to get temporary file descriptor for CURL\n");
 			goto done;
 		}
 		public_key_file = fdopen(fd, "wb");
 
-#define GLOBAL_USERAGENT "asterisk-libcurl-agent/1.0"
-
 		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15);
-		curl_easy_setopt(curl, CURLOPT_USERAGENT, GLOBAL_USERAGENT);
+		curl_easy_setopt(curl, CURLOPT_USERAGENT, AST_CURL_USER_AGENT);
 		curl_easy_setopt(curl, CURLOPT_URL, args.url);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, public_key_file);
 		curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errbuf);
