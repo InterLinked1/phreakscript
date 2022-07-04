@@ -697,7 +697,6 @@ static int verify_log(struct ast_channel *chan, char *level, char *msg)
 
 static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
 {
-#define GLOBAL_USERAGENT "asterisk-libcurl-agent/1.0"
 	CURL **curl;
 	char curl_errbuf[CURL_ERROR_SIZE + 1];
 
@@ -719,7 +718,7 @@ static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
 	}
 
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, curltimeout);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, GLOBAL_USERAGENT);
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, AST_CURL_USER_AGENT);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_string_callback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
 	curl_easy_setopt(curl, CURLOPT_URL, url);
