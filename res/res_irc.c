@@ -364,6 +364,8 @@ static int irc_incoming(char *raw)
 		irc_debug(1, "%s has joined %s\n", username, tmp);
 	} else if (!strcasecmp(action, "PART")) {
 		irc_debug(1, "%s has left %s\n", username, tmp);
+	} else if (!strcasecmp(action, "QUIT")) {
+		irc_debug(1, "%s has quit %s\n", username, tmp);
 	} else if (!strcasecmp(action, "NICK")) {
 		irc_debug(1, "%s is now known as %s\n", username, tmp);
 	} else if (!strcasecmp(action, "NOTICE")) {
@@ -499,6 +501,8 @@ static void *irc_loop(void *vargp)
 			}
 		}
 	}
+
+	irc_debug(1, "IRC connection terminated\n");
 
 	irc_cleanup();
 	return NULL;
