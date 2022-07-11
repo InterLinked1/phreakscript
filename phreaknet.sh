@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.76 (2022-07-11)
+# v0.1.77 (2022-07-11)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-11 0.1.77 PhreakScript: added package audit
 # 2022-07-11 0.1.76 PhreakScript: streamline enhanced dependencies
 # 2022-07-05 0.1.75 Asterisk: update usecallmanager target
 # 2022-07-01 0.1.74 Asterisk: add res_irc
@@ -173,6 +174,7 @@ DAHDI_OLD_DRIVERS=0
 TEST_SUITE=0
 FORCE_INSTALL=0
 ENHANCED_INSTALL=1
+PKG_AUDIT=0
 MANUAL_MENUSELECT=0
 ENABLE_BACKTRACES=0
 ASTKEYGEN=0
@@ -335,6 +337,7 @@ Options:
        --upstream     update: Specify upstream source
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --boilerplate  sounds: Also install boilerplate sounds
+       --audit        install: Audit package installation
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
@@ -844,7 +847,7 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 install_dahdi() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install -y linux-headers-`uname -r` build-essential binutils-dev autoconf dh-autoreconf libusb-dev
-		apt install -y pkg-config m4 libtool automake autoconf
+		apt-get install -y pkg-config m4 libtool automake autoconf
 	fi
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download system headers"
@@ -1445,7 +1448,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1474,6 +1477,7 @@ while true; do
 		-u | --user ) AST_USER=$2; shift 2;;
 		-v | --version ) AST_ALT_VER=$2; shift 2;;
 		-w | --weaktls ) WEAK_TLS=1; shift ;;
+		--audit ) PKG_AUDIT=1; shift ;;
 		--cisco ) SIP_CISCO=1; shift ;;
 		--sccp ) CHAN_SCCP=1; shift ;;
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
@@ -1586,6 +1590,8 @@ elif [ "$cmd" = "wizard" ]; then
 		dialog_result "$ans" "y" "--vanilla"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to prevent installation of nonrequired dependencies?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		dialog_result "$ans" "y" "--minimal"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to audit package installation?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--audit"
 	fi
 
 	ans=$(dialog --nocancel --default-item 'n' --menu "Last question! Do you want to begin installation automatically?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
@@ -1613,6 +1619,9 @@ elif [ "$cmd" = "make" ]; then
 		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
 elif [ "$cmd" = "install" ]; then
+	if [ "$PKG_AUDIT" = "1" ]; then
+		pkg_before=$( apt list --installed )
+	fi
 	if [ "$TEST_SUITE" = "1" ]; then
 		uname -a
 		apt-get install -y linux-headers-`uname -r` build-essential
@@ -1952,6 +1961,15 @@ elif [ "$cmd" = "install" ]; then
 		printf "%s\n" "Installation of FreePBX GUI will begin in 5 seconds..."
 		sleep 5 # give time to read the message above, if we're watching...
 		install_freepbx
+	fi
+	if [ "$PKG_AUDIT" = "1" ]; then
+		pkg_after=$( apt list --installed )
+		printf "%s\n" "Package Audit: Before/After"
+		# diff wants a file...
+		printf "%s" "$pkg_before" > /tmp/phreaknet_audit_before.txt
+		printf "%s" "$pkg_after" > /tmp/phreaknet_audit_after.txt
+		diff /tmp/phreaknet_audit_before.txt /tmp/phreaknet_audit_after.txt
+		rm /tmp/phreaknet_audit_before.txt /tmp/phreaknet_audit_after.txt
 	fi
 elif [ "$cmd" = "freepbx" ]; then
 	install_freepbx_checks
