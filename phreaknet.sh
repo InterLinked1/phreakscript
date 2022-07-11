@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.75 (2022-07-05)
+# v0.1.76 (2022-07-11)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-11 0.1.76 PhreakScript: streamline enhanced dependencies
 # 2022-07-05 0.1.75 Asterisk: update usecallmanager target
 # 2022-07-01 0.1.74 Asterisk: add res_irc
 # 2022-07-01 0.1.73 PhreakScript: fix RSA chown
@@ -394,9 +395,9 @@ install_prereq() {
 		if [ "$ENHANCED_INSTALL" = "1" ]; then
 			apt-get dist-upgrade -y
 		fi
-		apt-get install -y wget curl sox libcurl4-openssl-dev dnsutils bc git # necessary for install and basic operation.
+		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc git mpg123 # necessary for install and basic operation.
 		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
-			apt-get install -y ntp iptables tcpdump sox mpg123 php festival fail2ban mariadb-server
+			apt-get install -y ntp tcpdump festival
 		fi
 		if [ "$TEST_SUITE" = "1" ]; then
 			apt-get install -y xmlstarlet # only needed in developer mode for doc validation.
@@ -408,7 +409,7 @@ install_prereq() {
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -f
 		pkg upgrade -y
-		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion xmlstarlet # bind-tools for dig
+		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl mpg123 git bind-tools gmake subversion xmlstarlet # bind-tools for dig
 		pkg info e2fsprogs-libuuid
 		#if [ $? -ne 0 ]; then
 		#	if [ ! -d /usr/ports/misc/e2fsprogs-libuuid/ ]; then # https://www.freshports.org/misc/e2fsprogs-libuuid/
@@ -510,7 +511,7 @@ install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asteri
 	FREEPBX_VERSION="freepbx-16.0-latest"
 	# avoid using if possible
 	# PHP 7.4 is supported: https://www.freepbx.org/freepbx-16-is-now-released-for-general-availability/
-	apt-get -y install apache2 mariadb-server libapache2-mod-php7.4 php7.4 php-pear php7.4-cgi php7.4-common php7.4-curl php7.4-mbstring php7.4-gd php7.4-mysql php7.4-bcmath php7.4-zip php7.4-xml php7.4-imap php7.4-json php7.4-snmp
+	apt-get -y install apache2 mariadb-server php libapache2-mod-php7.4 php7.4 php-pear php7.4-cgi php7.4-common php7.4-curl php7.4-mbstring php7.4-gd php7.4-mysql php7.4-bcmath php7.4-zip php7.4-xml php7.4-imap php7.4-json php7.4-snmp
 	cd $AST_SOURCE_PARENT_DIR
 	wget http://mirror.freepbx.org/modules/packages/freepbx/$FREEPBX_VERSION.tgz -O $AST_SOURCE_PARENT_DIR/$FREEPBX_VERSION.tgz
 	tar -xvzf $FREEPBX_VERSION.tgz
@@ -1180,6 +1181,7 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 }
 
 install_odbc() {
+	assert_installed mariadb-server
 	# https://wiki.asterisk.org/wiki/display/AST/Getting+Asterisk+Connected+to+MySQL+via+ODBC
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install -y unixodbc unixodbc-dev unixodbc-bin mariadb-server
@@ -2232,15 +2234,8 @@ elif [ "$cmd" = "keygen" ]; then
 	asterisk -rx "keys init"
 	asterisk -rx "keys show"
 elif [ "$cmd" = "fail2ban" ]; then
-	if [ ! -d /etc/fail2ban ]; then
-		if [ "$PAC_MAN" = "apt-get" ]; then
-			apt-get install -y fail2ban
-		fi
-		if [ ! -d /etc/fail2ban ]; then
-			echoerr "fail2ban was not installed and could not be auto-installed"
-			exit 1
-		fi
-	fi
+	ensure_installed iptables
+	ensure_installed fail2ban
 	if [ -f /etc/fail2ban/filter.d/asterisk.conf ]; then
 		echoerr "Existing fail2ban configuration for Asterisk already found, exiting..."
 		exit 1
