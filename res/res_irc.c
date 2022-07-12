@@ -46,6 +46,12 @@
 #include "asterisk/utils.h"
 #include "asterisk/acl.h"
 
+#ifdef HAVE_OPENSSL
+#include <openssl/bio.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#endif
+
 /*** DOCUMENTATION
 	<application name="IRCSendMessage" language="en_US">
 		<synopsis>
@@ -98,12 +104,19 @@ static pthread_t irc_thread;
 static int authenticated;
 ast_mutex_t irc_lock;
 
+#ifdef HAVE_OPENSSL
+SSL*     ssl = NULL;
+SSL_CTX* ctx = NULL;
+#endif
+
 struct irc_server {
 	char *hostname;
 	unsigned int port;
 	char *username;
 	char *password;
 	char *autojoin;
+	unsigned int tls:1;
+	unsigned int tlsverify:1;
 	unsigned int sasl:1;
 	unsigned int events:1;
 #if 0
@@ -130,10 +143,29 @@ static void free_server(struct irc_server *server)
 	ast_free(server);
 }
 
+static void free_ssl_and_ctx(void)
+{
+	SSL_CTX_free(ctx);
+	SSL_free(ssl);
+	ctx = NULL;
+	ssl = NULL;
+}
+
 static void irc_cleanup(void)
 {
 	close(irc_socket);
 	irc_socket = -1;
+#ifdef HAVE_OPENSSL
+	if (ssl) {
+		SSL_shutdown(ssl);
+		SSL_free(ssl);
+		ssl = NULL;
+	}
+	if (ctx) {
+		SSL_CTX_free(ctx);
+		ctx = NULL;
+	}
+#endif
 }
 
 static int irc_disconnect(void)
@@ -189,7 +221,14 @@ static int __attribute__ ((format (gnu_printf, 1, 2))) irc_send(const char *fmt,
 	}
 
 	irc_debug(3, "IRC=>%s", fullbuf ? fullbuf : buf); /* Message already ends with CR LF, don't add another new line */
-	bytes = write(irc_socket, fullbuf ? fullbuf : buf, len);
+#ifdef HAVE_OPENSSL
+	if (ircserver->tls) {
+		bytes = SSL_write(ssl, fullbuf ? fullbuf : buf, len);
+	} else
+#endif
+	{
+		bytes = write(irc_socket, fullbuf ? fullbuf : buf, len);
+	}
 
 	if (bytes < 1) {
 		ast_log(LOG_WARNING, "Failed to write to socket\n");
@@ -475,7 +514,14 @@ static void *irc_loop(void *vargp)
 		}
 		/* Data from IRC server? */
 		if (fds[0].revents) {
-			res = recv(irc_socket, readinbuf, IRC_BUFFER_SIZE - 2 - (readinbuf - inbuf), 0);
+#ifdef HAVE_OPENSSL
+			if (ircserver->tls) {
+				res = SSL_read(ssl, readinbuf, IRC_BUFFER_SIZE - 2 - (readinbuf - inbuf));
+			} else
+#endif
+			{
+				res = recv(irc_socket, readinbuf, IRC_BUFFER_SIZE - 2 - (readinbuf - inbuf), 0);
+			}
 			if (res < 1) {
 				break;
 			}
@@ -535,24 +581,122 @@ static int irc_connect(const char *hostname, int port)
 	}
 	ast_sockaddr_set_port(&saddr, port);
 
-	/*! \todo add SSL/TLS support */
+	if (ircserver->tls) {
+#ifdef HAVE_OPENSSL
+		OpenSSL_add_ssl_algorithms();
+		SSL_load_error_strings();
+		ctx = SSL_CTX_new(TLS_client_method());
+		if (!ctx) {
+			ast_log(LOG_ERROR, "Failed to setup new SSL context\n");
+			return -1;
+		}
+		SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3); /* Only use TLS */
+		ssl = SSL_new(ctx);
+		if (!ssl) {
+			ast_log(LOG_WARNING, "Failed to create new SSL\n");
+			SSL_CTX_free(ctx);
+			ctx = NULL;
+			return -1;
+		}
+#else
+		ast_log(LOG_WARNING, "Asterisk was compiled without OpenSSL: TLS is not available for this connection\n");
+		/* Rather than falling back to plain text and sending credentials in the clear,
+		 * abort if we were supposed to use TLS but can't. */
+		return -1;
+#endif
+	}
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd < 0) {
 		ast_log(LOG_WARNING, "Unable to create socket: %s\n", strerror(errno));
+#ifdef HAVE_OPENSSL
+		if (ctx) {
+			SSL_CTX_free(ctx);
+			ctx = NULL;
+		}
+#endif
 		return -1;
 	}
 
 	if (ast_connect(fd, &saddr)) {
 		ast_log(LOG_WARNING, "Failed to connect to %s: %s\n", ast_sockaddr_stringify(&saddr), strerror(errno));
+#ifdef HAVE_OPENSSL
+		if (ctx) {
+			SSL_CTX_free(ctx);
+			ctx = NULL;
+		}
+#endif
 		return -1;
 	}
 
-	ast_verb(3, "Established IRC connection to %s\n", ast_sockaddr_stringify(&saddr));
+#ifdef HAVE_OPENSSL
+	if (ircserver->tls) {
+		X509 *server_cert;
+		char *str;
+		if (SSL_set_fd(ssl, fd) != 1) {
+			ast_log(LOG_WARNING, "Failed to connect SSL: %s\n", ERR_error_string(ERR_get_error(), NULL));
+			free_ssl_and_ctx();
+			close(fd);
+			return -1;
+		}
+		if (SSL_connect(ssl) == -1) {
+			ast_log(LOG_WARNING, "Failed to connect SSL: %s\n", ERR_error_string(ERR_get_error(), NULL));
+			ERR_print_errors_fp(stderr);
+			free_ssl_and_ctx();
+			close(fd);
+			return -1;
+		}
+		/* Verify cert */
+		server_cert = SSL_get_peer_certificate(ssl);
+		if (!server_cert) {
+			ast_log(LOG_WARNING, "Failed to get peer certificate\n");
+			free_ssl_and_ctx();
+			close(fd);
+			return -1;
+		}
+		str = X509_NAME_oneline(X509_get_subject_name(server_cert), 0, 0);
+		if (!str) {
+			ast_log(LOG_WARNING, "Failed to get peer certificate\n");
+			free_ssl_and_ctx();
+			close(fd);
+			return -1;
+		}
+		ast_debug(8, "TLS SN: %s\n", str);
+		OPENSSL_free(str);
+		str = X509_NAME_oneline(X509_get_issuer_name (server_cert), 0, 0);
+		if (!str) {
+			ast_log(LOG_WARNING, "Failed to get peer certificate\n");
+			free_ssl_and_ctx();
+			close(fd);
+			return -1;
+		}
+		ast_debug(8, "TLS Issuer: %s\n", str);
+		OPENSSL_free(str);
+		X509_free(server_cert);
+		if (ircserver->tlsverify) { /* If we're verifying the cert, go for it. */
+			long verify_result;
+			verify_result = SSL_get_verify_result(ssl);
+			if (verify_result != X509_V_OK) {
+				ast_log(LOG_WARNING, "SSL verify failed: %ld (%s)\n", verify_result, X509_verify_cert_error_string(verify_result));
+				free_ssl_and_ctx();
+				close(fd);
+				return -1;
+			}
+		}
+	}
+#endif
+
+	ast_verb(3, "Established %s IRC connection to %s\n", ircserver->tls ? "secure" : "plain text", ast_sockaddr_stringify(&saddr));
 	irc_socket = fd;
 
 	if (ast_pthread_create(&irc_thread, NULL, irc_loop, NULL)) {
 		ast_log(LOG_WARNING, "Failed to create IRC thread\n");
+#ifdef HAVE_OPENSSL
+		if (ircserver->tls) {
+			free_ssl_and_ctx();
+		}
+#endif
+		close(fd);
 		return -1;
 	}
 
@@ -774,8 +918,16 @@ static int irc_reload(int reload)
 	ircserver->username = ((tempstr = ast_variable_retrieve(cfg, "general", "username"))) ? ast_strdup(tempstr) : NULL;
 	ircserver->password = ((tempstr = ast_variable_retrieve(cfg, "general", "password"))) ? ast_strdup(tempstr) : NULL;
 	ircserver->autojoin = ((tempstr = ast_variable_retrieve(cfg, "general", "autojoin"))) ? ast_strdup(tempstr) : NULL;
+	ircserver->tls = ((tempstr = ast_variable_retrieve(cfg, "general", "tls"))) ? !strcasecmp(tempstr, "yes") ? 1 : 0 : 0;
+	ircserver->tlsverify = ((tempstr = ast_variable_retrieve(cfg, "general", "tlsverify"))) ? !strcasecmp(tempstr, "yes") ? 1 : 0 : 0;
 	ircserver->sasl = ((tempstr = ast_variable_retrieve(cfg, "general", "sasl"))) ? !strcasecmp(tempstr, "yes") ? 1 : 0 : 0;
 	ircserver->events = ((tempstr = ast_variable_retrieve(cfg, "general", "events"))) ? !strcasecmp(tempstr, "yes") ? 1 : 0 : 0;
+
+#ifndef HAVE_OPENSSL
+	if (ircserver->tls) {
+		ast_log(LOG_WARNING, "Server configured with TLS, but Asterisk was not compiled with OpenSSL. This will fail.\n");
+	}
+#endif
 
 	/* Remaining sections */
 	while ((cat = ast_category_browse(cfg, cat))) {
@@ -843,6 +995,11 @@ static int unload_module(void)
 		free_server(ircserver);
 	}
 
+#ifdef HAVE_OPENSSL
+	ERR_free_strings(); /* stub */
+    EVP_cleanup();
+#endif
+
 	return res;
 }
 
@@ -864,6 +1021,12 @@ static int load_module(void)
 	ast_cli_register_multiple(cli_irc, ARRAY_LEN(cli_irc));
 	res |= ast_register_application_xml(send_msg_app, irc_msg_exec);
 	res |= ast_manager_register_xml("IRCSendMessage", EVENT_FLAG_USER, irc_msg_tx);
+
+#ifdef HAVE_OPENSSL
+	SSL_load_error_strings(); /* stub */
+    SSL_library_init(); /* stub */
+    OpenSSL_add_all_algorithms();
+#endif
 
 	return res;
 }

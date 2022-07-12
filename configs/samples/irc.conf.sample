@@ -5,13 +5,13 @@
 ;
 ;[general] ; IRC server details. Currently, only one server is supported.
 ;
-; WARNING: This module currently does not support SSL/TLS. Any data sent or received
-; to/from IRC using this module is NOT ENCRYPTED. Use at your own risk!
-;
 ;hostname = irc.libera.chat ; Hostname of IRC server
 ;port = 6667 ; IRC port - default is 6667 (depends on whether it's plain text or SSL/TLS, check with your IRC server)
 ;username = jsmith ; IRC nickname/username
 ;password = password123 ; IRC password
 ;autojoin = #asterisk ; Comma-separated list of channels to join on startup. Default is none.
+;tls = yes ; Whether to secure the connection with TLS or not. Default is no, but this is recommended if supported by your server. 
+           ; Don't forget to use the appropriate port for TLS connections, per your IRC server.
+;tlsverify = no ; Whether to verify the peer's SSL certificate. If you receive verify warnings, disabling this may work. Default is no.
 ;sasl = yes ; Whether or not to use SASL authentication. Currently, only plain-text SASL auth is supported. Default is no.
 ;events = yes ; Whether or not to emit AMI events on incoming messages from IRC channels. Default is no.
