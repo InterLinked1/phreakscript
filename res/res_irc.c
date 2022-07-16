@@ -88,7 +88,7 @@
  ***/
 
 #define IRC_DEFAULT_PORT 6667
-#define IRC_BUFFER_SIZE 256
+#define IRC_BUFFER_SIZE 512
 #define CONFIG_FILE "irc.conf"
 
 /* Helpful sources:
@@ -523,6 +523,7 @@ static void *irc_loop(void *vargp)
 				res = recv(irc_socket, readinbuf, IRC_BUFFER_SIZE - 2 - (readinbuf - inbuf), 0);
 			}
 			if (res < 1) {
+				ast_log(LOG_WARNING, "Socket read returned %d\n", res);
 				break;
 			}
 			*(readinbuf + res) = '\0';
@@ -535,12 +536,17 @@ static void *irc_loop(void *vargp)
 					continue;
 				}
 				if (!end) {
+					int len = strlen(message);
 					/* Haven't gotten a CR LF yet, so this message isn't actually complete yet. Go round for another loop. */
 					irc_debug(8, "No CR LF, message not yet finished? %s\n", message);
-					strcpy(readinbuf, message); /* Safe, since this was in the buffer in the first place */
-					readinbuf += strlen(message);
-					ast_free(messages);
-					break;
+					if (len < IRC_BUFFER_SIZE - 2 - (readinbuf - inbuf)) { /* Can't just do len < IRC_BUFFER_SIZE, because readinbuf might be past inbuf already */
+						strcpy(readinbuf, message); /* Safe, since this was in the buffer in the first place */
+						readinbuf += len;
+						ast_free(messages);
+						break;
+					}
+					irc_debug(8, "Buffer is full, flushing and starting over\n");
+					end = readinbuf + IRC_BUFFER_SIZE - 1;
 				}
 				*end = '\0'; /* Don't pass CR to message processor, just the message itself */
 				irc_incoming(message); /* Got a complete message. */
