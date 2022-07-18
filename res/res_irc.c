@@ -320,7 +320,7 @@ static void logged_in_callback(void)
 
 static int irc_incoming(char *raw)
 {
-	char *username, *action, *tmp;
+	char *from, *action, *tmp;
 
 	irc_debug(3, "IRC<=%s\n", raw);
 
@@ -351,22 +351,27 @@ static int irc_incoming(char *raw)
 		return -1;
 	}
 	*tmp++ = '\0';
-	username = raw + 1; /* Skip leading : */
+	from = raw + 1; /* Skip leading : */
 	action = ast_strdup(action);
 	/* Do something with message (or not) */
 	if (!strcasecmp(action, "PRIVMSG")) {
-		char *channel = NULL, *excl = strchr(username, '!');
+		char *to = NULL, *excl = strchr(from, '!');
 		if (excl) {
 			*excl = '\0'; /* Remove host info, etc. and just retain actual nick */
 		}
-		irc_debug(1, "Message from %s: %s\n", username, tmp);
-		if (*tmp == '#') {
-			channel = tmp;
-			tmp = strchr(channel, ':');
-			if (*tmp) {
-				*tmp++ = '\0';
-			}
+		irc_debug(1, "Message from %s: %s\n", from, tmp);
+
+		if (!strcasecmp(from, ircserver->username)) {
+			ast_log(LOG_WARNING, "Copycat! Got message from myself to myself?\n");
 		}
+
+		/* If to turns out to be our username, it's a private message */
+		to = tmp;
+		tmp = strchr(to, ':');
+		if (*tmp) {
+			*tmp++ = '\0';
+		}
+
 		if (ircserver->events) { /* Only raise an event if this flag is enabled */
 			/*** DOCUMENTATION
 				<managerEvent language="en_US" name="IRCMessage">
@@ -374,7 +379,7 @@ static int irc_incoming(char *raw)
 						<synopsis>Raised when a message is sent in an IRC channel.</synopsis>
 						<syntax>
 							<parameter name="Channel">
-								<para>IRC channel name. Can be NULL.</para>
+								<para>IRC channel name (or user, for private messages).</para>
 							</parameter>
 							<parameter name="User">
 								<para>User that sent the message.</para>
@@ -394,21 +399,21 @@ static int irc_incoming(char *raw)
 				"Channel: %s\r\n"
 				"User: %s\r\n"
 				"Message: %s\r\n",
-				channel,
-				username,
+				to,
+				from,
 				tmp);
 		}
 	/*! \todo expand with more actions */
 	} else if (!strcasecmp(action, "JOIN")) {
-		irc_debug(1, "%s has joined %s\n", username, tmp);
+		irc_debug(1, "%s has joined %s\n", from, tmp);
 	} else if (!strcasecmp(action, "PART")) {
-		irc_debug(1, "%s has left %s\n", username, tmp);
+		irc_debug(1, "%s has left %s\n", from, tmp);
 	} else if (!strcasecmp(action, "QUIT")) {
-		irc_debug(1, "%s has quit %s\n", username, tmp);
+		irc_debug(1, "%s has quit %s\n", from, tmp);
 	} else if (!strcasecmp(action, "NICK")) {
-		irc_debug(1, "%s is now known as %s\n", username, tmp);
+		irc_debug(1, "%s is now known as %s\n", from, tmp);
 	} else if (!strcasecmp(action, "NOTICE")) {
-		irc_debug(1, "Notice from %s: %s\n", username, tmp);
+		irc_debug(1, "Notice from %s: %s\n", from, tmp);
 		if (strstr(tmp, "now identified")) {
 			/* No IRC numeric for successful login if not using SASL */
 			logged_in_callback();
@@ -437,7 +442,7 @@ static int irc_incoming(char *raw)
 			break;
 		case 0:
 			/* XXX currently lots of unhandled stuff here */
-			ast_log(LOG_WARNING, "Unexpected IRC message: %s %s %s\n", username, action, tmp);
+			ast_log(LOG_WARNING, "Unexpected IRC message: %s %s %s\n", from, action, tmp);
 			break;
 		default:
 			/* Ignore other IRC numerics */
