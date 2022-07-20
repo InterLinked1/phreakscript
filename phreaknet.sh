@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.77 (2022-07-11)
+# v0.1.78 (2022-07-20)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-20 0.1.78 PhreakScript: add fullpatch command
 # 2022-07-11 0.1.77 PhreakScript: added package audit
 # 2022-07-11 0.1.76 PhreakScript: streamline enhanced dependencies
 # 2022-07-05 0.1.75 Asterisk: update usecallmanager target
@@ -237,7 +238,7 @@ phreakscript_info() {
 
 if [ "$1" = "commandlist" ]; then
 	# todo: this is outdated, missing recent commands
-	echo "about help wizard examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
+	echo "about help wizard examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk fullpatch topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
 	exit 0
 fi
 
@@ -311,6 +312,7 @@ Commands:
    runtest            Run any specified test (argument to command)
    stresstest         Run any specified test multiple times in a row
    gerrit             Manually install a custom patch set from Gerrit
+   fullpatch          Redownload an entire PhreakNet source file
    ccache             Globally install ccache to speed up recompilation
 
    *** Miscellaneous ***
@@ -2056,6 +2058,30 @@ elif [ "$cmd" = "ulaw" ]; then
 elif [ "$cmd" = "docverify" ]; then
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # show the XML validation errors
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml 2>&1 | grep "doc/core-en_US.xml:" | cut -d':' -f2 | cut -d'.' -f1 | xargs  -d "\n" -I{} sed "{}q;d" doc/core-en_US.xml # show the offending lines
+elif [ "$cmd" = "fullpatch" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	if [ $? -ne 0 ]; then
+		die "Asterisk not currently installed?"
+	fi
+	read -r -p "Source File: " filename
+	# ${var:i:j} substring expansion not available in POSIX sh
+	if [ "$(expr substr "$filename" 1 4)" = "app_" ]; then
+		filename="apps/${filename}"
+	elif [ "$(expr substr "$filename" 1 5)" = "func_" ]; then
+		filename="funcs/${filename}"
+	elif [ "$(expr substr "$filename" 1 4)" = "res_" ]; then
+		filename="res/${filename}"
+	fi
+	length=$(expr length "${filename}")
+	clen=$(( $length - 1 )) # 1 not 2, since we're 1-indexed
+	if [ $clen -gt 0 ]; then
+		if [ "$(expr substr "$filename" "$clen" 2)" != ".c" ]; then
+			printf "Auto appending .c file extension\n"
+			filename="${filename}.c"
+		fi
+	fi
+	phreak_tree_module "$filename"
 elif [ "$cmd" = "gerrit" ]; then
 	read -r -p "Gerrit Patchset: " gurl
 	phreak_gerrit_off "$gurl"
