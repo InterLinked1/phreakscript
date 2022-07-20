@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.78 (2022-07-20)
+# v0.1.79 (2022-07-20)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-20 0.1.79 Asterisk: fix memory issue in app_signal
 # 2022-07-20 0.1.78 PhreakScript: add fullpatch command
 # 2022-07-11 0.1.77 PhreakScript: added package audit
 # 2022-07-11 0.1.76 PhreakScript: streamline enhanced dependencies
@@ -1115,7 +1116,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Gerrit patches: remove once merged
 	# phreak_tree_module "apps/app_if.c"
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
-	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
+	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix
 	gerrit_patch 18305 "https://gerrit.asterisk.org/changes/asterisk~18305/revisions/6/patch?download" # fix buggy callerid
