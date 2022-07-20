@@ -191,6 +191,12 @@
 						<para>Name of variable in which to store the STIR/SHAKEN disposition. To make the variable persist through Dial, prefix with double underscore.</para>
 					</description>
 				</configOption>
+				<configOption name="remote_stirshaken_var">
+					<synopsis>Name of remote variable in which to the STIR/SHAKEN disposition can be found.</synopsis>
+					<description>
+						<para>Name of remote variable in which to the STIR/SHAKEN disposition can be found.</para>
+					</description>
+				</configOption>
 				<configOption name="via_number">
 					<synopsis>Number on this node for reverse identification.</synopsis>
 					<description>
@@ -373,6 +379,7 @@ struct call_verify {
 	char obtaintokenrequest[PATH_MAX];		/*!< HTTP lookup for obtaining a verification token */
 	char local_var[AST_MAX_CONTEXT];		/*!< Variable in which to store verification status */
 	char stirshaken_var[AST_MAX_CONTEXT];	/*!< Variable in which to store STIR/SHAKEN disposition */
+	char remote_stirshaken_var[AST_MAX_CONTEXT]; /*!< Variable in which remote STIR/SHAKEN disposition arrives */
 	char via_number[AST_MAX_CONTEXT]; 		/*!< Number on this node, used for downstream identification */
 	char remote_var[AST_MAX_CONTEXT];		/*!< Variable in which verification status arrives to us */
 	char via_remote_var[AST_MAX_CONTEXT];	/*!< Variable in which upstream node identification arrives */
@@ -414,7 +421,7 @@ static int curltimeout = DEFAULT_CURL_TIMEOUT;		/*!< Curl Timeout */
 
 static AST_RWLIST_HEAD_STATIC(verifys, call_verify);
 
-char stir_shaken_stats[6];
+char stir_shaken_stats[2][6];
 ast_mutex_t ss_lock;
 
 /*! \brief Allocate and initialize verify profile */
@@ -494,6 +501,7 @@ static void profile_set_param(struct call_verify *v, const char *param, const ch
 	VERIFY_LOAD_STR_PARAM(obtaintokenrequest, val[0]);
 	VERIFY_LOAD_STR_PARAM(local_var, val[0] && !contains_whitespace(val)); /* could cause bad things to happen if we try setting a var name with spaces */
 	VERIFY_LOAD_STR_PARAM(stirshaken_var, val[0] && !contains_whitespace(val)); /* could cause bad things to happen if we try setting a var name with spaces */
+	VERIFY_LOAD_STR_PARAM(remote_stirshaken_var, val[0] && !contains_whitespace(val)); /* could cause bad things to happen if we try setting a var name with spaces */
 	VERIFY_LOAD_STR_PARAM(via_number, val[0] && !contains_whitespace(val));
 	VERIFY_LOAD_STR_PARAM(remote_var, val[0] && !contains_whitespace(val));
 	VERIFY_LOAD_STR_PARAM(via_remote_var, val[0] && !contains_whitespace(val));
@@ -1043,8 +1051,9 @@ static char parse_hdr_for_verstat(const char *hdr_name, char *hdr, char **versta
 	return 0;
 }
 
-static void stir_shaken_stat_inc(char c)
+static void stir_shaken_stat_inc(int type, char c)
 {
+	ast_assert(type == 0 || type == 1);
 	ast_mutex_lock(&ss_lock);
 	switch (c) {
 	case 'A':
@@ -1053,7 +1062,7 @@ static void stir_shaken_stat_inc(char c)
 	case 'D':
 	case 'E':
 	case 'F':
-		stir_shaken_stats[c - 'A'] += 1;
+		stir_shaken_stats[type][c - 'A'] += 1;
 		break;
 	default:
 		ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %c\n", c);
@@ -1071,7 +1080,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	int blacklisted = 0, success = 0;
 
 	int curl, method, extendtrust, allowtoken, sanitychecks, threshold, blacklist_failopen;
-	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], stirshaken_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], blacklist_endpoint[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
+	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], stirshaken_var[AST_MAX_CONTEXT], remote_stirshaken_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], blacklist_endpoint[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
 	float blacklist_threshold;
 
 	AST_DECLARE_APP_ARGS(args,
@@ -1127,6 +1136,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(via_remote_var);
 	VERIFY_STRDUP(local_var);
 	VERIFY_STRDUP(stirshaken_var);
+	VERIFY_STRDUP(remote_stirshaken_var);
 	VERIFY_STRDUP(remote_var);
 	VERIFY_STRDUP(token_remote_var);
 	VERIFY_STRDUP(validatetokenrequest);
@@ -1204,12 +1214,27 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 				ast_verb(4, "STIR/SHAKEN rating is '%c' (%s)\n", ss_verstat, S_OR(verstat, "UNKNOWN"));
 				snprintf(ss_result, sizeof(ss_result), "%c", ss_verstat);
 				pbx_builtin_setvar_helper(chan, stirshaken_var, ss_result);
-				stir_shaken_stat_inc(ss_verstat);
+				stir_shaken_stat_inc(0, ss_verstat);
 			} else {
 				ast_debug(2, "No STIR/SHAKEN information available\n");
 				pbx_builtin_setvar_helper(chan, stirshaken_var, "E");
-				stir_shaken_stat_inc('E');
+				stir_shaken_stat_inc(0, 'E');
 			}
+		}
+	} else if (!ast_strlen_zero(remote_stirshaken_var)) {
+		/* If remote result available, use that purely to update the statistics. */
+		char result[3];
+		int size = strlen(remote_stirshaken_var) + 4;
+		char iaxvartmp[size]; /* ${} + null terminator */
+		snprintf(iaxvartmp, size, "${%s}", remote_stirshaken_var);
+		result[0] = '\0';
+		pbx_substitute_variables_helper(chan, iaxvartmp, result, sizeof(result));
+		if (strlen(result) > 1) {
+			ast_log(LOG_WARNING, "Received invalid STIR/SHAKEN disposition from upstream: %s\n", result);
+		} else {
+			char ss_verstat = result[0];
+			stir_shaken_stat_inc(1, ss_verstat);
+			/* Don't automatically set the local var to the remote var, setinvars will do this, if requested. */
 		}
 	}
 
@@ -1811,8 +1836,10 @@ static const char *stir_shaken_name(char c)
 
 static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
-	int total = 0;
+	int total[2];
 	char c;
+
+	total[0] = total[1] = 0;
 
 	switch(cmd) {
 	case CLI_INIT:
@@ -1825,13 +1852,15 @@ static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast
 		return NULL;
 	}
 
-	ast_cli(a->fd, "%-30s %10s\n", "STIR/SHAKEN Rating", "# of Calls");
+	ast_cli(a->fd, "%-30s %14s %14s\n", "STIR/SHAKEN Rating", "# Direct Calls", "Passthru Calls");
 	for (c = 'A'; c <= 'F'; c++) {
-		ast_cli(a->fd, "%-30s %10d\n", stir_shaken_name(c), stir_shaken_stats[c - 'A']);
-		total += stir_shaken_stats[c - 'A'];
+		ast_cli(a->fd, "%-30s %14d %14d\n", stir_shaken_name(c), stir_shaken_stats[0][c - 'A'], stir_shaken_stats[1][c - 'A']);
+		total[0] += stir_shaken_stats[0][c - 'A'];
+		total[1] += stir_shaken_stats[1][c - 'A'];
 	}
 	ast_cli(a->fd, "------------------------------ ----------\n");
-	ast_cli(a->fd, "%-30s %10d\n", "Total # STIR/SHAKEN Calls", total);
+	ast_cli(a->fd, "%-30s %14d %14d\n", "Total # STIR/SHAKEN Calls", total[0], total[1]);
+	ast_cli(a->fd, "%-30s %14s %14d\n", "", "=", total[0] + total[1]);
 
 	return CLI_SUCCESS;
 }
@@ -1992,7 +2021,8 @@ static char *handle_reset_stats(struct ast_cli_entry *e, int cmd, struct ast_cli
 	/* Reset STIR/SHAKEN stats */
 	ast_mutex_lock(&ss_lock);
 	for (c = 'A'; c <= 'F'; c++) {
-		stir_shaken_stats[c - 'A'] = 0;
+		stir_shaken_stats[0][c - 'A'] = 0;
+		stir_shaken_stats[1][c - 'A'] = 0;
 	}
 	ast_mutex_unlock(&ss_lock);
 
