@@ -182,13 +182,13 @@
 				<configOption name="local_var">
 					<synopsis>Name of variable in which to store the verification result.</synopsis>
 					<description>
-						<para>Name of variable in which to store the verification result. Be sure to prefix with double underscore if the variable should carry through Dial. To make the variable persist through Dial, be sure to prefix with double underscore if desired.</para>
+						<para>Name of variable in which to store the verification result. To make the variable persist through Dial, prefix with double underscore.</para>
 					</description>
 				</configOption>
 				<configOption name="stirshaken_var">
 					<synopsis>Name of variable in which to store the STIR/SHAKEN disposition.</synopsis>
 					<description>
-						<para>Name of variable in which to store the STIR/SHAKEN disposition. Be sure to prefix with double underscore if the variable should carry through Dial. To make the variable persist through Dial, be sure to prefix with double underscore if desired.</para>
+						<para>Name of variable in which to store the STIR/SHAKEN disposition. To make the variable persist through Dial, prefix with double underscore.</para>
 					</description>
 				</configOption>
 				<configOption name="via_number">
