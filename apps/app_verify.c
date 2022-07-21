@@ -75,7 +75,7 @@
 			peer-to-peer trunking system to be screened out.</para>
 			<para>This application may generally only be used with IAX2 channels,
 			except for simple verify methods regex and pattern.</para>
-			<para>STIR/SHAKEN processing is only supported on PJSIP channels.</para>
+			<para>STIR/SHAKEN processing is only supported on SIP/PJSIP channels.</para>
 		</description>
 		<see-also>
 			<ref type="application">OutVerify</ref>
@@ -1176,17 +1176,26 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 
 	/* Analyze STIR/SHAKEN result, if applicable */
 	if (!ast_strlen_zero(stirshaken_var)) {
-		if (strcmp(ast_channel_tech(chan)->type, "PJSIP")) {
-			ast_log(LOG_WARNING, "STIR/SHAKEN only supported on PJSIP channels\n");
+		char ss_verstat = 0;
+		char *verstat = NULL;
+		char from_hdr[512];
+		char pai_hdr[512];
+		char ss_result[2];
+		int unsupported = 0;
+
+		from_hdr[0] = pai_hdr[0] = '\0';
+
+		if (!strcmp(ast_channel_tech(chan)->type, "PJSIP")) {
+			ast_func_read(chan, "PJSIP_HEADER(read,From,1)", from_hdr, sizeof(from_hdr));
+			ast_func_read(chan, "PJSIP_HEADER(read,P-Asserted-Identity,1)", pai_hdr, sizeof(pai_hdr));
+		} else if (!strcmp(ast_channel_tech(chan)->type, "SIP")) {
+			ast_func_read(chan, "SIP_HEADER(From,1)", from_hdr, sizeof(from_hdr));
+			ast_func_read(chan, "SIP_HEADER(P-Asserted-Identity,1)", pai_hdr, sizeof(pai_hdr));
 		} else {
-			char ss_verstat = 0;
-			char *verstat = NULL;
-			char from_hdr[512];
-			char pai_hdr[512];
-			char ss_result[2];
-
-			from_hdr[0] = pai_hdr[0] = '\0';
-
+			ast_log(LOG_WARNING, "STIR/SHAKEN only supported on PJSIP channels\n");
+			unsupported = 1;
+		}
+		if (!unsupported) {
 			/* STIR/SHAKEN references (including carrier implementations) consulted, in no particular order:
 			 * https://www.carrierx.com/documentation/how-it-works/stir-shaken#introduction
 			 * https://help.webex.com/en-us/article/8j6te9/Spam-or-fraud-call-indication-in-Webex-Calling
@@ -1197,9 +1206,6 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			 * https://transnexus.com/whitepapers/shaken-vs/
 			 * https://www.plivo.com/docs/sip-trunking/concepts/stir-shaken
 			 */
-
-			ast_func_read(chan, "PJSIP_HEADER(read,From,1)", from_hdr, sizeof(from_hdr));
-			ast_func_read(chan, "PJSIP_HEADER(read,P-Asserted-Identity,1)", pai_hdr, sizeof(pai_hdr));
 
 			if (ast_strlen_zero(from_hdr)) {
 				ast_log(LOG_WARNING, "From header is empty?\n"); /* How can there not be a From header? */
