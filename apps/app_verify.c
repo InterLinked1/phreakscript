@@ -1065,7 +1065,11 @@ static void stir_shaken_stat_inc(int type, char c)
 		stir_shaken_stats[type][c - 'A'] += 1;
 		break;
 	default:
-		ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %c\n", c);
+		if (isprint(c)) {
+			ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %c\n", c);
+		} else {
+			ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %d\n", c);
+		}
 	}
 	ast_mutex_unlock(&ss_lock);
 }
