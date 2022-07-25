@@ -93,7 +93,7 @@
 			<para>This application relies internally on AstDB.</para>
 		</description>
 	</application>
-	<configInfo name="selective" language="en_US">
+	<configInfo name="app_selective" language="en_US">
 		<synopsis>Module to provide user management of selective calling features</synopsis>
 		<configFile name="selective.conf">
 			<configObject name="general">
