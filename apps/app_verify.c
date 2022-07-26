@@ -192,9 +192,9 @@
 					</description>
 				</configOption>
 				<configOption name="remote_stirshaken_var">
-					<synopsis>Name of remote variable in which to the STIR/SHAKEN disposition can be found.</synopsis>
+					<synopsis>Name of remote variable in which the STIR/SHAKEN disposition can be found.</synopsis>
 					<description>
-						<para>Name of remote variable in which to the STIR/SHAKEN disposition can be found.</para>
+						<para>Name of remote variable in which the STIR/SHAKEN disposition can be found.</para>
 					</description>
 				</configOption>
 				<configOption name="via_number">
@@ -1067,7 +1067,7 @@ static void stir_shaken_stat_inc(int type, char c)
 	default:
 		if (isprint(c)) {
 			ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %c\n", c);
-		} else {
+		} else if (c) {
 			ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %d\n", c);
 		}
 	}
