@@ -396,7 +396,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 		ts = ast_tone_zone_sound_unref(ts);
 	}
 
-	return res;
+	return res < 0 ? -1 : 0;
 }
 
 static int unload_module(void)
