@@ -1790,9 +1790,9 @@ elif [ "$cmd" = "install" ]; then
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
 	if [ "$TEST_SUITE" = "1" ]; then
-		./configure --with-jansson-bundled --enable-dev-mode
+		./configure --with-jansson-bundled --enable-dev-mode NOISY_BUILD=yes
 	else
-		./configure --with-jansson-bundled
+		./configure --with-jansson-bundled NOISY_BUILD=yes
 	fi
 	if [ $? -ne 0 ]; then
 		exit 2
