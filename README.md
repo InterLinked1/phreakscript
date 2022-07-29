@@ -4,10 +4,11 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 PhreakScript installs:
 
 - Asterisk 18.13.0 (latest LTS release of Asterisk)
-- next branch of DAHDI Linux (newer than 3.1.0, with optional DAHDI install flag)
-- DAHDI Tools 3.1.0 (with optional DAHDI install flag)
+- DAHDI Linux 3.2.0 (with optional DAHDI install flag)
+- DAHDI Tools 3.2.0 (with optional DAHDI install flag)
 - many additional features and stability improvements (see change log for full details)
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
+   - DAHDI/wanpipe compilation fixes
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver)
       - Cisco Call Manager support for `chan_sip`
@@ -61,7 +62,7 @@ PhreakScript installs:
       - ``DB_UNIQUE``
       - ``SIP_PARAMETER``
    - Miscellaneous improvements
-      - Enhances performance by disabling Newexten AMI event
+      - Enhances performance by completely removing Newexten AMI event
       - Adds fax timing and parameter control to `chan_sip`
       - Fixes ulaw/gsm codec translation bug
       - Fixes infinite loop Dial bug
@@ -92,6 +93,10 @@ In a nutshell, run:
 ```pkg install -y wget && cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
 
 Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet examples``` to get started.
+
+For a basic install, you can run `phreaknet install`
+
+To install with DAHDI, run `phreaknet install --dahdi`
 
 For a guided, interactive installation, you can also run `phreaknet wizard`. The wizard will determine what installation options are best for you, based on your preferences.
 
