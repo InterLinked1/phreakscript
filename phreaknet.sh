@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.80 (2022-07-24)
+# v0.1.81 (2022-07-29)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-29 0.1.81 DAHDI: fix wanpipe compiling, target DAHDI 3.2.0
 # 2022-07-24 0.1.80 Asterisk: remove merged patches
 # 2022-07-20 0.1.79 Asterisk: fix memory issue in app_signal
 # 2022-07-20 0.1.78 PhreakScript: add fullpatch command
@@ -808,6 +809,21 @@ dahdi_custom_patch() {
 	rm /tmp/$1.patch
 }
 
+custom_patch() {
+	printf "Applying custom patch: %s\n" "$1"
+	if [ ! -f "$2" ]; then
+		echoerr "File $2 does not exist"
+		exit 2
+	fi
+	wget -q "$3" -O /tmp/$1.patch --no-cache
+	patch -u -b "$2" -i /tmp/$1.patch
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply custom patch (patch -u -b $2 -i /tmp/$1.patch)... this should be reported..."
+		exit 2
+	fi
+	rm /tmp/$1.patch
+}
+
 dahdi_patch() {
 	printf "Applying unmerged DAHDI patch: %s\n" "$1"
 	wget -q "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$1" -O /tmp/$1.patch --no-cache
@@ -895,18 +911,18 @@ install_dahdi() {
 	fi
 
 	# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
-	dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
-	dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
-	dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
-	dahdi_patch "c98f59eead28cf66b271b031288542e34e603c43"
-	dahdi_patch "34b9c77c9ab2794d4e912461e4c1080c4b1f6184"
-	dahdi_patch "26fb7c34cba98c08face72cf29b70dfdc71449c6"
-	dahdi_patch "90e8a54e3a482c3cee6afc6b430bb0aab7ee8f34"
-	dahdi_patch "97e744ad9604bd7611846da0b9c0c328dc80f262"
-	dahdi_patch "4df746fe3ffd6678f36b16c9b0750fa552da92e4"
-	dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
-	dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
-	dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
+	#dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
+	#dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
+	#dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
+	#dahdi_patch "c98f59eead28cf66b271b031288542e34e603c43"
+	#dahdi_patch "34b9c77c9ab2794d4e912461e4c1080c4b1f6184"
+	#dahdi_patch "26fb7c34cba98c08face72cf29b70dfdc71449c6"
+	#dahdi_patch "90e8a54e3a482c3cee6afc6b430bb0aab7ee8f34"
+	#dahdi_patch "97e744ad9604bd7611846da0b9c0c328dc80f262"
+	#dahdi_patch "4df746fe3ffd6678f36b16c9b0750fa552da92e4"
+	#dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
+	#dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
+	#dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
 
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
@@ -934,9 +950,9 @@ install_dahdi() {
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
 	# Compiler fixes
-	dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+	#dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
 	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
-	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xtalk_sync.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xtalk.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-95
+	#dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xtalk_sync.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xtalk.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-95
 
 	# New Features
 
@@ -1006,10 +1022,12 @@ install_dahdi() {
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	cd ${WANPIPE_SOURCE_NAME}
+	custom_patch "af_wanpipe" "patches/kdrivers/src/wanrouter/af_wanpipe.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/af_wanpipe.diff"
 	# ./Setup dahdi
 	./Setup install --silent
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
+		#exit 2
 	else
 		wanrouter stop
 		wanrouter start
