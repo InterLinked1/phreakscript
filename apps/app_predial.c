@@ -336,6 +336,9 @@ static int predial_exec(struct ast_channel *chan, const char *data)
 			case UA_MITEL:
 				send_header(chan, "Call-Info", "<sip:broadworks.net>;answer-after=0");
 				break;
+			case UA_MICROSIP:
+				send_header(chan, "Call-Info", "Auto Answer");
+				break;
 			default:
 				ast_log(LOG_WARNING, "Don't know how to send auto-answer to user agent type %d\n", ua);
 				break;
