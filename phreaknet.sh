@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.81 (2022-07-29)
+# v0.1.82 (2022-07-30)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-07-30 0.1.82 PhreakScript: streamline prereq install
 # 2022-07-29 0.1.81 DAHDI: fix wanpipe compiling, target DAHDI 3.2.0
 # 2022-07-24 0.1.80 Asterisk: remove merged patches
 # 2022-07-20 0.1.79 Asterisk: fix memory issue in app_signal
@@ -735,7 +736,7 @@ install_testsuite_itself() {
 }
 
 configure_devmode() {
-	./configure --enable-dev-mode
+	./configure --enable-dev-mode NOISY_BUILD=yes
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK --enable DO_CRASH menuselect.makeopts
 	menuselect/menuselect --enable-category MENUSELECT_TESTS menuselect.makeopts
@@ -866,12 +867,20 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 
 install_dahdi() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y linux-headers-`uname -r` build-essential binutils-dev autoconf dh-autoreconf libusb-dev
+		apt-get install -y build-essential binutils-dev autoconf dh-autoreconf libusb-dev
 		apt-get install -y pkg-config m4 libtool automake autoconf
-	fi
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to download system headers"
-		exit 2
+		apt-get install -y linux-headers-`uname -r`
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to download system headers"
+			printf "Your kernel: "
+			uname -r
+			printf "Available headers for your system: \n"
+			printf "You may need to upgrade your kernel using apt-get dist-upgrade to install the build headers for your system.\n"
+			apt search linux-headers 2>1 | grep "linux-headers"
+			exit 2
+		fi
+	else
+		echoerr "Unable to install potential DAHDI prerequisites"
 	fi
 	cd $AST_SOURCE_PARENT_DIR
 	# just in case, for some reason, these already existed... don't let them throw everything off:
@@ -1102,6 +1111,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "res/res_coindetect.c"
+	phreak_tree_module "res/res_deadlock.c"
 	phreak_tree_module "res/res_dialpulse.c"
 	phreak_tree_module "res/res_irc.c"
 
