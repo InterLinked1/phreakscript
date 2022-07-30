@@ -865,20 +865,39 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Finished undoing DAHDI removals!"
 }
 
+linux_headers_info() {
+	printf "Your kernel: "
+	uname -r
+	printf "Available headers for your system: \n"
+	printf "You may need to upgrade your kernel using apt-get dist-upgrade to install the build headers for your system.\n"
+	apt search linux-headers 2>1 | grep "linux-headers"
+}
+
+linux_headers_install() {
+	apt-get install -y linux-headers-`uname -r`
+	if [ $? -ne 0 ]; then
+		kernel=`uname -r`
+		echoerr "Unable to find automatic installation candidate for $kernel"
+		if [ "$kernel" = "5.15.0-1014-azure" ]; then # GitHub Action, MS Azure
+			apt-get install -y linux-headers-5.10.0-14-cloud-amd64
+		else
+			echoerr "Failed to download system headers and no exception defined"
+			linux_headers_info
+			exit 2
+		fi
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to download system headers and exception failed"
+			linux_headers_info
+			exit 2
+		fi
+	fi
+}
+
 install_dahdi() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install -y build-essential binutils-dev autoconf dh-autoreconf libusb-dev
 		apt-get install -y pkg-config m4 libtool automake autoconf
-		apt-get install -y linux-headers-`uname -r`
-		if [ $? -ne 0 ]; then
-			echoerr "Failed to download system headers"
-			printf "Your kernel: "
-			uname -r
-			printf "Available headers for your system: \n"
-			printf "You may need to upgrade your kernel using apt-get dist-upgrade to install the build headers for your system.\n"
-			apt search linux-headers 2>1 | grep "linux-headers"
-			exit 2
-		fi
+		linux_headers_install
 	else
 		echoerr "Unable to install potential DAHDI prerequisites"
 	fi
@@ -1656,7 +1675,8 @@ elif [ "$cmd" = "install" ]; then
 		uname -a
 		apt-get install -y linux-headers-`uname -r` build-essential
 		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
-			echoerr "DAHDI is not compatible with this system"
+			echoerr "DAHDI does not seem to be compatible with this system (missing kernel build headers)"
+			linux_headers_info
 		fi
 	fi
 	assert_root
