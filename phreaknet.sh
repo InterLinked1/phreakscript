@@ -736,7 +736,7 @@ install_testsuite_itself() {
 }
 
 configure_devmode() {
-	./configure --enable-dev-mode NOISY_BUILD=yes
+	./configure --enable-dev-mode
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK --enable DO_CRASH menuselect.makeopts
 	menuselect/menuselect --enable-category MENUSELECT_TESTS menuselect.makeopts
@@ -1800,9 +1800,9 @@ elif [ "$cmd" = "install" ]; then
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
 	if [ "$TEST_SUITE" = "1" ]; then
-		./configure --with-jansson-bundled --enable-dev-mode NOISY_BUILD=yes
+		./configure --with-jansson-bundled --enable-dev-mode
 	else
-		./configure --with-jansson-bundled NOISY_BUILD=yes
+		./configure --with-jansson-bundled
 	fi
 	if [ $? -ne 0 ]; then
 		exit 2
