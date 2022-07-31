@@ -68,7 +68,7 @@
 				<para>Hostname. Default is 127.0.0.1</para>
 			</parameter>
 			<parameter name="port" required="false">
-				<para>Port. Default is 21 (default Telnet port).</para>
+				<para>Port. Default is 23 (default Telnet port).</para>
 			</parameter>
 			<parameter name="options">
 				<optionlist>
