@@ -2300,6 +2300,9 @@ elif [ "$cmd" = "keygen" ]; then
 	else
 		printf "%s\n" "--rotate flag not provided, skipping key rotation or creation."
 	fi
+	if [ ! -f phreaknetrsa.pub ]; then
+		die "File phreaknetrsa.pub not found"
+	fi
 	if [ ${#INTERLINKED_APIKEY} -gt 30 ] && [ ${#PHREAKNET_CLLI} -eq 11 ]; then
 		wanip=`dig +short myip.opendns.com @resolver4.opendns.com`
 		printf "%s %s\n" "Autodetected WAN IP address is" $wanip
