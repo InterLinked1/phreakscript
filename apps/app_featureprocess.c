@@ -415,12 +415,11 @@ static int featureproc_exec(struct ast_channel *chan, const char *data)
 	char *argstr, *cur = NULL;
 	struct ast_str *strbuf = NULL;
 
-	argstr = ast_strdupa((char *) data);
-
-	if (ast_strlen_zero(argstr)) {
+	if (ast_strlen_zero(data)) {
 		ast_log(LOG_WARNING, "%s requires an argument\n", app);
 		return -1;
 	}
+	argstr = ast_strdupa((char *) data);
 	if (!(strbuf = ast_str_create(512))) {
 		ast_log(LOG_ERROR, "Could not allocate memory for response.\n");
 		return -1;
