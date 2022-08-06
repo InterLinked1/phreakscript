@@ -49,7 +49,10 @@ the best Asterisk and DAHDI experience.
 : Add PhreakScript to path
 
 **man**
-: Install PhreakScript man page
+: Compile and install PhreakScript man page
+
+**mancached**
+: Install cached PhreakScript man page (may be outdated)
 
 **install**
 : Install or upgrade Asterisk. This is the primary command provided by PhreakScript.

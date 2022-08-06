@@ -242,7 +242,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap restart kill forcerestart ban dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap restart kill forcerestart ban dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -261,6 +261,8 @@ Commands:
 
    *** First Use / Installation ***
    make               Add PhreakScript to path
+   man                Compile and install PhreakScript man page
+   mancached          Install cached man page (may be outdated)
    install            Install or upgrade PhreakNet-enhanced Asterisk
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    odbc               Install ODBC (MariaDB)
@@ -1668,6 +1670,27 @@ elif [ "$cmd" = "make" ]; then
 		echo "PhreakScript could not be added to path. Is it already there?"
 		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
+elif [ "$cmd" = "man" ]; then
+	cd /tmp
+	wget "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.1.md"
+	ensure_installed pandoc
+	# f option required for double dash to work correctly: https://github.com/jgm/pandoc/issues/5404
+	pandoc phreaknet.1.md -f markdown-smart -s -t man -o phreaknet.1
+	if [ ! -d /usr/local/man/man1 ]; then
+		mkdir /usr/local/man/man1
+	fi
+	cp phreaknet.1 /usr/local/man/man1
+	gzip /usr/local/man/man1/phreaknet.1
+	mandb
+elif [ "$cmd" = "mancached" ]; then
+	cd /tmp
+	wget "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.1"
+	if [ ! -d /usr/local/man/man1 ]; then
+		mkdir /usr/local/man/man1
+	fi
+	cp phreaknet.1 /usr/local/man/man1
+	gzip /usr/local/man/man1/phreaknet.1
+	mandb
 elif [ "$cmd" = "install" ]; then
 	if [ "$PKG_AUDIT" = "1" ]; then
 		pkg_before=$( apt list --installed )
@@ -2847,7 +2870,6 @@ elif [ "$cmd" = "disable-swap" ]; then
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."
-	printf "%s\n\n" 	"phreaknet update                   Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n\n" 	"Installation commands:"
 	printf "%s\n"		"phreaknet install                  Install the latest version of Asterisk."
 	printf "%s\n"		"phreaknet install --cc=44          Install the latest version of Asterisk, with country code 44."
@@ -2871,6 +2893,7 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"phreaknet update                   Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n"		"phreaknet update --upstream=URL    Update PhreakScript using URL as the upstream source (for testing)."
 	printf "%s\n"		"phreaknet patch                    Apply the latest PhreakNet configuration patches."
+	printf "%s\n"		"phreaknet fullpatch app_verify     Download the latest version of the app_verify module."
 	printf "\n"
 elif [ "$cmd" = "version" ]; then
 	printf "%s" "PhreakScript "
