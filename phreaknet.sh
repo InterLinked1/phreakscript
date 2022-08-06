@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.82 (2022-07-30)
+# v0.1.83 (2022-08-06)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-08-06 0.1.83 PhreakScript: added version command
 # 2022-07-30 0.1.82 PhreakScript: streamline prereq install
 # 2022-07-29 0.1.81 DAHDI: fix wanpipe compiling, target DAHDI 3.2.0
 # 2022-07-24 0.1.80 Asterisk: remove merged patches
@@ -241,8 +242,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	# todo: this is outdated, missing recent commands
-	echo "about help wizard examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk fullpatch topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
+	echo "about help version examples info wizard make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap restart kill forcerestart ban dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -254,6 +254,7 @@ Commands:
    *** Getting Started ***
    about              About PhreakScript
    help               Program usage
+   version            Program version
    examples           Example usages
    info               System info
    wizard             Interactive installation command wizard
@@ -2871,6 +2872,9 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"phreaknet update --upstream=URL    Update PhreakScript using URL as the upstream source (for testing)."
 	printf "%s\n"		"phreaknet patch                    Apply the latest PhreakNet configuration patches."
 	printf "\n"
+elif [ "$cmd" = "version" ]; then
+	printf "%s" "PhreakScript "
+	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
 elif [ "$cmd" = "info" ]; then
 	phreakscript_info
 elif [ "$cmd" = "about" ]; then
