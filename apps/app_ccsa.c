@@ -2785,6 +2785,7 @@ static int ccsa_reload(int reload)
 				} else {
 					ast_log(LOG_WARNING, "Unknown keyword in profile '%s': %s at line %d of %s\n", var->name, var->name, var->lineno, CONFIG_FILE);
 				}
+				var = var->next;
 			}
 			continue;
 		}
