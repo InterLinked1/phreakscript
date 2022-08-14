@@ -124,6 +124,7 @@
 		<see-also>
 			<ref type="application">WaitForDeposit</ref>
 			<ref type="function">COIN_DETECT</ref>
+			<ref type="function">COIN_EIS</ref>
 		</see-also>
 	</application>
 	<application name="WaitForDeposit" language="en_US">
@@ -252,6 +253,48 @@
 		<see-also>
 			<ref type="application">WaitForDeposit</ref>
 			<ref type="application">CoinDisposition</ref>
+		</see-also>
+	</function>
+	<function name="COIN_EIS" language="en_US">
+		<synopsis>
+			Set up a channel for Expanded In-Band Signaling
+		</synopsis>
+		<syntax>
+			<parameter name="direction">
+				<para>Direction for EIS.</para>
+				<enumlist>
+					<enum name="TX">
+						<para>TX direction. This is on audio transmitted towards the caller,
+						or in other words, audio received from the called party (far end).
+						This is the default.</para>
+					</enum>
+					<enum name="RX">
+						<para>RX direction. This is on audio received from the caller,
+						or in other words, audio transmitted to the called party.</para>
+					</enum>
+					<enum name="remove">
+						<para>Remove an existing EIS hook.</para>
+					</enum>
+				</enumlist>
+			</parameter>
+		</syntax>
+		<description>
+			<para>The COIN_EIS function setups an asynchronous framehook that activates
+			Expanded In-Band Signaling on the channel. This should only be used on the
+			slave end of an EIS Feature Group C trunk, at a Class 5 office. For
+			the master end (Class 4 office), use <literal>CoinDisposition</literal>
+			instead.</para>
+			<para>When a coin disposition is received from the master side of the trunk,
+			a CoinDisposition AMI event is emitted. This can then be used to control
+			the appropriate coin controller interface of the line associated with
+			the slave channel, according to the disposition.</para>
+			<example title="Enable EIS on a slave channel">
+			same => n,Set(COIN_EIS()=TX) ; enable EIS signaling
+			</example>
+		</description>
+		<see-also>
+			<ref type="application">CoinDisposition</ref>
+			<ref type="managerEvent">CoinDisposition</ref>
 		</see-also>
 	</function>
  ***/
@@ -895,6 +938,293 @@ static int disposition_exec(struct ast_channel *chan, const char *data)
 	return res;
 }
 
+enum direction {
+    TX = 0,
+    RX,
+};
+
+struct eis_info {
+	int framehook_id;
+	enum direction fdirection;
+	struct ast_audiohook audiohook;
+	struct ast_dsp *dsp;
+	struct timeval lastwink;
+	unsigned int gotwink:1;	/* Whether we've ever gotten a wink */
+	unsigned int midwink:1;	/* If we just got a wink and are expecting an MF digit */
+	unsigned int winksatisfied:1; /* Whether we got a directive corresponding to the active wink */
+	char lastdirective;
+};
+
+/*! \brief This is called when the DATASTORE is destroyed (not the framehook) */
+static void destroy_eis_datastore(void *data)
+{
+	struct eis_info *ei = data;
+	ast_dsp_free(ei->dsp);
+	ast_free(ei); /* Free the datastore itself */
+}
+
+static const struct ast_datastore_info eis_datastore = {
+	.type = "eis_info",
+	.destroy = destroy_eis_datastore
+};
+
+static struct ast_frame *eis_event_cb(struct ast_channel *chan, struct ast_frame *frame, enum ast_framehook_event event, void *data)
+{
+	struct eis_info *ei = data;
+	int winktimer = 2000; /* 2000 ms */
+
+	if (!frame) {
+		return frame;
+	} else if (!((event == AST_FRAMEHOOK_EVENT_WRITE && ei->fdirection == TX) ||
+		(event == AST_FRAMEHOOK_EVENT_READ && ei->fdirection == RX))) {
+		return frame; /* Wrong direction */
+	} else if (frame->frametype != AST_FRAME_CONTROL && frame->frametype != AST_FRAME_VOICE) {
+		return frame; /* Don't care */
+	} else if (frame->frametype == AST_FRAME_CONTROL && frame->subclass.integer == AST_CONTROL_WINK) {
+		/* If we were already in a wink, then ignore additional winks, but only if they were actually recent. */
+		if (!ei->gotwink) {
+			ei->gotwink = 1; /* This was the first wink, so lastwink doesn't exist yet. */
+		} else if (ei->midwink) {
+			int remaining_time = ast_remaining_ms(ei->lastwink, winktimer); /* Only allow one wink every winktimer ms */
+			if (remaining_time > 0) { /* This wink was recent. */
+				ast_log(LOG_WARNING, "Received additional winks in succession (%d ms), Feature Group C trunk configured for multiwink instead of EIS?\n", winktimer - remaining_time);
+				return frame; /* Ignore this particular wink and proceed as if we never got it (don't update lastwink time). */
+			}
+		}
+		/* We got a (relatively new) wink */
+		ei->lastwink = ast_tvnow(); /* Keep track when we got the last wink */
+		ei->midwink = 1; /* We're in the middle of the wink, expecting MF */
+		ei->winksatisfied = 0; /* Waiting for an MF */
+		ast_debug(1, "Got wink on %s, waiting for directive\n", ast_channel_name(chan));
+		return frame;
+	}
+
+	if (!ei->midwink) {
+		return frame; /* We're not midwink, don't care. */
+	} else {
+		/* Regardless of what's going on, if the midwink flag is set, check that we're still in the wink. */
+		int remaining_time = ast_remaining_ms(ei->lastwink, winktimer); /* Check if the wink has expired yet */
+		if (remaining_time <= 0) {
+			ast_debug(1, "Wink timer (%d ms) expired on %s\n", winktimer, ast_channel_name(chan));
+			ei->midwink = 0; /* We're not midwink, don't care. */
+			return frame;
+		}
+	}
+	if (frame->frametype != AST_FRAME_VOICE) {
+		return frame; /* Don't care about non-voice. */
+	}
+
+	/* We are mid wink and we have voice frames to check for MF */
+	frame = ast_frdup(frame); /* ast_dsp_process may free the frame and return a new one. If we get a new one, we don't actually care to have a reference to the old one. */
+	frame = ast_dsp_process(chan, ei->dsp, frame);
+	if (frame->frametype == AST_FRAME_DTMF) {
+		const char *eventname = NULL;
+		char result = frame->subclass.integer;
+
+		if (ei->winksatisfied) {
+			/* Just in case we get multiple MFs, we only care about the first one.
+			 * DEBUG, not WARNING, because this could legitimately happen on long MFs. */
+			if (result != ei->lastdirective) {
+				ast_log(LOG_WARNING, "Already received MF directive, but got '%c'?\n", result);
+			} else {
+				ast_debug(2, "Already received MF directive, still getting '%c'\n", result);
+			}
+		} else if (result == '*') {
+			ast_verb(3, "Expanded In-Band COIN RETURN on %s\n", ast_channel_name(chan));
+			eventname = "CoinReturn";
+		} else if (result == '2') {
+			ast_verb(3, "Expanded In-Band COIN COLLECT on %s\n", ast_channel_name(chan)); /* Also another operator released */
+			eventname = "CoinCollect";
+		} else if (result == 'C') { /* ST3P and Code 11 */
+			ast_verb(3, "Expanded In-Band OPERATOR RINGBACK on %s\n", ast_channel_name(chan)); /* Allows an operator to ring back a payphone, e.g. for overtime deposits. See Notes on the Network, 1980, Sec. 5 */
+			eventname = "OperatorRingback";
+		} else if (result == '8') {
+			ast_verb(3, "Expanded In-Band OPERATOR RELEASED on %s\n", ast_channel_name(chan));
+			eventname = "OperatorReleased";
+		} else if (result == '0') {
+			ast_verb(3, "Expanded In-Band OPERATOR ATTACHED on %s\n", ast_channel_name(chan));
+			eventname = "OperatorAttached";
+		} else if (result == '#') {
+			ast_verb(3, "Expanded In-Band COIN COLLECT + OPERATOR RELEASED on %s\n", ast_channel_name(chan));
+			eventname = "CoinCollectOperatorReleased";
+		} else {
+			ast_debug(1, "Ignoring MF '%c' on %s\n", result, ast_channel_name(chan));
+		}
+
+		ei->winksatisfied = 1; /* If we weren't satisfied before, we are now. Don't care about any additional MFs we get during this wink. */
+		ei->lastdirective = result;
+		if (eventname) {
+			/* Emit an AMI event with the coin disposition, and that way the switch can do the appropriate thing
+			 * This could be writing to a serial port, sending data over a websocket, etc., but likely some kind of coin controller interface... */
+
+			/* Since we don't have access to a channel snapshot, build the standard string manually */
+			/*** DOCUMENTATION
+				<managerEvent language="en_US" name="CoinDisposition">
+					<managerEventInstance class="EVENT_FLAG_CALL">
+						<synopsis>Raised when an Expanded In-Band Signaling directive is received.</synopsis>
+							<syntax>
+								<channel_snapshot/>
+								<parameter name="Disposition">
+									<para>The coin disposition received.</para>
+									<para>Will be one of the following:</para>
+									<enumlist>
+										<enum name="CoinReturn"/>
+										<enum name="CoinCollect"/>
+										<enum name="OperatorRingback"/>
+										<enum name="OperatorReleased"/>
+										<enum name="OperatorAttached"/>
+										<enum name="CoinCollectOperatorReleased"/>
+									</enumlist>
+								</parameter>
+							</syntax>
+					</managerEventInstance>
+				</managerEvent>
+			***/
+			manager_event(EVENT_FLAG_CALL, "CoinDisposition",
+				"Channel: %s\r\n"
+				"ChannelState: %d\r\n"
+				"ChannelStateDesc: %s\r\n"
+				"CallerIDNum: %s\r\n"
+				"CallerIDName: %s\r\n"
+				"ConnectedLineNum: %s\r\n"
+				"ConnectedLineName: %s\r\n"
+				"Language: %s\r\n"
+				"AccountCode: %s\r\n"
+				"Context: %s\r\n"
+				"Exten: %s\r\n"
+				"Priority: %d\r\n"
+				"Uniqueid: %s\r\n"
+				"Linkedid: %s\r\n"
+				"Disposition: %s\r\n",
+				ast_channel_name(chan),
+				ast_channel_state(chan),
+				ast_state2str(ast_channel_state(chan)),
+				ast_channel_caller(chan)->id.number.str,
+				ast_channel_caller(chan)->id.name.str,
+				ast_channel_connected(chan)->id.number.str,
+				ast_channel_connected(chan)->id.name.str,
+				ast_channel_language(chan),
+				ast_channel_accountcode(chan),
+				ast_channel_context(chan),
+				ast_channel_exten(chan),
+				ast_channel_priority(chan),
+				ast_channel_uniqueid(chan),
+				ast_channel_linkedid(chan),
+				eventname);
+		}
+	}
+
+	/* Don't return audio to caller while we're midwink. We don't want the MF digit to be audible, this is effectively a "split talk path" temporarily. */
+	ast_frfree(frame);
+	frame = &ast_null_frame;
+	return frame;
+}
+
+static int remove_eis_hook(struct ast_channel *chan)
+{
+	struct ast_datastore *datastore = NULL;
+	struct eis_info *data;
+	SCOPED_CHANNELLOCK(chan_lock, chan);
+
+	datastore = ast_channel_datastore_find(chan, &eis_datastore, NULL);
+	if (!datastore) {
+		ast_log(AST_LOG_WARNING, "Expanded In Band Signaling not currently active on %s\n", ast_channel_name(chan));
+		return -1;
+	}
+	data = datastore->data;
+	if (ast_framehook_detach(chan, data->framehook_id)) {
+		ast_log(AST_LOG_WARNING, "Failed to disable Expanded In Band Signaling on %s\n", ast_channel_name(chan));
+		return -1;
+	}
+	if (ast_channel_datastore_remove(chan, datastore)) {
+		ast_log(AST_LOG_WARNING, "Failed to remove Expanded In Band Signaling on %s\n", ast_channel_name(chan));
+		return -1;
+	}
+	ast_datastore_free(datastore);
+
+	return 0;
+}
+
+static int eis_helper(struct ast_channel *chan, const char *cmd, char *data, const char *value)
+{
+	int features = 0;
+	struct ast_dsp *dsp;
+	enum direction fdirection;
+	struct eis_info *framedata;
+	struct ast_datastore *datastore = NULL;
+	struct ast_framehook_interface eis_interface = {
+		.version = AST_FRAMEHOOK_INTERFACE_VERSION,
+		.event_cb = eis_event_cb,
+		/* .destroy_cb not needed, since the datastore cleanup happens at same time */
+	};
+	SCOPED_CHANNELLOCK(chan_lock, chan);
+
+	if (ast_strlen_zero(value)) {
+		ast_log(LOG_WARNING, "Missing %s value!\n", cmd);
+		return -1;
+	}
+	if (!strcasecmp(value, "0") || !strcasecmp(value, "remove")) {
+		return remove_eis_hook(chan);
+	} else if (!strcasecmp(value, "RX")) {
+		fdirection = RX;
+	} else {
+		fdirection = TX; /* Default is TX audio (towards caller) */
+	}
+
+	datastore = ast_channel_datastore_find(chan, &eis_datastore, NULL);
+	if (datastore) {
+		ast_log(LOG_WARNING, "%s already enabled: specify 'remove' to disable\n", cmd);
+		return -1;
+	}
+	if (!(dsp = ast_dsp_new())) {
+		ast_log(LOG_WARNING, "Unable to allocate DSP!\n");
+		return -1;
+	}
+	datastore = ast_datastore_alloc(&eis_datastore, NULL);
+	if (!datastore) {
+		return -1;
+	}
+
+	framedata = ast_calloc(1, sizeof(*framedata));
+	if (!framedata) {
+		ast_datastore_free(datastore);
+		return -1;
+	}
+
+	eis_interface.data = framedata;
+	framedata->framehook_id = ast_framehook_attach(chan, &eis_interface);
+	if (framedata->framehook_id < 0) {
+		ast_log(AST_LOG_WARNING, "Failed to attach %s framehook to '%s'\n", cmd, ast_channel_name(chan));
+		ast_datastore_free(datastore);
+		ast_free(framedata);
+		return -1;
+	}
+	datastore->data = framedata;
+
+	framedata->fdirection = fdirection;
+	ast_dsp_set_features(dsp, DSP_FEATURE_DIGIT_DETECT);
+#if 0
+	if (ast_test_flag(&flags, OPT_RELAX)) {
+		features |= DSP_DIGITMODE_RELAXDTMF;
+	}
+#endif
+	ast_dsp_set_digitmode(dsp, DSP_DIGITMODE_MF | features);
+	framedata->dsp = dsp;
+
+	ast_channel_datastore_add(chan, datastore);
+	ast_debug(1, "Set up Expanded In Band Signaling on %s in %s\n",
+			ast_channel_name(chan), framedata->fdirection == TX ? "towards called party" : "towards caller");
+
+	return 0;
+}
+
+/*! \brief Expanded In Band Signaling "client" */
+/*! \note This is the EIS slave (Class 5), not the EIS master (Class 4) */
+static struct ast_custom_function eis_function = {
+	.name = "COIN_EIS",
+	.write = eis_helper,
+};
+
 static char *waitapp = "WaitForDeposit";
 static char *dispositionapp = "CoinDisposition";
 
@@ -911,6 +1241,7 @@ static int unload_module(void)
 	res = ast_unregister_application(waitapp);
 	res |= ast_unregister_application(dispositionapp);
 	res |= ast_custom_function_unregister(&detect_function);
+	res |= ast_custom_function_unregister(&eis_function);
 
 	return res;
 }
@@ -922,6 +1253,7 @@ static int load_module(void)
 	res = ast_register_application_xml(waitapp, wait_exec);
 	res |= ast_register_application_xml(dispositionapp, disposition_exec);
 	res |= ast_custom_function_register(&detect_function);
+	res |= ast_custom_function_register(&eis_function);
 
 	return res;
 }
