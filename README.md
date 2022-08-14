@@ -33,6 +33,7 @@ PhreakScript installs:
       - ``WaitForSignal``
       - ``WaitForDeposit``
       - ``CoinDisposition``
+      - ``COIN_EIS``
       - ``DialSpeedTest``
       - ``LoopDisconnect``
       - ``ToneSweep``
