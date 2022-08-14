@@ -874,7 +874,7 @@ static void parse_iax2_dial_string(char *data, struct ast_str *strbuf)
 
 /* based on https://www.binarytides.com/hostname-to-ip-address-c-sockets-linux/ */
 /* not ideal, but ast_get_ip seems to have issues under the hood... */
-static int hostname_to_ip(char *hostname , char *ip)
+static int hostname_to_ip(struct ast_channel *chan, char *hostname , char *ip)
 {
 	struct addrinfo hints, *servinfo, *p;
 	struct sockaddr_in *h;
@@ -884,8 +884,12 @@ static int hostname_to_ip(char *hostname , char *ip)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 
+	/* DNS lookups could potentially take a while, so autoservice the channel just in case. */
+	ast_autoservice_start(chan);
+
 	if ((rv = getaddrinfo(hostname, "4569", &hints, &servinfo)) != 0) {
 		ast_log(LOG_WARNING, "getaddrinfo: %s\n", gai_strerror(rv));
+		ast_autoservice_stop(chan);
 		return 1;
 	}
 
@@ -897,6 +901,9 @@ static int hostname_to_ip(char *hostname , char *ip)
 
 	freeaddrinfo(servinfo);
 	ast_debug(1, "Hostname '%s' resolved to IP address '%s'\n", hostname, ip);
+
+	ast_autoservice_stop(chan);
+
 	return 0;
 }
 
@@ -1451,7 +1458,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		ast_debug(1, "Calling host is '%s'\n", peer);
 		ast_str_reset(strbuf);
 
-		if (hostname_to_ip(peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
+		if (hostname_to_ip(chan, peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
 			goto fail;
 		}
 		ast_debug(1, "%s resolved to %s, next, comparing it with %s\n", peer, ip, peerip);
@@ -1776,7 +1783,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 
 			parse_iax2_dial_string(lookup, strbuf); /* get the host */
 			peer = ast_strdupa(ast_str_buffer(strbuf));
-			if (hostname_to_ip(peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
+			if (hostname_to_ip(chan, peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
 				ast_debug(1, "Failed to resolve hostname '%s'\n", peer);
 				malicious = 1;
 			} else if (flagprivateip && is_private_ipv4(ip)) { /* make sure it's not a private IPv4 address */
