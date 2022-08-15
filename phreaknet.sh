@@ -465,7 +465,7 @@ install_boilerplate() {
 	fi
 	printf "Backing up %s configs, just in case...\n" $AST_CONFIG_DIR
 	mkdir -p /tmp/etc_asterisk
-	cp $AST_CONFIG_DIR/*.conf /tmp/etc/_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
+	cp $AST_CONFIG_DIR/*.conf /tmp/etc_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
 	EXTENSIONS_CONF_FILE="extensions.conf"
 	if [ -f $AST_CONFIG_DIR/freepbx_module_admin.conf ]; then
 		printf "%s\n" "Detected FreePBX installation..."
@@ -481,6 +481,7 @@ install_boilerplate() {
 	pwd
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/modules.conf -O $AST_CONFIG_DIR/modules.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/chan_dahdi.conf -O $AST_CONFIG_DIR/chan_dahdi.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
@@ -1133,7 +1134,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "res/res_coindetect.c"
-	phreak_tree_module "res/res_deadlock.c"
+	if [ "$TEST_SUITE" = "1" ]; then
+		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
+	fi
 	phreak_tree_module "res/res_dialpulse.c"
 	phreak_tree_module "res/res_irc.c"
 
@@ -1696,8 +1699,8 @@ elif [ "$cmd" = "install" ]; then
 		pkg_before=$( apt list --installed )
 	fi
 	if [ "$TEST_SUITE" = "1" ]; then
-		uname -a
-		apt-get install -y linux-headers-`uname -r` build-essential
+		apt-get install -y build-essential
+		linux_headers_install
 		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
 			echoerr "DAHDI does not seem to be compatible with this system (missing kernel build headers)"
 			linux_headers_info
