@@ -1699,7 +1699,8 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	if [ "$TEST_SUITE" = "1" ]; then
 		apt-get install -y build-essential
-		linux_headers_install
+		# Install the Linux headers if we can, but don't abort if we can't.
+		apt-get install -y linux-headers-`uname -r`
 		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
 			echoerr "DAHDI does not seem to be compatible with this system (missing kernel build headers)"
 			linux_headers_info
