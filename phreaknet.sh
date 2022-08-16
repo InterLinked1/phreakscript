@@ -1055,8 +1055,7 @@ install_dahdi() {
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	cd ${WANPIPE_SOURCE_NAME}
 	custom_patch "af_wanpipe" "patches/kdrivers/src/wanrouter/af_wanpipe.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/af_wanpipe.diff"
-	# ./Setup dahdi
-	./Setup install --silent
+	./Setup dahdi --silent
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
 		#exit 2
