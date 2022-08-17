@@ -740,9 +740,10 @@ install_testsuite_itself() {
 }
 
 configure_devmode() {
-	./configure --enable-dev-mode
+	./configure --enable-dev-mode --with-jansson-bundled
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK --enable DO_CRASH menuselect.makeopts
+	menuselect/menuselect --enable COMPILE_DOUBLE --enable DEBUG_THREADS --enable MALLOC_DEBUG menuselect.makeopts
 	menuselect/menuselect --enable-category MENUSELECT_TESTS menuselect.makeopts
 }
 
@@ -1846,7 +1847,7 @@ elif [ "$cmd" = "install" ]; then
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
 	if [ "$TEST_SUITE" = "1" ]; then
-		./configure --with-jansson-bundled --enable-dev-mode
+		configure_devmode
 	else
 		./configure --with-jansson-bundled
 	fi
@@ -1868,9 +1869,6 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	if [ "$ENABLE_BACKTRACES" = "1" ]; then
 		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
-	fi
-	if [ "$TEST_SUITE" = "1" ]; then
-		configure_devmode
 	fi
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		# in reality, this will never fail, even if they can't be enabled...
