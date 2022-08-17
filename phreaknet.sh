@@ -763,20 +763,21 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 
 gerrit_patch() {
 	printf "%s\n" "Downloading and applying Gerrit patch $1"
-	wget -q $2 -O $1.diff.base64
+	wget -q $2 -O $1.patch.base64
 	if [ $? -ne 0 ]; then
 		echoerr "Patch download failed"
 		exit 2
 	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		b64decode -r $1.diff.base64 > $1.diff
+		b64decode -r $1.patch.base64 > $1.patch
 		if [ $? -ne 0 ]; then
 			exit 2
 		fi
 	else
-		base64 --decode $1.diff.base64 > $1.diff
+		base64 --decode $1.patch.base64 > $1.patch
 	fi
-	git apply $1.diff
+	# Apply the patch file
+	git apply $1.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
 		if [ "$FORCE_INSTALL" = "1" ]; then
@@ -785,7 +786,7 @@ gerrit_patch() {
 			exit 2
 		fi
 	fi
-	rm $1.diff.base64 $1.diff
+	rm $1.patch.base64 $1.patch
 }
 
 dahdi_undo() {
@@ -1106,6 +1107,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	cd $AST_SOURCE_PARENT_DIR/$2
 
 	## Add Standalone PhreakNet Modules
+	phreak_tree_module "apps/app_assert.c"
 	phreak_tree_module "apps/app_callback.c"
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
@@ -1132,6 +1134,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_ochannel.c"
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
+	phreak_tree_module "funcs/func_tech.c"
 	phreak_tree_module "res/res_coindetect.c"
 	if [ "$TEST_SUITE" = "1" ]; then
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
@@ -1153,6 +1156,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
 	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
+	if [ "$SIP_CISCO" != "1" ]; then # this patch has a merge conflict with SIP usecallmanager patches
+		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
+	fi
 
 	# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
 	git_patch "hearpulsing-ast.diff"
@@ -1177,16 +1183,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ "$TEST_SUITE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
-		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
+		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
 		:
 	fi
-
-	# Gerrit patches: never going to be merged upstream (do not remove):
-	if [ "$SIP_CISCO" != "1" ]; then # this patch has a merge conflict with SIP usecallmanager patches
-		gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
-	fi
-	# gerrit_patch 18063 "https://gerrit.asterisk.org/changes/asterisk~18063/revisions/1/patch?download" # func_channel: Add TECH_EXISTS ### todo: does not cleanly apply.
-	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
 
 	## Menuselect updates
 	make menuselect.makeopts
