@@ -3,7 +3,7 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 18.13.0 (latest LTS release of Asterisk)
+- Asterisk 18.14.0 (latest LTS release of Asterisk)
 - DAHDI Linux 3.2.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.2.0 (with optional DAHDI install flag)
 - many additional features and stability improvements (see change log for full details)
@@ -25,15 +25,17 @@ PhreakScript installs:
       - ``SelectiveFeature``
       - ``RequestCallback``
       - ``CancelCallback``
+      - ``CCSA``
       - ``PreDial``
       - ``PlayDigits``
       - ``StreamSilence``
       - ``RevertivePulse``
+      - ``SendFrame``
+      - ``WaitForFrame``
       - ``Signal``
       - ``WaitForSignal``
       - ``WaitForDeposit``
       - ``CoinDisposition``
-      - ``COIN_EIS``
       - ``DialSpeedTest``
       - ``LoopDisconnect``
       - ``ToneSweep``
@@ -48,13 +50,12 @@ PhreakScript installs:
    - Adds the following functions:
       - ``TECH_EXISTS``
       - ``DTMF_FLASH``
-      - ``POLARITY``
       - ``NUM2DEVICE``
       - ``TEXT_QUERY``
       - ``COIN_DETECT``
+      - ``COIN_EIS``
       - ``OTHER_CHANNEL``
       - ``NOTCH_FILTER``
-      - ``EVAL_EXTEN``
       - ``DB_CHANNEL``
       - ``DB_CHANNEL_PRUNE``
       - ``DB_CHANNEL_PRUNE_TIME``
