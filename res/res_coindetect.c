@@ -558,11 +558,19 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 	if (di->debounce > 10) { /* this is enough to debounce a single coin, e.g. a dime will show up as one 10c deposit, rather than two 5c deposits */
 		now = (direction == AST_AUDIOHOOK_DIRECTION_READ) ? di->rxcount : di->txcount;
 		if (di->flexible && di->debouncedhits >= 3 && di->debouncedhits <= 4) {
+			int difference;
 			/* Because quarter tones are quite short (33 ms on/off), it's right on the edge of what the Goertzel algorithm
 			 * can reliably detect. Consequently, quarters are often undercounted even while nickels and dimes work fine.
 			 * To counteract this, if we detect 15c or 20c, we can act as if we got 25c, because in reality, we probably did. */
 			ast_debug(1, "Received %d beeps, but pretending we got %d\n", di->debouncedhits, 5);
-			di->debouncedhits = 5;
+			difference = 5 - di->debouncedhits;
+			di->debouncedhits = 5; /* Update assessment of this coin */
+			/* Update overall total stats */
+			if (direction == AST_AUDIOHOOK_DIRECTION_READ) {
+				di->rxcount += difference;
+			} else {
+				di->txcount += difference;
+			}
 		}
 		ast_verb(3, "%d cents just deposited (%d total so far)\n", 5 * di->debouncedhits, 5 * now);
 		di->debouncedhits = 0;
