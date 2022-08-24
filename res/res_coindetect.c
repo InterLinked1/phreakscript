@@ -203,6 +203,11 @@
 						<para>Delay threshold to use after the condition has matched to allow for
 						additional deposits to be received. Default is 0 (no delay).</para>
 					</option>
+					<option name="f">
+						<para>Flexible detection: if 3 are more coin denomination beeps are detected
+						in a single instance, round up as a quarter. This can be helpful if quarters
+						are underdetected.</para>
+					</option>
 					<option name="g">
 						<para>Go to the specified context,exten,priority if tone is received on this channel.
 						Detection will not end automatically.</para>
@@ -313,6 +318,7 @@ struct detect_information {
 	int actionflag;
 	int debounce;
 	int debouncedhits;
+	int flexible;
 	struct timeval delaytimer;
 };
 
@@ -326,6 +332,7 @@ enum td_opts {
 	OPT_DELAY = (1 << 7),
 	OPT_RELAX = (1 << 8),
 	OPT_SF = (1 << 9),
+	OPT_FLEXIBLE = (1 << 10),
 };
 
 enum {
@@ -340,6 +347,7 @@ enum {
 AST_APP_OPTIONS(td_opts, {
 	AST_APP_OPTION_ARG('a', OPT_HITS_REQ, OPT_ARG_HITS_REQ),
 	AST_APP_OPTION_ARG('d', OPT_DELAY, OPT_ARG_DELAY),
+	AST_APP_OPTION('f', OPT_FLEXIBLE),
 	AST_APP_OPTION_ARG('g', OPT_GOTO_RX, OPT_ARG_GOTO_RX),
 	AST_APP_OPTION_ARG('h', OPT_GOTO_TX, OPT_ARG_GOTO_TX),
 	AST_APP_OPTION('l', OPT_RELAX),
@@ -549,6 +557,13 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 	}
 	if (di->debounce > 10) { /* this is enough to debounce a single coin, e.g. a dime will show up as one 10c deposit, rather than two 5c deposits */
 		now = (direction == AST_AUDIOHOOK_DIRECTION_READ) ? di->rxcount : di->txcount;
+		if (di->flexible && di->debouncedhits >= 3 && di->debouncedhits <= 4) {
+			/* Because quarter tones are quite short (33 ms on/off), it's right on the edge of what the Goertzel algorithm
+			 * can reliably detect. Consequently, quarters are often undercounted even while nickels and dimes work fine.
+			 * To counteract this, if we detect 15c or 20c, we can act as if we got 25c, because in reality, we probably did. */
+			ast_debug(1, "Received %d beeps, but pretending we got %d\n", di->debouncedhits, 5);
+			di->debouncedhits = 5;
+		}
 		ast_verb(3, "%d cents just deposited (%d total so far)\n", 5 * di->debouncedhits, 5 * now);
 		di->debouncedhits = 0;
 		di->debounce = -1;
@@ -664,6 +679,7 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 	if (ast_test_flag(&flags, OPT_GOTO_TX) && !ast_strlen_zero(opt_args[OPT_ARG_GOTO_TX])) {
 		di->gototx = goto_parser(chan, opt_args[OPT_ARG_GOTO_TX]);
 	}
+	di->flexible = ast_test_flag(&flags, OPT_FLEXIBLE) ? 1 : 0;
 	di->hitsrequired = hitsrequired;
 	di->delay = delay;
 	di->debounce = -1;
