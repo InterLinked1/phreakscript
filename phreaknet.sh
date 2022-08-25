@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.83 (2022-08-06)
+# v0.1.84 (2022-08-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-08-25 0.1.84 PhreakScript: improved rundump
 # 2022-08-06 0.1.83 PhreakScript: added version command
 # 2022-07-30 0.1.82 PhreakScript: streamline prereq install
 # 2022-07-29 0.1.81 DAHDI: fix wanpipe compiling, target DAHDI 3.2.0
@@ -1326,12 +1327,23 @@ quell_mysql() {
 	fi
 }
 
+coredump_prep() {
+	ensure_installed "gdb" # for astcoredumper
+	quell_mysql # we need all the CPU and memory we can get
+	swap=`swapon --show | wc -l | tr -d '\n'`
+	if [ "$swap" = "0" ]; then
+		$FILE_PATH enable-swap # enable swap, since we'll probably run out of memory otherwise...
+	fi
+	freediskspace=`df / | awk '{print $4}' | tail -n +2 | tr -d '\n'`
+	if [ $freediskspace -lt 700000 ]; then
+		# A core dump can be around 700 MB, so ensure we have enough space to actually dump it.
+		$FILE_PATH freedisk
+	fi
+}
+
 get_backtrace() { # $1 = "1" to upload
 	dmesg | tail -4
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y gdb # for astcoredumper
-	fi
-	quell_mysql
+	coredump_prep
 	printf "%s" "Core dump pattern is: "
 	sysctl -n kernel.core_pattern # sysctl -w kernel.core_pattern=core
 	printf "%s\n" "Finding core dump to process, this may take a moment..."
@@ -2662,7 +2674,18 @@ elif [ "$cmd" = "backtrace-only" ]; then
 elif [ "$cmd" = "backtrace" ]; then
 	get_backtrace 1
 elif [ "$cmd" = "rundump" ]; then
-	$AST_VARLIB_DIR/scripts/ast_coredumper --RUNNING
+	coredump_prep
+	$AST_VARLIB_DIR/scripts/ast_coredumper --RUNNING > /tmp/ast_coredumper.txt
+	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer necessarily simply just /tmp/core-full.txt
+	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
+		echoerr "Failed to get core dump of running process"
+		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
+		exit 2
+	fi
+	cat /tmp/ast_coredumper.txt
+	rm -f /tmp/ast_coredumper.txt
+	printf "%s\n" "Uploading paste of backtrace..."
+	paste_post "$corefullpath"
 elif [ "$cmd" = "ccache" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://github.com/ccache/ccache/releases/download/v4.5.1/ccache-4.5.1.tar.gz
