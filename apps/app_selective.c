@@ -1548,13 +1548,16 @@ process:
 				res = selective_term_read(chan, buf, buflen, "", MED_WAIT, f->prompt_number_incorrect);
 				continue;
 			}
-			/* can the user actually add this number? */
-			res = gosub(chan, strbuf, result, buflen, f->sub_numaddable, buf, ""); /* call a userland dialplan subroutine to see if this number is any good */
-			if (res || ast_strlen_zero(result) || !strcmp(result, "0")) {
-				/* either res is non-zero, or the returned value is empty or 0, no go. */
-				INVALID();
-				res = selective_term_read(chan, buf, buflen, "", MED_WAIT, f->prompt_number_not_available_svc);
-				continue;
+			/* If the subroutines are the same, we know it'll succeed. Otherwise, check. */
+			if (strcmp(f->sub_numvalid, f->sub_numaddable)) {
+				/* can the user actually add this number? */
+				res = gosub(chan, strbuf, result, buflen, f->sub_numaddable, buf, ""); /* call a userland dialplan subroutine to see if this number is any good */
+				if (res || ast_strlen_zero(result) || !strcmp(result, "0")) {
+					/* either res is non-zero, or the returned value is empty or 0, no go. */
+					INVALID();
+					res = selective_term_read(chan, buf, buflen, "", MED_WAIT, f->prompt_number_not_available_svc);
+					continue;
+				}
 			}
 			invalids = 0;
 
