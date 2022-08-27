@@ -164,7 +164,9 @@
 		</syntax>
 		<description>
 			<para>Waits for coin denomination tones to be detected before dialplan execution continues.</para>
-			<note><para>Accuracy of detection may vary with environment and is not guaranteed.</para></note>
+			<note><para>Accuracy of detection may vary with environment and is not guaranteed.</para>
+			<para>Nickels, dimes, and quarters are supported, though nickels and dimes work best.
+			Dollar coins are not currently supported.</note>
 			<para>The following variables are set by this application:</para>
 			<variablelist>
 				<variable name="WAITFORDEPOSITSTATUS">
@@ -244,7 +246,9 @@
 			to get the number of times a tone has been detected in the TX direction and
 			<literal>rx</literal> to get the number of times a tone has been detected in the
 			RX direction.</para>
-			<note><para>Accuracy of detection may vary with environment and is not guaranteed.</para></note>
+			<note><para>Accuracy of detection may vary with environment and is not guaranteed.</para>
+			<para>Nickels, dimes, and quarters are supported, though nickels and dimes work best.
+			Dollar coins are not currently supported.</note>
 			<example title="intercept2600">
 			same => n,Set(COIN_DETECT(a(10)d(5)g(got-2600,s,1))=) ; wait for 10 cents, with 5 second grace period
 			for overtime deposits, and redirect to got-2600,s,1 afterwards
@@ -526,6 +530,9 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 				di->txcount = di->txcount + 1;
 				now = di->txcount;
 			}
+			/* Nickel and dime are one and two 66 ms tones. Quarter is five 33 ms tones.
+			 * BELLCORE GR-506-CORE 18.1.3 also specifies a single 650 ms tone for dollar coins.
+			 * That currently isn't handled here. */
 			ast_debug(1, "COIN_DETECT just got a hit (#%d in %s direction, waiting for %d total)\n", now, direction == AST_AUDIOHOOK_DIRECTION_READ ? "RX" : "TX", di->hitsrequired);
 			if (di->hitsrequired && now >= di->hitsrequired) {
 				if (di->delay > 0) {
