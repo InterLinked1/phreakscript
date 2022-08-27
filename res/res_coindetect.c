@@ -166,7 +166,7 @@
 			<para>Waits for coin denomination tones to be detected before dialplan execution continues.</para>
 			<note><para>Accuracy of detection may vary with environment and is not guaranteed.</para>
 			<para>Nickels, dimes, and quarters are supported, though nickels and dimes work best.
-			Dollar coins are not currently supported.</note>
+			Dollar coins are not currently supported.</para></note>
 			<para>The following variables are set by this application:</para>
 			<variablelist>
 				<variable name="WAITFORDEPOSITSTATUS">
@@ -248,7 +248,7 @@
 			RX direction.</para>
 			<note><para>Accuracy of detection may vary with environment and is not guaranteed.</para>
 			<para>Nickels, dimes, and quarters are supported, though nickels and dimes work best.
-			Dollar coins are not currently supported.</note>
+			Dollar coins are not currently supported.</para></note>
 			<example title="intercept2600">
 			same => n,Set(COIN_DETECT(a(10)d(5)g(got-2600,s,1))=) ; wait for 10 cents, with 5 second grace period
 			for overtime deposits, and redirect to got-2600,s,1 afterwards
