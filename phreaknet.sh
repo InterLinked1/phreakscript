@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.84 (2022-08-25)
+# v0.1.85 (2022-08-31)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-08-31 0.1.85 DAHDI: support kernel version mismatches
 # 2022-08-25 0.1.84 PhreakScript: improved rundump
 # 2022-08-06 0.1.83 PhreakScript: added version command
 # 2022-07-30 0.1.82 PhreakScript: streamline prereq install
@@ -192,6 +193,7 @@ BOILERPLATE_SOUNDS=0
 SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
 DEBUG_LEVEL=0
 FREEPBX_GUI=0
+GENERIC_HEADERS=0
 
 handler() {
 	kill $BGPID
@@ -878,6 +880,8 @@ linux_headers_info() {
 	printf "Available headers for your system: \n"
 	printf "You may need to upgrade your kernel using apt-get dist-upgrade to install the build headers for your system.\n"
 	apt search linux-headers 2>1 | grep "linux-headers"
+	printf "Installed:\n"
+	ls -la /lib/modules/
 }
 
 linux_headers_install() {
@@ -885,13 +889,10 @@ linux_headers_install() {
 	if [ $? -ne 0 ]; then
 		kernel=`uname -r`
 		echoerr "Unable to find automatic installation candidate for $kernel"
-		if [ "$kernel" = "5.15.0-1014-azure" ]; then # GitHub Action, MS Azure
-			apt-get install -y linux-headers-5.10.0-14-cloud-amd64
-		else
-			echoerr "Failed to download system headers and no exception defined"
-			linux_headers_info
-			exit 2
-		fi
+		# install the generic kernel headers
+		# this usually won't happen in a VM, but can happen in containers. For example, the containers used for GitHub actions.
+		GENERIC_HEADERS=1
+		apt-get install -y linux-headers-amd64
 		if [ $? -ne 0 ]; then
 			echoerr "Failed to download system headers and exception failed"
 			linux_headers_info
@@ -941,23 +942,19 @@ install_dahdi() {
 	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
 
+	DAHDI_CFLAGS=""
+	if [ "$GENERIC_HEADERS" = "1" ]; then
+		ls -la /lib/modules/
+		hdrver=`ls /lib/modules`
+		DAHDI_CFLAGS="KVERS=$hdrver" # overwrite from exact match with uname -r to whatever we happen to have
+		printf "We do NOT have an exact kernel match: %s\n" "$hdrver"
+	else
+		printf "We have an exact kernel match\n"
+	fi
+
 	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 	fi
-
-	# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
-	#dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
-	#dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
-	#dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
-	#dahdi_patch "c98f59eead28cf66b271b031288542e34e603c43"
-	#dahdi_patch "34b9c77c9ab2794d4e912461e4c1080c4b1f6184"
-	#dahdi_patch "26fb7c34cba98c08face72cf29b70dfdc71449c6"
-	#dahdi_patch "90e8a54e3a482c3cee6afc6b430bb0aab7ee8f34"
-	#dahdi_patch "97e744ad9604bd7611846da0b9c0c328dc80f262"
-	#dahdi_patch "4df746fe3ffd6678f36b16c9b0750fa552da92e4"
-	#dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
-	#dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
-	#dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
 
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
@@ -966,16 +963,15 @@ install_dahdi() {
 		echoerr "Skipping feature patches..."
 	fi
 
-	# needs to be rebased for master:
 	git_patch "hearpulsing-dahlin.diff"
 
-	make
+	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
 		exit 1
 	fi
-	make install
-	make all install config
+	make install $DAHDI_CFLAGS
+	make all install config $DAHDI_CFLAGS
 
 	# DAHDI Tools
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
@@ -998,7 +994,7 @@ install_dahdi() {
 	# autoreconf -i
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
 	./configure
-	make
+	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Tools compilation failed, aborting install"
 		exit 1
@@ -1714,7 +1710,7 @@ elif [ "$cmd" = "install" ]; then
 		# Install the Linux headers if we can, but don't abort if we can't.
 		apt-get install -y linux-headers-`uname -r`
 		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
-			echoerr "DAHDI does not seem to be compatible with this system (missing kernel build headers)"
+			echoerr "DAHDI is potentially incompatible with this system (missing kernel build headers)"
 			linux_headers_info
 		fi
 	fi
@@ -2869,7 +2865,7 @@ elif [ "$cmd" = "enable-swap" ]; then
 	# cp /etc/fstab /etc/fstab.bak
 	# echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
 	cat /proc/sys/vm/swappiness
-	sysctl vm.swappiness=25
+	sysctl vm.swappiness=60 # should be high but not too high, see: https://stackoverflow.com/questions/44954336/gdb-commits-suicide-kills-debugged-process-out-of-a-sudden
 	sysctl vm.vfs_cache_pressure=50
 elif [ "$cmd" = "disable-swap" ]; then
 	assert_root
