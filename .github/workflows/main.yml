@@ -37,6 +37,7 @@ jobs:
           wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           chmod +x phreaknet.sh
           ./phreaknet.sh make
-          # Can't install DAHDI because no headers available for building, e.g. Unable to locate package linux-headers-5.11.0-1028-azure
-          phreaknet install -t
-          phreaknet runtests
+          # temporarily disable tests due to python3 issues
+          phreaknet install -d -s
+          # phreaknet install -d -s t
+          # phreaknet runtests
