@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.85 (2022-08-31)
+# v0.1.86 (2022-09-02)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-09-02 0.1.86 Test Suite: upgraded for python3
 # 2022-08-31 0.1.85 DAHDI: support kernel version mismatches
 # 2022-08-25 0.1.84 PhreakScript: improved rundump
 # 2022-08-06 0.1.83 PhreakScript: added version command
@@ -577,8 +578,10 @@ uninstall_freepbx() {
 
 run_testsuite_test() {
 	testcount=$(($testcount + 1))
-	./runtests.py --test=tests/$1
+	./runInVenv.sh python3 runtests.py --test=tests/$1
+	# XXX It also seems that if pre-reqs are not satisfied, exit code is 0?
 	if [ $? -ne 0 ]; then # test failed
+		printf "Exit code was %d\n" $?
 		ls
 		lastrun=`get_newest_astdir` # get the directory containing the logs from the most recently run test
 		ls "$lastrun/ast1/var/log/asterisk/full.txt"
@@ -605,7 +608,7 @@ run_testsuite_test_only() { # $2 = stress test
 		iterations=7
 	fi
 	while [ $iterations -gt 0 ]; do # POSIX for loop
-		$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
+		./runInVenv.sh python3 $AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
 		if [ $? -ne 0 ]; then # test failed
 			echo "ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1"
 			lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test ############# this is not FreeBSD compatible.
@@ -690,13 +693,15 @@ install_testsuite_itself() {
 	apt-get clean
 	apt-get update -y
 	apt-get upgrade -y
-	apt-get install -y liblua5.1-0-dev lua5.3 git python python-setuptools
+	#apt-get install -y liblua5.1-0-dev lua5.3 git python python-setuptools
+	#apt-get install -y python3-dev
+	#apt-get install -y python3-venv
 
 	# Python 2 support is going away in Debian
-	curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py # https://stackoverflow.com/a/64240018/6110631
-	python get-pip.py
-	pip2 install pyyaml
-	pip2 install twisted
+	# curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py # https://stackoverflow.com/a/64240018/6110631
+	# python get-pip.py
+	# pip2 install pyyaml
+	# pip2 install twisted
 
 	cd $AST_SOURCE_PARENT_DIR
 	if [ -d "testsuite" ]; then
@@ -712,29 +717,32 @@ install_testsuite_itself() {
 		echoerr "Failed to download testsuite..."
 		return 1
 	fi
-	cd testsuite/asttest
-	make
-	make install
-	asttest
-	cd ..
-	cd addons
-	make update
-	cd starpy
-	python setup.py install
-	cd ../..
-	apt-get install -y python-twisted
-	pip install twisted
+	cd testsuite
+	./contrib/scripts/install_prereq install
+
+	#cd testsuite/asttest
+	#make
+	#make install
+	#asttest
+	#cd ..
+	#cd addons
+	#make update
+	#cd starpy
+	#python setup.py install
+	#cd ../..
+	#apt-get install -y python-twisted
+	#pip install twisted
 	# sipp
-	cd $AST_SOURCE_PARENT_DIR
-	git clone https://github.com/SIPp/sipp.git
-	cd sipp
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y cmake libsctp-dev libgsl-dev
-	fi
-	git checkout v3.6.0 ## This is the latest version we KNOW works.
-	./build.sh --prefix=/usr --with-openssl --with-pcap --with-rtpstream --with-sctp --with-gsl CFLAGS=-w
-	./sipp -v
-	make install
+	#cd $AST_SOURCE_PARENT_DIR
+	#git clone https://github.com/SIPp/sipp.git
+	#cd sipp
+	#if [ "$PAC_MAN" = "apt-get" ]; then
+	#	apt-get install -y cmake libsctp-dev libgsl-dev
+	#fi
+	#git checkout v3.6.0 ## This is the latest version we KNOW works.
+	#./build.sh --prefix=/usr --with-openssl --with-pcap --with-rtpstream --with-sctp --with-gsl CFLAGS=-w
+	#./sipp -v
+	#make install
 	cd $AST_SOURCE_PARENT_DIR
 	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
 	# ./runtests.py -l # list all tests
@@ -1107,6 +1115,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Add Standalone PhreakNet Modules
 	phreak_tree_module "apps/app_assert.c"
 	phreak_tree_module "apps/app_callback.c"
+	phreak_tree_module "apps/app_ccsa.c"
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_loopplayback.c"
@@ -1123,6 +1132,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
+	phreak_tree_module "configs/samples/ccsa.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "funcs/func_dbchan.c"
@@ -1959,6 +1969,9 @@ elif [ "$cmd" = "install" ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
 	$AST_MAKE install # actually install modules
+	if [ "$TEST_SUITE" = "1" ]; then
+		$AST_MAKE install-headers # install development headers
+	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
 			nm -D ${FILE} | grep PJ_AF_INET
