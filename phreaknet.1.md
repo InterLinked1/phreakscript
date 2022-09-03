@@ -243,6 +243,9 @@ The following options may be used with the **install** command.
 **-d**, **--dahdi**
 : Install DAHDI along with Asterisk.
 
+**--devmode**
+: Install Asterisk in developer mode. Implicitly true if -t or --testsuite is provided.
+
 **--drivers**
 : Also install DAHDI drivers removed in 2018 by Sangoma
 

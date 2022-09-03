@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.87 (2022-09-03)
+# v0.1.88 (2022-09-03)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-09-03 0.1.88 Asterisk: add unmerged patches
 # 2022-09-03 0.1.87 DAHDI: Add support for Raspberry Pi
 # 2022-09-02 0.1.86 Test Suite: upgraded for python3
 # 2022-08-31 0.1.85 DAHDI: support kernel version mismatches
@@ -181,6 +182,7 @@ SIP_CISCO=0
 CHAN_SCCP=0
 CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
+DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
 ENHANCED_INSTALL=1
@@ -416,7 +418,7 @@ install_prereq() {
 		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
 			apt-get install -y ntp tcpdump festival
 		fi
-		if [ "$TEST_SUITE" = "1" ]; then
+		if [ "$DEVMODE" = "1" ]; then
 			apt-get install -y xmlstarlet # only needed in developer mode for doc validation.
 		fi
 		# used to feed the country code non-interactively
@@ -899,13 +901,12 @@ linux_headers_info() {
 
 linux_headers_install() {
 	# Special case for Raspberry Pi
-	grep -i Model /proc/cpuinfo |grep -q Raspberry
+	grep -i Model /proc/cpuinfo | grep -q Raspberry
 	if [ $? -ne 0 ]; then
 		apt-get install -y linux-headers-`uname -r`
 	else
 		apt-get install -y raspberrypi-kernel-headers
 	fi
-
 	if [ $? -ne 0 ]; then
 		kernel=`uname -r`
 		echoerr "Unable to find automatic installation candidate for $kernel"
@@ -990,6 +991,7 @@ install_dahdi() {
 		printf "Not compiling XPP driver for 32-bit ARM.\n"
 		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
 	fi
+
 	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
@@ -1090,11 +1092,11 @@ install_dahdi() {
 	service dahdi restart
 }
 
-phreak_tree_module() { # $1 = file to patch
+phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 	printf "Adding new module: %s\n" "$1"
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download module: $2"
+		echoerr "Failed to download module: $1"
 		if [ "$2" != "1" ]; then # unless failure is acceptable, abort
 			exit 2
 		fi
@@ -1149,7 +1151,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
-	phreak_tree_module "configs/samples/ccsa.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "funcs/func_dbchan.c"
@@ -1161,7 +1162,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "funcs/func_tech.c"
 	phreak_tree_module "res/res_coindetect.c"
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
 	fi
 	phreak_tree_module "res/res_dialpulse.c"
@@ -1176,8 +1177,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Add patches to existing modules
 	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
-	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
-	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
+	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # app_dial: Bug fix to prevent infinite loop on progress-sent DTMF
+	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # chan_sip: Add fax timing controls
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
 	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
@@ -1192,7 +1193,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
 	fi
 
-	## Gerrit patches: merged, remove in 18.13
+	## Gerrit patches: merged, remove in next release
 	if [ "$AST_ALT_VER" != "master" ]; then # apply specified merged patches, unless we just cloned master
 		:
 	fi
@@ -1202,12 +1203,19 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
-	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix
+	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
+	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/1/patch?download" # app_multicast
+	gerrit_patch 18523 "https://gerrit.asterisk.org/changes/asterisk~18523/revisions/3/patch?download" # cli: Prevent assertions on startup from bad ao2 refs
+	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
+	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
+	gerrit_patch 18824 "https://gerrit.asterisk.org/changes/asterisk~18824/revisions/3/patch?download" # res_pjsip_logger: Add method-based logging option
+	gerrit_patch 18883 "https://gerrit.asterisk.org/changes/asterisk~18883/revisions/3/patch?download" # lock.c: Add AMI event for deadlocks
+	gerrit_patch 18974 "https://gerrit.asterisk.org/changes/asterisk~18974/revisions/4/patch?download" # app_amd: Add option to play audio during AMD
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
-	# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/2/patch?download" # chan_dahdi: add dialmode
 
-	if [ "$TEST_SUITE" = "1" ]; then # highly experimental
+	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
+		# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/3/patch?download" # chan_dahdi: add dialmode
 		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
 		:
 	fi
@@ -1537,7 +1545,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1562,7 +1570,7 @@ while true; do
 		-h | --help ) cmd="help"; shift ;;
 		-o | --flag-test ) FLAG_TEST=1; shift;;
 		-s | --sip ) CHAN_SIP=1; shift ;;
-		-t | --testsuite ) TEST_SUITE=1; shift ;;
+		-t | --testsuite ) TEST_SUITE=1; DEVMODE=1; shift ;;
 		-u | --user ) AST_USER=$2; shift 2;;
 		-v | --version ) AST_ALT_VER=$2; shift 2;;
 		-w | --weaktls ) WEAK_TLS=1; shift ;;
@@ -1573,6 +1581,7 @@ while true; do
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
 		--disa ) PHREAKNET_DISA=$2; shift 2;;
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
+		--devmode ) DEVMODE=1; shift ;;
 		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
@@ -1732,7 +1741,7 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$PKG_AUDIT" = "1" ]; then
 		pkg_before=$( apt list --installed )
 	fi
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		apt-get install -y build-essential
 		# Install the Linux headers if we can, but don't abort if we can't.
 		apt-get install -y linux-headers-`uname -r`
@@ -1881,7 +1890,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		configure_devmode
 	else
 		./configure --with-jansson-bundled
@@ -1905,7 +1914,8 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$ENABLE_BACKTRACES" = "1" ]; then
 		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
 	fi
-	if [ "$CHAN_DAHDI" = "1" ]; then
+	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. This will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
+	if [ -d /etc/dahdi ]; then
 		# in reality, this will never fail, even if they can't be enabled...
 		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
 	fi
@@ -1959,16 +1969,16 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	if [ $? -ne 0 ]; then
-		if [ "$TEST_SUITE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
+		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
 	fi
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		$AST_MAKE full # some XML syntax warnings aren't shown unless make full is run
 	fi
 	if [ $? -ne 0 ]; then
-		if [ "$TEST_SUITE" = "1" ]; then
+		if [ "$DEVMODE" = "1" ]; then
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
@@ -1986,7 +1996,7 @@ elif [ "$cmd" = "install" ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
 	$AST_MAKE install # actually install modules
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		$AST_MAKE install-headers # install development headers
 	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
@@ -2052,10 +2062,13 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	# Development Mode (Asterisk Test Suite)
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
 			apt-get install -y gdb # for astcoredumper
 		fi
+	fi
+
+	if [ "$TEST_SUITE" = "1" ]; then
 		install_testsuite_itself
 	fi
 
