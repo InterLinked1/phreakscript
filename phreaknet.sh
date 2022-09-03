@@ -689,6 +689,34 @@ add_phreak_testsuite() {
 	printf "%s\n" "Finished patching testsuite"
 }
 
+gerrit_patch() {
+	printf "%s\n" "Downloading and applying Gerrit patch $1"
+	wget -q $2 -O $1.patch.base64
+	if [ $? -ne 0 ]; then
+		echoerr "Patch download failed"
+		exit 2
+	fi
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		b64decode -r $1.patch.base64 > $1.patch
+		if [ $? -ne 0 ]; then
+			exit 2
+		fi
+	else
+		base64 --decode $1.patch.base64 > $1.patch
+	fi
+	# Apply the patch file
+	git apply $1.patch
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			sleep 2
+		else
+			exit 2
+		fi
+	fi
+	rm $1.patch.base64 $1.patch
+}
+
 install_testsuite_itself() {
 	apt-get clean
 	apt-get update -y
@@ -718,6 +746,10 @@ install_testsuite_itself() {
 		return 1
 	fi
 	cd testsuite
+
+	gerrit_patch 19051 "https://gerrit.asterisk.org/changes/testsuite~19051/revisions/2/patch?download"
+	gerrit_patch 19052 "https://gerrit.asterisk.org/changes/testsuite~19052/revisions/1/patch?download"
+
 	./contrib/scripts/install_prereq install
 
 	#cd testsuite/asttest
@@ -771,34 +803,6 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	make
 	make install
 	install_testsuite_itself
-}
-
-gerrit_patch() {
-	printf "%s\n" "Downloading and applying Gerrit patch $1"
-	wget -q $2 -O $1.patch.base64
-	if [ $? -ne 0 ]; then
-		echoerr "Patch download failed"
-		exit 2
-	fi
-	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		b64decode -r $1.patch.base64 > $1.patch
-		if [ $? -ne 0 ]; then
-			exit 2
-		fi
-	else
-		base64 --decode $1.patch.base64 > $1.patch
-	fi
-	# Apply the patch file
-	git apply $1.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			sleep 2
-		else
-			exit 2
-		fi
-	fi
-	rm $1.patch.base64 $1.patch
 }
 
 dahdi_undo() {
