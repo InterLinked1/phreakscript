@@ -54,8 +54,11 @@
 #include "asterisk/dsp.h"
 #include "asterisk/manager.h"
 
-#ifndef AST_MODULE
-#define AST_MODULE "app_softmodem"
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE
+#define FALSE 1
 #endif
 
 /*** DOCUMENTATION
