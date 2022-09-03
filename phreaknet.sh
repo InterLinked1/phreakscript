@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.86 (2022-09-02)
+# v0.1.87 (2022-09-03)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-09-03 0.1.87 DAHDI: Add support for Raspberry Pi
 # 2022-09-02 0.1.86 Test Suite: upgraded for python3
 # 2022-08-31 0.1.85 DAHDI: support kernel version mismatches
 # 2022-08-25 0.1.84 PhreakScript: improved rundump
@@ -897,7 +898,14 @@ linux_headers_info() {
 }
 
 linux_headers_install() {
-	apt-get install -y linux-headers-`uname -r`
+	# Special case for Raspberry Pi
+	grep -i Model /proc/cpuinfo |grep -q Raspberry
+	if [ $? -ne 0 ]; then
+		apt-get install -y linux-headers-`uname -r`
+	else
+		apt-get install -y raspberrypi-kernel-headers
+	fi
+
 	if [ $? -ne 0 ]; then
 		kernel=`uname -r`
 		echoerr "Unable to find automatic installation candidate for $kernel"
@@ -977,6 +985,11 @@ install_dahdi() {
 
 	git_patch "hearpulsing-dahlin.diff"
 
+	# Don't compile the XPP driver for 32-bit ARM
+	if [ "`uname -m`" = "armv7l" ]; then
+		printf "Not compiling XPP driver for 32-bit ARM.\n"
+		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
+	fi
 	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
