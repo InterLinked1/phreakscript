@@ -32,6 +32,7 @@ PhreakScript installs:
       - ``RevertivePulse``
       - ``SendFrame``
       - ``WaitForFrame``
+      - ``Multicast``
       - ``Signal``
       - ``WaitForSignal``
       - ``WaitForDeposit``
