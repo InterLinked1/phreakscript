@@ -1057,8 +1057,15 @@ static int store_dtmf(struct ast_channel *chan)
 	}
 #endif
 
-	snprintf(app_args, sizeof(app_args), "TX,CDR(%s),32", cdrvar_digits); /* Store up to 32 digits */
+	snprintf(app_args, sizeof(app_args), "RX,CDR(%s),32", cdrvar_digits); /* Store up to 32 digits, dialed by the caller (not the called number) */
 
+	/* This is kind of a kludge. StoreDTMF can only be activated, and emits a warning if activated again, so make sure we don't call more than once, just to keep things clean. */
+	if (pbx_builtin_getvar_helper(chan, "CCSADTMFSTORESTARTED")) {
+		return 0; /* We're not getting the actual value, so don't bother locking the channel. If it exists, then we already activated StoreDTMF previously. */
+	}
+	pbx_builtin_setvar_helper(chan, "CCSADTMFSTORESTARTED", "1");
+
+	/*! \todo A timeout (say a minute) for StoreDTMF would be good... */
 	if (ast_pbx_exec_application(chan, "StoreDTMF", app_args)) {
 		ast_log(LOG_WARNING, "Failed to initialize digit store on %s\n", ast_channel_name(chan));
 		if (ast_check_hangup(chan)) {
@@ -1584,8 +1591,8 @@ static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *
 				ccsa_log(chan, fd, "Invalid authorization code entered\n");
 				return FACILITY_DISP_INVALID_AUTH_CODE;
 			}
-			cdr_set_var_int(chan, cdrvar_frl_eff, *frl_upgraded);
 			*frl_upgraded = res; /* Update new effective FRL */
+			cdr_set_var_int(chan, cdrvar_frl_eff, *frl_upgraded);
 		} else { /* If simulated, assume we got an authorization code of the required FRL */
 			/*! \todo better would be to simulate an auth code or upgrade FRL directly */
 			ccsa_log(chan, fd, "Simulating FRL upgrade from %d to %d\n", *callerfrl, frl);
