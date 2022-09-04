@@ -1222,7 +1222,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## Menuselect updates
 	make menuselect.makeopts
-	menuselect/menuselect --enable app_memory menuselect.makeopts # app_memory doesn't compile by default
+	menuselect/menuselect --enable app_memory --enable res_cliexec menuselect.makeopts # enable modules that are not built by default
 }
 
 phreak_gerrit_off() {
