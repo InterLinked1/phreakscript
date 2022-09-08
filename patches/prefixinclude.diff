@@ -1,5 +1,5 @@
 diff --git a/main/pbx.c b/main/pbx.c
-index c655f1bcfc..7ee5c4ade5 100644
+index c655f1bcfc..20acce4aeb 100644
 --- a/main/pbx.c
 +++ b/main/pbx.c
 @@ -2768,10 +2768,32 @@ struct ast_exten *pbx_find_extension(struct ast_channel *chan,
@@ -14,22 +14,22 @@ index c655f1bcfc..7ee5c4ade5 100644
 +				 * extensions in an include. For example, remove '9' from
 +				 * from-internal before going to included context pstn. */
 +				int pfxlen = strlen(prefix);
-+				if (strncmp(include_exten, prefix, pfxlen)) {
-+					continue; /* Include has a prefix, but the prefix did not match, so skip. */
++				if (!strncmp(include_exten, prefix, pfxlen)) {
++					include_exten += pfxlen;
++					if (ast_strlen_zero(include_exten)) {
++						ast_debug(1, "Removed prefix '%s' for included context '%s', but the prefix was the entire extension, reverting\n",
++							prefix, include_rname(i));
++						include_exten -= pfxlen; /* Tack the prefix back on, since this wasn't really a prefix. */
++					} else {
++						ast_debug(2, "Removing prefix '%s' (=> %s) before searching included context '%s'\n", prefix, include_exten, include_rname(i));
++					}
 +				}
-+				include_exten += pfxlen;
-+				if (ast_strlen_zero(include_exten)) {
-+					ast_debug(1, "Removed prefix '%s' for included context '%s', but the prefix was the entire extension, reverting\n",
-+						prefix, include_rname(i));
-+					continue;
-+				}
-+				ast_debug(2, "Removing prefix '%s' (=> %s) before searching included context '%s'\n", prefix, include_exten, include_rname(i));
 +			}
 +			if ((e = pbx_find_extension(chan, bypass, q, include_rname(i), include_exten, priority, label, callerid, action))) {
  #ifdef NEED_DEBUG_HERE
  				ast_log(LOG_NOTICE,"Returning recursive match of %s\n", e->exten);
  #endif
-+				if (action == E_SPAWN && chan && include_exten != exten) {
++				if (action == E_SPAWN && include_exten != exten) {
 +					ast_debug(1, "Updating EXTEN from %s to %s\n", exten, include_exten);
 +					ast_channel_exten_set(chan, include_exten); /* So that ${EXTEN} matches the EXTEN in the included context */
 +				}
