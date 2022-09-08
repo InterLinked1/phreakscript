@@ -1,0 +1,117 @@
+diff --git a/main/pbx.c b/main/pbx.c
+index c655f1bcfc..7ee5c4ade5 100644
+--- a/main/pbx.c
++++ b/main/pbx.c
+@@ -2768,10 +2768,32 @@ struct ast_exten *pbx_find_extension(struct ast_channel *chan,
+ 		const struct ast_include *i = ast_context_includes_get(tmp, idx);
+ 
+ 		if (include_valid(i)) {
+-			if ((e = pbx_find_extension(chan, bypass, q, include_rname(i), exten, priority, label, callerid, action))) {
++			const char *include_exten = exten;
++			const char *prefix = include_prefix(i);
++			if (!ast_strlen_zero(prefix)) {
++				/* Determine if we should remove a prefix before accessing the
++				 * extensions in an include. For example, remove '9' from
++				 * from-internal before going to included context pstn. */
++				int pfxlen = strlen(prefix);
++				if (strncmp(include_exten, prefix, pfxlen)) {
++					continue; /* Include has a prefix, but the prefix did not match, so skip. */
++				}
++				include_exten += pfxlen;
++				if (ast_strlen_zero(include_exten)) {
++					ast_debug(1, "Removed prefix '%s' for included context '%s', but the prefix was the entire extension, reverting\n",
++						prefix, include_rname(i));
++					continue;
++				}
++				ast_debug(2, "Removing prefix '%s' (=> %s) before searching included context '%s'\n", prefix, include_exten, include_rname(i));
++			}
++			if ((e = pbx_find_extension(chan, bypass, q, include_rname(i), include_exten, priority, label, callerid, action))) {
+ #ifdef NEED_DEBUG_HERE
+ 				ast_log(LOG_NOTICE,"Returning recursive match of %s\n", e->exten);
+ #endif
++				if (action == E_SPAWN && chan && include_exten != exten) {
++					ast_debug(1, "Updating EXTEN from %s to %s\n", exten, include_exten);
++					ast_channel_exten_set(chan, include_exten); /* So that ${EXTEN} matches the EXTEN in the included context */
++				}
+ 				return e;
+ 			}
+ 			if (q->swo)
+diff --git a/main/pbx_include.c b/main/pbx_include.c
+index 188bce1ad1..e660dd9ea4 100644
+--- a/main/pbx_include.c
++++ b/main/pbx_include.c
+@@ -38,6 +38,8 @@ struct ast_include {
+ 	const char *name;
+ 	/*! Context to include */
+ 	const char *rname;
++	/*! Prefix to strip for include traversal */
++	const char *prefix;
+ 	/*! Registrar */
+ 	const char *registrar;
+ 	/*! If time construct exists */
+@@ -52,6 +54,11 @@ const char *ast_get_include_name(const struct ast_include *inc)
+ 	return inc ? inc->name : NULL;
+ }
+ 
++const char *include_prefix(const struct ast_include *inc)
++{
++	return inc ? inc->prefix : NULL;
++}
++
+ const char *include_rname(const struct ast_include *inc)
+ {
+ 	return inc ? inc->rname : NULL;
+@@ -74,7 +81,7 @@ int include_valid(const struct ast_include *inc)
+ struct ast_include *include_alloc(const char *value, const char *registrar)
+ {
+ 	struct ast_include *new_include;
+-	char *c;
++	char *c, *prefix = NULL;
+ 	int valuebufsz = strlen(value) + 1;
+ 	char *p;
+ 
+@@ -96,15 +103,32 @@ struct ast_include *include_alloc(const char *value, const char *registrar)
+ 	/* Strip off timing info, and process if it is there */
+ 	if ( (c = strchr(p, '|')) || (c = strchr(p, ',')) ) {
+ 		*c++ = '\0';
++		if (c) {
++			prefix = strchr(c, '|');
++			if (prefix) {
++				*prefix++ = '\0';
++			}
++		}
+ 		new_include->hastime = ast_build_timing(&(new_include->timing), c);
+ 	}
+ 	new_include->registrar = registrar;
+ 
++	if (!ast_strlen_zero(prefix)) {
++		ast_debug(2, "include is prefixed: '%s'\n", prefix);
++		new_include->prefix = ast_strdup(prefix);
++		if (!new_include->prefix) {
++			ast_log(LOG_ERROR, "Failed to strdup prefix\n");
++		}
++	}
++
+ 	return new_include;
+ }
+ 
+ void include_free(struct ast_include *inc)
+ {
++	if (inc->prefix) {
++		ast_free(inc->prefix);
++	}
+ 	ast_destroy_timing(&(inc->timing));
+ 	ast_free(inc);
+ }
+diff --git a/main/pbx_private.h b/main/pbx_private.h
+index da1060e0e9..cb409d61fe 100644
+--- a/main/pbx_private.h
++++ b/main/pbx_private.h
+@@ -48,6 +48,7 @@ struct ast_include *include_alloc(const char *value, const char *registrar);
+ void include_free(struct ast_include *inc);
+ int include_valid(const struct ast_include *inc);
+ const char *include_rname(const struct ast_include *inc);
++const char *include_prefix(const struct ast_include *inc);
+ 
+ /*! pbx_sw.c */
+ struct ast_sw;
