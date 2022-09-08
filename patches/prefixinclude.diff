@@ -29,7 +29,7 @@ index c655f1bcfc..20acce4aeb 100644
  #ifdef NEED_DEBUG_HERE
  				ast_log(LOG_NOTICE,"Returning recursive match of %s\n", e->exten);
  #endif
-+				if (action == E_SPAWN && include_exten != exten) {
++				if (action == E_SPAWN && chan && include_exten != exten) {
 +					ast_debug(1, "Updating EXTEN from %s to %s\n", exten, include_exten);
 +					ast_channel_exten_set(chan, include_exten); /* So that ${EXTEN} matches the EXTEN in the included context */
 +				}
