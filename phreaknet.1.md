@@ -118,6 +118,9 @@ the best Asterisk and DAHDI experience.
 **freedisk**
 : Free up disk space, useful if disk space is running low. This command will rotate and remove old logs, remove unused swap files, remove old package files, and remove core dump files.
 
+**topdir**
+: Show largest directories in current directory
+
 **topdisk**
 : Show top files taking up disk space
 

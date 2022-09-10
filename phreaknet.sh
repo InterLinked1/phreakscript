@@ -249,7 +249,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap restart kill forcerestart ban dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -294,6 +294,7 @@ Commands:
    patch              Patch PhreakNet Asterisk configuration
    genpatch           Generate a PhreakPatch
    freedisk           Free up disk space
+   topdir             Show largest directories in current directory
    topdisk            Show top files taking up disk space
    enable-swap        Temporarily allocate and enable swap file
    disable-swap       Disable and deallocate temporary swap file
@@ -1194,24 +1195,25 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	## Gerrit patches: merged, remove in next release
-	if [ "$AST_ALT_VER" != "master" ]; then # apply specified merged patches, unless we just cloned master
-		:
+	if [ "$AST_ALT_VER" != "master" ] && [ "$AST_SRC_DIR" != "asterisk-18.15.0" ]; then # apply specified merged patches, unless we just cloned master
+		gerrit_patch 18523 "https://gerrit.asterisk.org/changes/asterisk~18523/revisions/3/patch?download" # cli: Prevent assertions on startup from bad ao2 refs
 	fi
 
 	## Gerrit patches: remove once merged
-	# phreak_tree_module "apps/app_if.c"
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
-	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/1/patch?download" # app_multicast
-	gerrit_patch 18523 "https://gerrit.asterisk.org/changes/asterisk~18523/revisions/3/patch?download" # cli: Prevent assertions on startup from bad ao2 refs
+
+	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/2/patch?download" # app_broadcast
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
 	gerrit_patch 18824 "https://gerrit.asterisk.org/changes/asterisk~18824/revisions/3/patch?download" # res_pjsip_logger: Add method-based logging option
 	gerrit_patch 18883 "https://gerrit.asterisk.org/changes/asterisk~18883/revisions/3/patch?download" # lock.c: Add AMI event for deadlocks
 	gerrit_patch 18974 "https://gerrit.asterisk.org/changes/asterisk~18974/revisions/4/patch?download" # app_amd: Add option to play audio during AMD
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
+
+	git_patch "prefixinclude.diff" # pbx: prefix includes
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
@@ -2851,6 +2853,9 @@ elif [ "$cmd" = "freedisk" ]; then
 	if [ -f /var/log/apache2/modsec_audit.log ]; then
 		echo "" > /var/log/apache2/modsec_audit.log
 	fi
+	if [ -f /var/log/asterisk/security ]; then
+		echo "" > /var/log/asterisk/security
+	fi
 	if [ -d /var/crash ]; then
 		rm -f /var/crash/core*
 	fi
@@ -2877,6 +2882,9 @@ elif [ "$cmd" = "freedisk" ]; then
 elif [ "$cmd" = "topdisk" ]; then
 	df -h -x squashfs -x tmpfs -x devtmpfs
 	find / -printf '%s %p\n'| sort -nr | head -50
+elif [ "$cmd" = "topdir" ]; then
+	# For largest directories in current directory:
+	du -sh * | sort -rh
 elif [ "$cmd" = "enable-swap" ]; then
 # https://www.digitalocean.com/community/tutorials/how-to-add-swap-space-on-debian-10
 	assert_root
