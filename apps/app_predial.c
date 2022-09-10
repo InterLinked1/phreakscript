@@ -155,6 +155,7 @@ enum user_agent_type {
 	UA_PANASONIC,
 	UA_DIGIUM,
 	UA_MITEL,
+	UA_YEALINK,
 	/* Softphones and other specific things */
 	UA_MICROSIP,
 	UA_TSIP,
@@ -202,6 +203,8 @@ static enum user_agent_type parse_user_agent(struct ast_channel *chan)
 		return UA_PANASONIC;
 	} else if (regex_match(user_agent, "Mitel")) {
 		return UA_MITEL;
+	} else if (regex_match(user_agent, "Yealink")) {
+		return UA_YEALINK;
 	} else if (regex_match(user_agent, "MicroSIP")) {
 		return UA_MICROSIP;
 	} else if (regex_match(user_agent, "tSIP")) {
@@ -307,6 +310,9 @@ static int predial_exec(struct ast_channel *chan, const char *data)
 			case UA_POLYCOM_OBI:
 				snprintf(headerval, sizeof(headerval), "http://127.0.0.1/Bellcore-dr%d", cadence);
 				break;
+			case UA_YEALINK:
+				snprintf(headerval, sizeof(headerval), "<>;info=Ring%d", cadence); /* Yealink doesn't have a defined text, it's configurable, so assume the text is Ring1, Ring2, etc. */
+				break;
 			case UA_CISCO:
 			case UA_LINKSYS:
 			default: /* Blindly fall back to this and hope for the best */
@@ -338,6 +344,9 @@ static int predial_exec(struct ast_channel *chan, const char *data)
 				break;
 			case UA_MICROSIP:
 				send_header(chan, "Call-Info", "Auto Answer");
+				break;
+			case UA_YEALINK:
+				send_header(chan, "Call-Info", "answer-after=0");
 				break;
 			default:
 				ast_log(LOG_WARNING, "Don't know how to send auto-answer to user agent type %d\n", ua);
