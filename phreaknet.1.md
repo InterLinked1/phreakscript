@@ -219,6 +219,12 @@ the best Asterisk and DAHDI experience.
 **pubdocs**
 : DEPRECATED. Generate Asterisk user documentation
 
+**applist**
+: List Asterisk dialplan applications in current source. This can be useful for seeding text editor syntax files.
+
+**funclist**
+: List Asterisk dialplan functions in current source. This can be useful for seeding text editor syntax files.
+
 **edit**
 : Edit local PhreakScript source directly
 

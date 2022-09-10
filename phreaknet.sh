@@ -249,7 +249,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -333,6 +333,8 @@ Commands:
    *** Miscellaneous ***
    docgen             Generate Asterisk user documentation
    pubdocs            Generate Asterisk user documentation (deprecated)
+   applist            List Asterisk dialplan applications in current source
+   funclist           List Asterisk dialplan functions in current source
    edit               Edit PhreakScript
 
 Options:
@@ -2654,6 +2656,10 @@ elif [ "$cmd" = "dialplanfiles" ]; then
 	fi
 	grep "config.c: Parsing " /var/log/asterisk/$channel
 	rm /var/log/asterisk/$channel
+elif [ "$cmd" = "applist" ]; then
+	grep -ERo ",([A-Z][A-Za-z]+)\(" | cut -d',' -f2 | cut -d'(' -f1 | sort | uniq
+elif [ "$cmd" = "funclist" ]; then
+	grep -ERo "\{([A-Z]+)\(" | cut -d'{' -f2 | cut -d'(' -f1 | sort | uniq
 elif [ "$cmd" = "paste" ]; then
 	if [ ${#2} -eq 0 ]; then
 		echoerr "Usage: phreaknet paste <filename>"
