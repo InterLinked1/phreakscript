@@ -98,7 +98,7 @@ index 188bce1ad1..e660dd9ea4 100644
  void include_free(struct ast_include *inc)
  {
 +	if (inc->prefix) {
-+		ast_free(inc->prefix);
++		ast_free((char*) inc->prefix);
 +	}
  	ast_destroy_timing(&(inc->timing));
  	ast_free(inc);
