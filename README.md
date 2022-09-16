@@ -32,7 +32,7 @@ PhreakScript installs:
       - ``RevertivePulse``
       - ``SendFrame``
       - ``WaitForFrame``
-      - ``Multicast``
+      - ``Broadcast``
       - ``Signal``
       - ``WaitForSignal``
       - ``WaitForDeposit``
@@ -55,7 +55,7 @@ PhreakScript installs:
       - ``TEXT_QUERY``
       - ``COIN_DETECT``
       - ``COIN_EIS``
-      - ``OTHER_CHANNEL``
+      - ``EXPORT``
       - ``NOTCH_FILTER``
       - ``DB_CHANNEL``
       - ``DB_CHANNEL_PRUNE``
@@ -64,9 +64,12 @@ PhreakScript installs:
       - ``DB_MINKEY``
       - ``DB_UNIQUE``
       - ``SIP_PARAMETER``
+      - ``GROUP_VAR`` (third-party)
+      - ``GROUP_MATCH_LIST_START`` (third-party)
    - Miscellaneous improvements
       - Enhances performance by completely removing Newexten AMI event
       - Adds fax timing and parameter control to `chan_sip`
+      - Adds prefix capabilities to `include => `
       - Fixes ulaw/gsm codec translation bug
       - Fixes infinite loop Dial bug
 
