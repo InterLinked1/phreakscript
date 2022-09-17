@@ -25,8 +25,8 @@ index c655f1bcfc..20acce4aeb 100644
 +					}
 +				}
 +			} else {
-+    continue;
-+   }
++				continue;
++			}
 +			if ((e = pbx_find_extension(chan, bypass, q, include_rname(i), include_exten, priority, label, callerid, action))) {
  #ifdef NEED_DEBUG_HERE
  				ast_log(LOG_NOTICE,"Returning recursive match of %s\n", e->exten);
