@@ -412,6 +412,10 @@ download_if_missing() {
 
 install_prereq() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
+		# Ubuntu 22.04 prompts for restarts by default, inhibit this: https://askubuntu.com/questions/1367139/apt-get-upgrade-auto-restart-services
+		if [ -f /etc/needrestart/needrestart.conf ]; then
+			sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
+		fi
 		apt-get clean
 		apt-get update -y
 		apt-get upgrade -y
@@ -754,9 +758,6 @@ install_testsuite_itself() {
 	fi
 	cd testsuite
 
-	gerrit_patch 19051 "https://gerrit.asterisk.org/changes/testsuite~19051/revisions/2/patch?download"
-	gerrit_patch 19052 "https://gerrit.asterisk.org/changes/testsuite~19052/revisions/1/patch?download"
-
 	./contrib/scripts/install_prereq install
 
 	#cd testsuite/asttest
@@ -873,6 +874,17 @@ git_patch() {
 		exit 2
 	fi
 	rm "/tmp/$1"
+}
+
+git_custom_patch() {
+	printf "Applying git patch: %s\n" "$1"
+	wget -q "$1" -O /tmp/tmp_git_patch.diff --no-cache
+	git apply "/tmp/tmp_git_patch.diff"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply git patch... this should be reported..."
+		exit 2
+	fi
+	rm "/tmp/tmp_git_patch.diff"
 }
 
 dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
@@ -995,6 +1007,11 @@ install_dahdi() {
 		printf "Not compiling XPP driver for 32-bit ARM.\n"
 		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
 	fi
+
+	# Compiler fixes for newer kernels (5.15, 5.17, 5.18)
+	#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/b2371828bed2240d1dde3e761539e10772a631d1.diff"
+	#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/b6d9b417e1992868549d443efad11e4f1513c9d7.diff"
+	git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
 
 	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
@@ -1225,6 +1242,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
 	gerrit_patch 19156 "https://gerrit.asterisk.org/changes/asterisk~19156/revisions/1/patch?download" # app_bridgewait: add noanswer option
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
+	# todo func_export supersedes func_ochannel: remove func_ochannel
+	gerrit_patch 15893 "https://gerrit.asterisk.org/changes/asterisk~15893/revisions/11/patch?download" # func_export
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
 	git_patch "prefixinclude.diff" # pbx: prefix includes
@@ -1981,7 +2000,7 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		nice $AST_MAKE ASTLDFLAGS=-lcrypt main
 	else
-		nice $AST_MAKE -j2 # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+		nice $AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 	fi
 
 	if [ $? -ne 0 ]; then
@@ -2069,7 +2088,7 @@ elif [ "$cmd" = "install" ]; then
 			git fetch
 			git pull
 			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
-			make -j2 && make install && make reload
+			make -j$(nproc) && make install && make reload
 			if [ $? -ne 0 ]; then
 				echoerr "Failed to install chan_sccp"
 				exit 2
