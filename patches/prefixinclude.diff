@@ -2,7 +2,7 @@ diff --git a/main/pbx.c b/main/pbx.c
 index c655f1bcfc..20acce4aeb 100644
 --- a/main/pbx.c
 +++ b/main/pbx.c
-@@ -2768,10 +2768,32 @@ struct ast_exten *pbx_find_extension(struct ast_channel *chan,
+@@ -2768,10 +2768,34 @@ struct ast_exten *pbx_find_extension(struct ast_channel *chan,
  		const struct ast_include *i = ast_context_includes_get(tmp, idx);
  
  		if (include_valid(i)) {
