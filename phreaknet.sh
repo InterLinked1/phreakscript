@@ -643,6 +643,9 @@ run_testsuite_tests() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
+	# run manually for good measure, and so we get the full output
+	./setupVenv.sh
+
 	run_testsuite_test "apps/assert"
 	run_testsuite_test "apps/dialtone"
 	run_testsuite_test "apps/verify"
@@ -1009,9 +1012,8 @@ install_dahdi() {
 	fi
 
 	# Compiler fixes for newer kernels (5.15, 5.17, 5.18)
-	#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/b2371828bed2240d1dde3e761539e10772a631d1.diff"
-	#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/b6d9b417e1992868549d443efad11e4f1513c9d7.diff"
-	git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
+	# doesn't apply cleanly, but patches needed:
+	#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
 
 	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
