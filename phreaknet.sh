@@ -230,6 +230,8 @@ if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	AST_SOURCE_PARENT_DIR="/usr/local/src"
 	AST_MAKE="gmake"
 	XMLSTARLET="/usr/local/bin/xml"
+elif [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
+	PAC_MAN="yum"
 fi
 
 phreakscript_info() {
@@ -433,6 +435,7 @@ install_prereq() {
 		apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
+	# TODO: missing yum support
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -f
 		pkg upgrade -y
@@ -454,6 +457,8 @@ ensure_installed() {
 	if ! which "$1" > /dev/null; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
 			apt-get install -y "$1"
+		elif [ "$PAC_MAN" = "yum" ]; then
+			yum install -y "$1"
 		else
 			echoerr "Not sure how to satisfy requirement $1"
 		fi
