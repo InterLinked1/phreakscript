@@ -252,7 +252,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -284,6 +284,7 @@ Commands:
    sounds             Install Pat Fleet sound library
    boilerplate-sounds Install boilerplate sounds only
    ulaw               Convert wav to ulaw (specific file or all in current directory)
+   remsil             Remove silence from file(s)
    uninstall          Uninstall Asterisk, but leave configuration behind
    uninstall-all      Uninstall Asterisk, and completely remove all traces of it (configs, etc.)
 
@@ -1741,9 +1742,13 @@ elif [ "$cmd" = "wizard" ]; then
 	echog "You have completed the installation command wizard. You may use the following command to install according to your preferences:"
 	printf "phreaknet install%s\n" "$wizardresult"
 	if [ "$ans" = "y" ]; then
-		printf "Automatically installing with the determined options...\n"
-		sleep 1
-		exec phreaknet install "$wizardresult"
+		if which phreaknet > /dev/null; then
+			printf "Automatically installing with the determined options...\n"
+			sleep 1
+			exec phreaknet install "$wizardresult"
+		else
+			echoerr "Could not find PhreakScript in PATH. Please ensure this is run as root, and manually run the above command."
+		fi
 	fi
 elif [ "$cmd" = "make" ]; then
 	# chmod +x phreaknet.sh
@@ -2218,6 +2223,27 @@ elif [ "$cmd" = "ulaw" ]; then
 		for f in *.wav; do
 			withoutextension=`printf '%s\n' "$f" | sed -r 's|^(.*?)\.\w+$|\1|'`
 			sox $f --rate 8000 --channels 1 --type ul $withoutextension.ulaw lowpass 3400 highpass 300
+		done
+	fi
+elif [ "$cmd" = "remsil" ]; then
+	ensure_installed sox
+	# if there is only 1 file, sox -m will fail, ignore.
+	if [ ${#2} -gt 0 ]; then # a specific file
+		f="$2"
+		withoutextension=`printf '%s' "$f" | sed -r 's|^(.*?)\.\w+$|\1|'`
+		withoutextensionplus="${withoutextension}_"
+		sox "$f" "remsil-$withoutextensionplus.wav" silence 1 1.5 0.1% 1 1.5 0.1% : newfile : restart # individual files
+		#echo sox -m remsil-$withoutextensionplus*.wav "remsil-$withoutextensionplus.wav" # combined file
+		#ls remsil-$withoutextensionplus*.wav
+		#sox -m remsil-$withoutextensionplus*.wav "remsil-$withoutextensionplus.wav"
+		# XXX: For some reason, this (and above) doesn't work right, it can/will only merge some of the files, instead of all of them, making this useless
+		sox -m $(for ff in remsil-$withoutextensionplus*.wav; do echo -n "$ff "; done) "remsil-$withoutextensionplus.wav"
+	else
+		for f in *.wav; do
+			withoutextension=`printf '%s' "$f" | sed -r 's|^(.*?)\.\w+$|\1|'`
+			withoutextensionplus="${withoutextension}_"
+			sox "$f" "remsil-$withoutextensionplus.wav" silence 1 1.5 0.1% 1 1.5 0.1% : newfile : restart
+			sox -m remsil-$withoutextensionplus*.wav "remsil-$withoutextensionplus.wav" 2>&1 >/dev/null
 		done
 	fi
 elif [ "$cmd" = "docverify" ]; then

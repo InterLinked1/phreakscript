@@ -87,6 +87,9 @@ the best Asterisk and DAHDI experience.
 **ulaw**
 : Convert a wav file to ulaw. If no argument is provided, all wav files in the current directory will be converted. If an argument is provided, only the specified file will be converted.
 
+**remsil**
+: Remove silence from one or more WAV audio files. If no argument is provided, all wav files in the current directory will be processed. If an argument is provided, only the specified file will be processed.
+
 **uninstall**
 : Uninstall Asterisk, but leave configuration behind
 
