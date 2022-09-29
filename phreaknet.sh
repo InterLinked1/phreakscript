@@ -13,7 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
-# 2022-09-28 0.1.90 DAHDI: remove merged DAHDI compiler fix
+# 2022-09-28 0.1.90 DAHDI: remove merged DAHDI compiler fix, add libpri compiler fix
 # 2022-09-16 0.1.89 Asterisk: add unmerged patches
 # 2022-09-03 0.1.88 Asterisk: add unmerged patches
 # 2022-09-03 0.1.87 DAHDI: Add support for Raspberry Pi
@@ -1102,6 +1102,8 @@ install_dahdi() {
 	tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
 	rm ${LIBPRI_SOURCE_NAME}.tar.gz
 	cd ${LIBPRI_SOURCE_NAME}
+	# Unmerged compiler fix patch for q921/q931 in libpri:
+	gerrit_patch 19311 "https://gerrit.asterisk.org/changes/libpri~19311/revisions/2/patch?download"
 	make && make install
 
 	# Wanpipe
