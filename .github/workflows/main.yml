@@ -37,7 +37,5 @@ jobs:
           wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           chmod +x phreaknet.sh
           ./phreaknet.sh make
-          # temporarily disable tests due to python3 issues
-          phreaknet install -d -s
-          # phreaknet install -d -s t
-          # phreaknet runtests
+          phreaknet install -d -s t
+          phreaknet runtests
