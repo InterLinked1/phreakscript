@@ -742,15 +742,6 @@ install_testsuite_itself() {
 	apt-get clean
 	apt-get update -y
 	apt-get upgrade -y
-	#apt-get install -y liblua5.1-0-dev lua5.3 git python python-setuptools
-	#apt-get install -y python3-dev
-	#apt-get install -y python3-venv
-
-	# Python 2 support is going away in Debian
-	# curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py # https://stackoverflow.com/a/64240018/6110631
-	# python get-pip.py
-	# pip2 install pyyaml
-	# pip2 install twisted
 
 	cd $AST_SOURCE_PARENT_DIR
 	if [ -d "testsuite" ]; then
@@ -769,33 +760,14 @@ install_testsuite_itself() {
 	cd testsuite
 
 	./contrib/scripts/install_prereq install
+	# In theory, the below is not necessary:
+	pip3 install pyyaml
+	pip3 install twisted
 
-	#cd testsuite/asttest
-	#make
-	#make install
-	#asttest
-	#cd ..
-	#cd addons
-	#make update
-	#cd starpy
-	#python setup.py install
-	#cd ../..
-	#apt-get install -y python-twisted
-	#pip install twisted
-	# sipp
-	#cd $AST_SOURCE_PARENT_DIR
-	#git clone https://github.com/SIPp/sipp.git
-	#cd sipp
-	#if [ "$PAC_MAN" = "apt-get" ]; then
-	#	apt-get install -y cmake libsctp-dev libgsl-dev
-	#fi
-	#git checkout v3.6.0 ## This is the latest version we KNOW works.
-	#./build.sh --prefix=/usr --with-openssl --with-pcap --with-rtpstream --with-sctp --with-gsl CFLAGS=-w
-	#./sipp -v
-	#make install
 	cd $AST_SOURCE_PARENT_DIR
-	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
-	# ./runtests.py -l # list all tests
+	./setupVenv.sh
+	# ./runInVenv.sh python3 ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
+	./runInVenv.sh python3 ./runtests.py -l # list all tests
 	add_phreak_testsuite
 	printf "%s\n" "Asterisk Test Suite installation complete"
 }
@@ -1116,6 +1088,7 @@ install_dahdi() {
 	./Setup dahdi --silent
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
+		sleep 1
 		#exit 2
 	else
 		wanrouter stop
