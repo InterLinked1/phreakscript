@@ -919,7 +919,7 @@ static int irc_reload(int reload)
 		free_server(ircserver);
 	}
 	if (!(ircserver = ast_calloc(1, sizeof(*ircserver)))) {
-		return NULL;
+		return -1;
 	}
 
 	/* General section */
