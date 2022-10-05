@@ -149,8 +149,12 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
-	argcopy = ast_strdupa(data);
+	if (ast_strlen_zero(data)) {
+		ast_log(LOG_WARNING, "%s requires arguments\n", app);
+		return -1;
+	}
 
+	argcopy = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, argcopy);
 
 	if (!ast_strlen_zero(args.options)) {

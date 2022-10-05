@@ -61,15 +61,15 @@
 				10 seconds.</para>
 			</parameter>
 			<parameter name="vol" required="false">
-				<para>Volume reduction factor. Higher number
-				equals softer tone sweep. Default is
-				1 (loudest).</para>
+				<para>Volume reduction factor. Higher number equals
+				softer tone sweep. Default is 1 (loudest).</para>
 			</parameter>
 		</syntax>
 		<description>
 			<para>Generates an ascending or descending tone sweep (chirp) between two frequencies.</para>
 		</description>
 		<see-also>
+			<ref type="application">Milliwatt</ref>
 			<ref type="application">PlayTones</ref>
 		</see-also>
 	</application>
@@ -141,7 +141,7 @@ static int chirp_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(vol);
 	);
 
-	appdata = ast_strdupa(data);
+	appdata = ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args, appdata);
 
 	if (!ast_strlen_zero(args.start) && ast_str_to_int(args.start, &start)) {

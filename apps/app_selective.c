@@ -2017,7 +2017,12 @@ static int selective_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
-	argstr = ast_strdupa((char *) data);
+	if (ast_strlen_zero(data)) {
+		ast_log(LOG_WARNING, "%s requires arguments\n", app);
+		return -1;
+	}
+
+	argstr = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, argstr);
 
 	if (ast_strlen_zero(args.profile)) {

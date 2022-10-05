@@ -195,6 +195,11 @@ static int playdigits_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
+	if (ast_strlen_zero(data)) {
+		ast_log(LOG_WARNING, "%s requires arguments\n");
+		return -1;
+	}
+
 	tmp = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, tmp);
 

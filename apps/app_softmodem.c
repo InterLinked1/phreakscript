@@ -717,7 +717,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data) {
 	session.ulmheader=0;
 	session.sendnull=0;
 
-	parse=ast_strdupa(data);
+	parse=ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args,parse);
 
 	if (args.host) {

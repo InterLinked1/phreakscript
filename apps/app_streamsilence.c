@@ -92,7 +92,7 @@ static int streamsilence_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(timeout);
 	);
 
-	appdata = ast_strdupa(data);
+	appdata = ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args, appdata);
 
 	if (!ast_strlen_zero(args.timeout)) {
