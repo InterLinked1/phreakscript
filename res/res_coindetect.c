@@ -622,6 +622,11 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 		ast_log(LOG_WARNING, "No channel was provided to %s function.\n", cmd);
 		return -1;
 	}
+	if (ast_strlen_zero(data)) {
+		ast_log(LOG_WARNING, "%s requires arguments\n", cmd);
+		return -1;
+	}
+
 	parse = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, parse);
 
@@ -743,7 +748,7 @@ static int wait_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
-	appdata = ast_strdupa(data);
+	appdata = ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args, appdata);
 
 	if (!ast_strlen_zero(args.options)) {
@@ -897,7 +902,7 @@ static int disposition_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
-	appdata = ast_strdupa(data);
+	appdata = ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args, appdata);
 
 	if (!ast_strlen_zero(args.options)) {

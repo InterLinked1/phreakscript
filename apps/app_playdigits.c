@@ -196,7 +196,7 @@ static int playdigits_exec(struct ast_channel *chan, const char *data)
 	);
 
 	if (ast_strlen_zero(data)) {
-		ast_log(LOG_WARNING, "%s requires arguments\n");
+		ast_log(LOG_WARNING, "%s requires arguments\n", app);
 		return -1;
 	}
 
