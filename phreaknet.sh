@@ -188,6 +188,7 @@ DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
 ENHANCED_INSTALL=1
+FAST_COMPILE=0
 PKG_AUDIT=0
 MANUAL_MENUSELECT=0
 ENABLE_BACKTRACES=0
@@ -362,6 +363,7 @@ Options:
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --boilerplate  sounds: Also install boilerplate sounds
        --audit        install: Audit package installation
+	   --fast         install: Compile as fast as possible
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
@@ -1210,6 +1212,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		gerrit_patch 19056 "https://gerrit.asterisk.org/changes/asterisk~19056/revisions/3/patch?download" # app_confbridge: add end_marked_any
 		gerrit_patch 19055 "https://gerrit.asterisk.org/changes/asterisk~19055/revisions/2/patch?download" # pbx variables: use const char if possible
 		gerrit_patch 18831 "https://gerrit.asterisk.org/changes/asterisk~18831/revisions/4/patch?download" # improve log levels
+		gerrit_patch 19205 "https://gerrit.asterisk.org/changes/asterisk~19205/revisions/1/patch?download" # func_strings: Add trim functions
+		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
+		gerrit_patch 19156 "https://gerrit.asterisk.org/changes/asterisk~19156/revisions/1/patch?download" # app_bridgewait: add noanswer option
+		gerrit_patch 15893 "https://gerrit.asterisk.org/changes/asterisk~15893/revisions/11/patch?download" # func_export
 	fi
 
 	## Gerrit patches: remove once merged
@@ -1222,12 +1228,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
 	gerrit_patch 18824 "https://gerrit.asterisk.org/changes/asterisk~18824/revisions/3/patch?download" # res_pjsip_logger: Add method-based logging option
-	gerrit_patch 19205 "https://gerrit.asterisk.org/changes/asterisk~19205/revisions/1/patch?download" # func_strings: Add trim functions
-	gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
-	gerrit_patch 19156 "https://gerrit.asterisk.org/changes/asterisk~19156/revisions/1/patch?download" # app_bridgewait: add noanswer option
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
 	# todo func_export supersedes func_ochannel: remove func_ochannel
-	gerrit_patch 15893 "https://gerrit.asterisk.org/changes/asterisk~15893/revisions/11/patch?download" # func_export
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
 	git_patch "prefixinclude.diff" # pbx: prefix includes
@@ -1564,7 +1566,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,fast,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1602,6 +1604,7 @@ while true; do
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
 		--devmode ) DEVMODE=1; shift ;;
 		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
+		--fast ) FAST_COMPILE=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
@@ -1613,8 +1616,8 @@ while true; do
 		--) shift; break ;;
 		# If invalid options were passed, then getopt should have reported an error,
 		# which we checked as VALID_ARGUMENTS when getopt was called...
-		*) echo "Unexpected option: $1"
-		   cmd="help"; shift; break ;;
+		*) die "Unexpected option: $1"
+		   #cmd="help"; shift; break ;;
 	esac
 done
 
@@ -1984,6 +1987,10 @@ elif [ "$cmd" = "install" ]; then
 		cd third-party/jansson
 		gmake
 		cd ../..
+	fi
+	niceval=""
+	if [ "$FAST_COMPILE" = "1" ]; then
+		niceval="-15" # -15 to speed up compilation by increasing CPU priority.
 	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		nice $AST_MAKE ASTLDFLAGS=-lcrypt main
