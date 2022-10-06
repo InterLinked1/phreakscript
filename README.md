@@ -23,6 +23,7 @@ PhreakScript installs:
       - ``SayTelephoneNumber``
       - ``FeatureProcess``
       - ``SelectiveFeature``
+      - ``RemoteAccess``
       - ``RequestCallback``
       - ``CancelCallback``
       - ``CCSA``
