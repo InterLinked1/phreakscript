@@ -1084,6 +1084,8 @@ static int say_telephone_number(struct ast_channel *chan, struct ast_str *strbuf
 		ast_str_set(&strbuf, 0, "%s,%s,%s,i", f->saytelnum_dir, number, f->saytelnum_args);
 	}
 
+	*buf = '\0';
+	pbx_builtin_setvar_helper(chan, "SAYTELNUM_DIGIT", NULL);
 	ast_debug(1, "Calling SayTelephoneNumber with args: %s\n", ast_str_buffer(strbuf));
 	res = ast_pbx_exec_application(chan, "SayTelephoneNumber", ast_str_buffer(strbuf));
 
