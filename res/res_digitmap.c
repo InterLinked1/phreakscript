@@ -86,9 +86,6 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 	while ((e = ast_walk_context_extensions(c, e))) {
 		char firstchar[2] = "";
 		int ignorepat = 0;
-		int in_pattern = 0;
-		int current_pattern_items = 0;
-		int contains_range = 0;
 		const char *startbuf, *name = ast_get_extension_name(e);
 		/* XXX use macro for this */
 		if (!strcmp(name, "a") || !strcmp(name, "i") || !strcmp(name, "s") || !strcmp(name, "t")) {
@@ -104,6 +101,8 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 		if (*name == '_') {
 			name++; /* It's a pattern */
 		}
+
+		ast_debug(3, "Processing extension: %s\n", ast_get_extension_name(e));
 
 		firstchar[0] = !ast_strlen_zero(prefix) ? *prefix : *name; /* If we already have a prefix, use that instead as that's the first true dialed digit, to which ignorepat will apply */
 
@@ -141,41 +140,66 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 			} else if (*name == '!') {
 				buf_append(buf, len, "S0"); /* Translate ! into immediate match */
 			} else {
-				/* Copy literally, including the . character. */
-				/* Keep track if we're in the middle of parsing a [] range/pattern */
+				/* Process [] ranges as an entire unit */
 				if (*name == '[') {
-					in_pattern++;
-					if (in_pattern > 1) {
-						ast_log(LOG_WARNING, "Dialplan is invalid: %s\n", ast_get_extension_name(e));
-						in_pattern = 1;
+					char range_first = 0;
+					const char *initial_range_start, *range_start, *range_end = strchr(name, ']');
+
+					initial_range_start = range_start = name;
+					if (!range_end) {
+						ast_log(LOG_WARNING, "Dialplan is invalid: unterminated range: %s\n", ast_get_extension_name(e));
+						res = -1;
+						break;
+					} else if (*range_start == '-') {
+						ast_log(LOG_WARNING, "Dialplan is invalid: range has no start: %s\n", ast_get_extension_name(e));
+						res = -1;
+						break;
 					}
-					current_pattern_items = 0;
-					contains_range = 0;
-				} else if (*name == ']') {
-					in_pattern--;
-					if (in_pattern < 0) {
-						ast_log(LOG_WARNING, "Dialplan is invalid: %s\n", ast_get_extension_name(e));
-						in_pattern = 0;
-					}
-					if (contains_range && current_pattern_items > 1) {
-						/* Grandstream digit maps (and possibly others) don't like combinations, e.g. [02-9] is not valid, either do 0 and 2-9 separately or do [023456789] */
-						ast_log(LOG_WARNING, "Generated digit map will be invalid: cannot literally translate %s\n", ast_get_extension_name(e));
-					}
-					current_pattern_items = 0;
-					contains_range = 0;
-				} else {
-					if (in_pattern) {
-						if (*name == '.') {
-							ast_log(LOG_WARNING, "Dialplan is invalid: periods should not appear inside []: %s\n", ast_get_extension_name(e));
-						} else if (*name == '-') {
-							current_pattern_items--;
-							contains_range++;
-						} else {
-							current_pattern_items++;
+
+					name = range_end; /* Once we exit the loop, pick up at the end of the [] range */
+					ast_debug(2, "Processing section: %.*s\n", (int) (range_end + 1 - range_start), range_start); /* Print out contents of [] */
+
+					while (range_start < range_end) {
+						if (*range_start == '-') {
+							/* This does contain a range. We may need to expand it to form a valid digit map. */
+							range_first = *(range_start - 1); /* This will always succeed, because we ensure the initial range_start doesn't start with a - */
 						}
+#ifdef EXTRA_DEBUG
+						ast_debug(4, "initial_range_start: %p (%c), range_start: %p (%c), range_end: %p\n",
+							initial_range_start, *initial_range_start, range_start, *range_start, range_end);
+#endif
+						/* We check 2 bounds here: if we started more than 2 ago or we're ending more than 2 from now, then there's more than just 1 range specified, and we need to expand. */
+						if (range_first && (initial_range_start < (range_start - 2) || range_end > (range_start + 2))) {
+							/* Grandstream digit maps (and possibly others) don't like combinations, e.g. [02-9] is not valid, either do 0 and 2-9 separately or do [023456789] */
+							/* If the [] is of format [2-9], then leave it alone. If it's any larger than that, we need to expand it or it won't be valid for a digit map. */
+							char range_last = *(range_start + 1); /* End of the range is whatever the next character is. */
+							/* Expand the range so it forms a valid digit map. */
+							ast_debug(2, "Range from %c to %c must be expanded for %s\n", range_first, range_last, ast_get_extension_name(e));
+							range_first++; /* Add 1, since we already wrote the first character in the range the previous iteration of the loop. */
+							while (range_first <= range_last) { /* Write out the entire range */
+								buf_append(buf, len, "%c", range_first);
+								range_first++;
+							}
+							range_first = 0;
+							range_start++; /* Skip ahead */
+						} else {
+#ifdef EXTRA_DEBUG
+							ast_debug(3, "Appending %c\n", *range_start);
+#endif
+							buf_append(buf, len, "%c", *range_start);
+							range_first = 0; /* It's just a single range in the [], nothing special */
+						}
+						range_start++;
 					}
+					buf_append(buf, len, "%c", ']'); /* End the range */
+					ast_assert(!range_first);
+				} else {
+					/* Copy literally, including the . character. */
+#ifdef EXTRA_DEBUG
+					ast_debug(3, "XXXXXX Appending %c\n", *name);
+#endif
+					buf_append(buf, len, "%c", *name);
 				}
-				buf_append(buf, len, "%c", *name);
 			}
 			if (ast_strlen_zero(prefix) && ignorepat) {
 				/* If there's an ignorepat for this prefix, insert a comma for second dial tone */
@@ -280,19 +304,7 @@ static int generate_digit_map_all(int fd, const char *context_name)
 		return res;
 	}
 
-#if 0
-	do {
-		/* Try to condense the direct translation of dialplan => digit map into a condensed form, e.g. 22|23|24 -> 2[2-4] */
-		char *pattern, *bufdup = ast_strdup(buf);
-		if (!bufdup) {
-			break;
-		}
-		while ((pattern = strsep(&bufdup, "|"))) {
-			
-		}
-		ast_free(bufdup);
-	} while (0);
-#endif
+	/* XXX Would be nice if we could condense the direct translation of dialplan => digit map into a condensed form, e.g. 22|23|24 -> 2[2-4] */
 
 	/* Print */
 	ast_cli(fd, "%s\n", buf + 1); /* Skip leading | */
