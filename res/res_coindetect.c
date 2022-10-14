@@ -612,7 +612,7 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 	struct ast_dsp *dsp;
 	double delayf = 0;
 	int hitsrequired = 0, delay = 0;
-	int features = 0;
+	int features = 0, digitfeatures = 0;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(options);
@@ -682,14 +682,14 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 		dsp = di->dsp;
 	}
 	if (ast_test_flag(&flags, OPT_RELAX)) {
-		features |= DSP_DIGITMODE_RELAXDTMF;
+		digitfeatures |= DSP_DIGITMODE_RELAXDTMF;
 	}
 	if (ast_test_flag(&flags, OPT_SF)) {
 		features |= DSP_FEATURE_FREQ_DETECT;
 		ast_dsp_set_freqmode(di->dsp, 2200, 50, 16, 0);
 	}
-	ast_dsp_set_features(di->dsp, DSP_FEATURE_DIGIT_DETECT);
-	ast_dsp_set_digitmode(di->dsp, DSP_DIGITMODE_DTMF | features);
+	ast_dsp_set_features(di->dsp, DSP_FEATURE_DIGIT_DETECT | features);
+	ast_dsp_set_digitmode(di->dsp, DSP_DIGITMODE_DTMF | digitfeatures);
 	di->gotorx = NULL;
 	di->gototx = NULL;
 	/* resolve gotos now, in case a full context,exten,pri wasn't specified */
@@ -739,7 +739,7 @@ static int wait_exec(struct ast_channel *chan, const char *data)
 	struct ast_frame *frame = NULL;
 	struct ast_dsp *dsp;
 	struct timeval start, delaytimer;
-	int remaining_time = 0, hits = 0, features = 0;
+	int remaining_time = 0, hits = 0, features = 0, digitfeatures=0;
 	int debounce = -1, debouncedhits = 0;
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(times);
@@ -776,14 +776,14 @@ static int wait_exec(struct ast_channel *chan, const char *data)
 		goto error;
 	}
 	if (ast_test_flag(&flags, OPT_APP_RELAX)) {
-		features |= DSP_DIGITMODE_RELAXDTMF;
+		digitfeatures |= DSP_DIGITMODE_RELAXDTMF;
 	}
 	if (ast_test_flag(&flags, OPT_APP_SF)) {
 		features |= DSP_FEATURE_FREQ_DETECT;
 		ast_dsp_set_freqmode(dsp, 2200, 50, 16, 0);
 	}
-	ast_dsp_set_features(dsp, DSP_FEATURE_DIGIT_DETECT);
-	ast_dsp_set_digitmode(dsp, DSP_DIGITMODE_DTMF | features);
+	ast_dsp_set_features(dsp, DSP_FEATURE_DIGIT_DETECT | features);
+	ast_dsp_set_digitmode(dsp, DSP_DIGITMODE_DTMF | digitfeatures);
 	pbx_builtin_setvar_helper(chan, "WAITFORDEPOSITAMOUNT", "0");
 	ast_debug(1, "Waiting for coins, %d time(s), timeout %d ms, post-match delay %d ms\n", times, timeout, delay);
 	start = ast_tvnow();
