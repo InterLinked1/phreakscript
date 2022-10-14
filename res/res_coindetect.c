@@ -682,7 +682,7 @@ static int detect_write(struct ast_channel *chan, const char *cmd, char *data, c
 		dsp = di->dsp;
 	}
 	if (ast_test_flag(&flags, OPT_RELAX)) {
-	        digitfeatures |= DSP_DIGITMODE_RELAXDTMF;
+		digitfeatures |= DSP_DIGITMODE_RELAXDTMF;
 	}
 	if (ast_test_flag(&flags, OPT_SF)) {
 		features |= DSP_FEATURE_FREQ_DETECT;
