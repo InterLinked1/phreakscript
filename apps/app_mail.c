@@ -120,7 +120,7 @@ static char *app = "SendMail";
 
 static int my_umask;
 
-static void make_email_file(FILE *p, char *subject, char *body, char *toaddress, char *toname, char *fromaddress, char *fromname, char *attachments, int delete, int interpret)
+static void make_email_file(FILE *p, const char *subject, char *body, const char *toaddress, const char *toname, const char *fromaddress, const char *fromname, const char *attachments, int delete, int interpret)
 {
 	struct ast_tm tm;
 	char date[256];

@@ -1,0 +1,34 @@
+--- patches/kdrivers/src/wanrouter/af_wanpipe.c.orig	2022-07-29 06:46:31.701675171 -0400
++++ patches/kdrivers/src/wanrouter/af_wanpipe.c	2022-07-29 06:46:40.097833347 -0400
+@@ -33,6 +33,7 @@
+ *
+ ******************************************************************************/
+ 
++#include <linux/version.h>
+ #include <linux/wanpipe_includes.h>
+ #include <linux/wanpipe_defines.h>
+ #include <linux/wanpipe.h>
+@@ -600,7 +601,11 @@
+ 		return -EPROTOTYPE;
+ 
+ 	add_wait_queue(WAN_SK_SLEEP(sk),&wait);
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0))
+ 	current->state = TASK_INTERRUPTIBLE;
++#else
++	WRITE_ONCE(current->__state, TASK_INTERRUPTIBLE);
++#endif
+ 	for (;;){
+ 		skb = skb_dequeue(&sk->sk_receive_queue);
+ 		if (skb){
+@@ -619,7 +624,11 @@
+ 		}
+ 		schedule();
+ 	}
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 14, 0))
+ 	current->state = TASK_RUNNING;
++#else
++	WRITE_ONCE(current->__state, TASK_RUNNING);
++#endif
+ 	remove_wait_queue(WAN_SK_SLEEP(sk),&wait);
+ 
+ 	if (err != 0)

@@ -246,15 +246,19 @@ static int saytelnum_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
+	if (ast_strlen_zero(data)) {
+		ast_log(LOG_WARNING, "%s requires arguments\n", app);
+	}
+
 	tmp = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, tmp);
 
 	if (ast_strlen_zero(args.directory)) {
-		ast_log(LOG_WARNING, "SayTelephoneNumber requires a directory\n");
+		ast_log(LOG_WARNING, "%s requires a directory\n", app);
 		return -1;
 	}
 	if (ast_strlen_zero(args.number)) {
-		ast_log(LOG_WARNING, "SayTelephoneNumber requires a number\n");
+		ast_log(LOG_WARNING, "%s requires a number\n", app);
 		return -1;
 	}
 	if (!ast_strlen_zero(args.waitsec)) {

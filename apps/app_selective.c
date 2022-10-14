@@ -93,7 +93,7 @@
 			<para>This application relies internally on AstDB.</para>
 		</description>
 	</application>
-	<configInfo name="selective" language="en_US">
+	<configInfo name="app_selective" language="en_US">
 		<synopsis>Module to provide user management of selective calling features</synopsis>
 		<configFile name="selective.conf">
 			<configObject name="general">
@@ -795,47 +795,12 @@ static int selective_reload(int reload)
 	return 0;
 }
 
-/*! \todo make this part of the core instead (move from bridge file into public API) */
-static int exec_app(struct ast_channel *chan, const char *app_name, const char *app_args)
-{
-	int res = 0;
-	struct ast_app *app;
-
-	app = pbx_findapp(app_name);
-	if (!app) {
-		ast_log(LOG_WARNING, "Could not find application (%s)\n", app_name);
-	} else {
-		struct ast_str *substituted_args = ast_str_create(16);
-
-		if (substituted_args) {
-			ast_str_substitute_variables(&substituted_args, 0, chan, app_args);
-			res = pbx_exec(chan, app, ast_str_buffer(substituted_args));
-			ast_free(substituted_args);
-		} else {
-			ast_log(LOG_WARNING, "Could not substitute application argument variables for %s\n", app_name);
-			res = pbx_exec(chan, app, app_args);
-		}
-	}
-	return res;
-}
-
-#define BUGGY_AST_SUB 1 /* see ASTERISK-29966 */
-
 static int check_condition(struct ast_channel *chan, struct ast_str *strbuf, char *condition)
 {
 	int res;
 
-#if BUGGY_AST_SUB
-	char substituted[1024];
-#endif
-
-#if BUGGY_AST_SUB
-	pbx_substitute_variables_helper(chan, condition, substituted, sizeof(substituted) - 1);
-	ast_str_set(&strbuf, 0, "%s", substituted);
-#else
 	ast_str_reset(strbuf);
 	ast_str_substitute_variables(&strbuf, 0, chan, condition);
-#endif
 	ast_debug(2, "Condition to check: %s (evaluates to %s)\n", condition, ast_str_buffer(strbuf));
 	res = pbx_checkcondition(ast_str_buffer(strbuf));
 	ast_str_reset(strbuf);
@@ -1119,8 +1084,10 @@ static int say_telephone_number(struct ast_channel *chan, struct ast_str *strbuf
 		ast_str_set(&strbuf, 0, "%s,%s,%s,i", f->saytelnum_dir, number, f->saytelnum_args);
 	}
 
+	*buf = '\0';
+	pbx_builtin_setvar_helper(chan, "SAYTELNUM_DIGIT", NULL);
 	ast_debug(1, "Calling SayTelephoneNumber with args: %s\n", ast_str_buffer(strbuf));
-	res = exec_app(chan, "SayTelephoneNumber", ast_str_buffer(strbuf));
+	res = ast_pbx_exec_application(chan, "SayTelephoneNumber", ast_str_buffer(strbuf));
 
 	if (res < 0) {
 		return res; /* user hung up */
@@ -1284,7 +1251,7 @@ static int selective_clear(struct ast_channel *chan, struct ast_str *strbuf, cha
 		/* yeah, this is a little sloppy. We could do the DB stuff directly, but DRY, right? */
 		ast_str_reset(strbuf);
 		ast_str_substitute_variables(&strbuf, 0, chan, f->astdb_entries);
-		if (exec_app(chan, "DBDeltree", ast_strdupa(ast_str_buffer(strbuf)))) {
+		if (ast_pbx_exec_application(chan, "DBDeltree", ast_strdupa(ast_str_buffer(strbuf)))) {
 			ast_log(LOG_WARNING, "Failed to remove list entries\n");
 			return 0;
 		}
@@ -1548,13 +1515,16 @@ process:
 				res = selective_term_read(chan, buf, buflen, "", MED_WAIT, f->prompt_number_incorrect);
 				continue;
 			}
-			/* can the user actually add this number? */
-			res = gosub(chan, strbuf, result, buflen, f->sub_numaddable, buf, ""); /* call a userland dialplan subroutine to see if this number is any good */
-			if (res || ast_strlen_zero(result) || !strcmp(result, "0")) {
-				/* either res is non-zero, or the returned value is empty or 0, no go. */
-				INVALID();
-				res = selective_term_read(chan, buf, buflen, "", MED_WAIT, f->prompt_number_not_available_svc);
-				continue;
+			/* If the subroutines are the same, we know it'll succeed. Otherwise, check. */
+			if (strcmp(f->sub_numvalid, f->sub_numaddable)) {
+				/* can the user actually add this number? */
+				res = gosub(chan, strbuf, result, buflen, f->sub_numaddable, buf, ""); /* call a userland dialplan subroutine to see if this number is any good */
+				if (res || ast_strlen_zero(result) || !strcmp(result, "0")) {
+					/* either res is non-zero, or the returned value is empty or 0, no go. */
+					INVALID();
+					res = selective_term_read(chan, buf, buflen, "", MED_WAIT, f->prompt_number_not_available_svc);
+					continue;
+				}
 			}
 			invalids = 0;
 
@@ -2049,7 +2019,12 @@ static int selective_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
-	argstr = ast_strdupa((char *) data);
+	if (ast_strlen_zero(data)) {
+		ast_log(LOG_WARNING, "%s requires arguments\n", app);
+		return -1;
+	}
+
+	argstr = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, argstr);
 
 	if (ast_strlen_zero(args.profile)) {

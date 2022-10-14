@@ -3,11 +3,12 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 18.13.0 (latest LTS release of Asterisk)
-- next branch of DAHDI Linux (newer than 3.1.0, with optional DAHDI install flag)
-- DAHDI Tools 3.1.0 (with optional DAHDI install flag)
+- Asterisk 18.14.0 (latest LTS release of Asterisk)
+- DAHDI Linux 3.2.0 (with optional DAHDI install flag)
+- DAHDI Tools 3.2.0 (with optional DAHDI install flag)
 - many additional features and stability improvements (see change log for full details)
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
+   - DAHDI/wanpipe compilation fixes
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver)
       - Cisco Call Manager support for `chan_sip`
@@ -22,12 +23,17 @@ PhreakScript installs:
       - ``SayTelephoneNumber``
       - ``FeatureProcess``
       - ``SelectiveFeature``
+      - ``RemoteAccess``
       - ``RequestCallback``
       - ``CancelCallback``
+      - ``CCSA``
       - ``PreDial``
       - ``PlayDigits``
       - ``StreamSilence``
       - ``RevertivePulse``
+      - ``SendFrame``
+      - ``WaitForFrame``
+      - ``Broadcast``
       - ``Signal``
       - ``WaitForSignal``
       - ``WaitForDeposit``
@@ -40,18 +46,18 @@ PhreakScript installs:
       - ``OutVerify``
       - ``KeyPrefetch``
       - ``SIPAddParameter``
+      - ``IRCSendMessage``
       - ``Softmodem`` (third-party)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
       - ``TECH_EXISTS``
       - ``DTMF_FLASH``
-      - ``POLARITY``
       - ``NUM2DEVICE``
       - ``TEXT_QUERY``
       - ``COIN_DETECT``
-      - ``OTHER_CHANNEL``
+      - ``COIN_EIS``
+      - ``EXPORT``
       - ``NOTCH_FILTER``
-      - ``EVAL_EXTEN``
       - ``DB_CHANNEL``
       - ``DB_CHANNEL_PRUNE``
       - ``DB_CHANNEL_PRUNE_TIME``
@@ -59,9 +65,12 @@ PhreakScript installs:
       - ``DB_MINKEY``
       - ``DB_UNIQUE``
       - ``SIP_PARAMETER``
+      - ``GROUP_VAR`` (third-party)
+      - ``GROUP_MATCH_LIST_START`` (third-party)
    - Miscellaneous improvements
-      - Enhances performance by disabling Newexten AMI event
+      - Enhances performance by completely removing Newexten AMI event
       - Adds fax timing and parameter control to `chan_sip`
+      - Adds prefix capabilities to `include => `
       - Fixes ulaw/gsm codec translation bug
       - Fixes infinite loop Dial bug
 
@@ -91,6 +100,10 @@ In a nutshell, run:
 ```pkg install -y wget && cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
 
 Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet examples``` to get started.
+
+For a basic install, you can run `phreaknet install`
+
+To install with DAHDI, run `phreaknet install --dahdi`
 
 For a guided, interactive installation, you can also run `phreaknet wizard`. The wizard will determine what installation options are best for you, based on your preferences.
 

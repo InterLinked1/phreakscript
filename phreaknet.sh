@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.72 (2022-06-26)
+# v0.1.90 (2022-09-28)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,24 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-09-28 0.1.90 DAHDI: remove merged DAHDI compiler fix, add libpri compiler fix
+# 2022-09-16 0.1.89 Asterisk: add unmerged patches
+# 2022-09-03 0.1.88 Asterisk: add unmerged patches
+# 2022-09-03 0.1.87 DAHDI: Add support for Raspberry Pi
+# 2022-09-02 0.1.86 Test Suite: upgraded for python3
+# 2022-08-31 0.1.85 DAHDI: support kernel version mismatches
+# 2022-08-25 0.1.84 PhreakScript: improved rundump
+# 2022-08-06 0.1.83 PhreakScript: added version command
+# 2022-07-30 0.1.82 PhreakScript: streamline prereq install
+# 2022-07-29 0.1.81 DAHDI: fix wanpipe compiling, target DAHDI 3.2.0
+# 2022-07-24 0.1.80 Asterisk: remove merged patches
+# 2022-07-20 0.1.79 Asterisk: fix memory issue in app_signal
+# 2022-07-20 0.1.78 PhreakScript: add fullpatch command
+# 2022-07-11 0.1.77 PhreakScript: added package audit
+# 2022-07-11 0.1.76 PhreakScript: streamline enhanced dependencies
+# 2022-07-05 0.1.75 Asterisk: update usecallmanager target
+# 2022-07-01 0.1.74 Asterisk: add res_irc
+# 2022-07-01 0.1.73 PhreakScript: fix RSA chown
 # 2022-06-26 0.1.72 PhreakScript: added wizard command
 # 2022-06-23 0.1.71 Asterisk: target 18.13.0
 # 2022-06-01 0.1.70 PhreakScript: fix patch conflicts
@@ -139,7 +157,7 @@ AST_SOURCE_NAME="asterisk-18-current"
 LIBPRI_SOURCE_NAME="libpri-1.6.0"
 WANPIPE_SOURCE_NAME="wanpipe-7.0.34"
 ODBC_VER="3.1.14"
-CISCO_CM_SIP="cisco-usecallmanager-18.7.0"
+CISCO_CM_SIP="cisco-usecallmanager-18.13.0"
 AST_ALT_VER=""
 MIN_ARGS=1
 FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
@@ -166,9 +184,12 @@ SIP_CISCO=0
 CHAN_SCCP=0
 CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
+DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
 ENHANCED_INSTALL=1
+FAST_COMPILE=0
+PKG_AUDIT=0
 MANUAL_MENUSELECT=0
 ENABLE_BACKTRACES=0
 ASTKEYGEN=0
@@ -179,6 +200,7 @@ BOILERPLATE_SOUNDS=0
 SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
 DEBUG_LEVEL=0
 FREEPBX_GUI=0
+GENERIC_HEADERS=0
 
 handler() {
 	kill $BGPID
@@ -210,6 +232,8 @@ if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	AST_SOURCE_PARENT_DIR="/usr/local/src"
 	AST_MAKE="gmake"
 	XMLSTARLET="/usr/local/bin/xml"
+elif [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
+	PAC_MAN="yum"
 fi
 
 phreakscript_info() {
@@ -230,8 +254,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	# todo: this is outdated, missing recent commands
-	echo "about help wizard examples info make install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdisk enable-swap disable-swap dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only valgrind cppcheck docverify runtests runtest stresstest gerrit ccache docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -243,12 +266,15 @@ Commands:
    *** Getting Started ***
    about              About PhreakScript
    help               Program usage
+   version            Program version
    examples           Example usages
    info               System info
    wizard             Interactive installation command wizard
 
    *** First Use / Installation ***
    make               Add PhreakScript to path
+   man                Compile and install PhreakScript man page
+   mancached          Install cached man page (may be outdated)
    install            Install or upgrade PhreakNet-enhanced Asterisk
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    odbc               Install ODBC (MariaDB)
@@ -260,6 +286,7 @@ Commands:
    sounds             Install Pat Fleet sound library
    boilerplate-sounds Install boilerplate sounds only
    ulaw               Convert wav to ulaw (specific file or all in current directory)
+   remsil             Remove silence from file(s)
    uninstall          Uninstall Asterisk, but leave configuration behind
    uninstall-all      Uninstall Asterisk, and completely remove all traces of it (configs, etc.)
 
@@ -273,6 +300,7 @@ Commands:
    patch              Patch PhreakNet Asterisk configuration
    genpatch           Generate a PhreakPatch
    freedisk           Free up disk space
+   topdir             Show largest directories in current directory
    topdisk            Show top files taking up disk space
    enable-swap        Temporarily allocate and enable swap file
    disable-swap       Disable and deallocate temporary swap file
@@ -305,11 +333,14 @@ Commands:
    runtest            Run any specified test (argument to command)
    stresstest         Run any specified test multiple times in a row
    gerrit             Manually install a custom patch set from Gerrit
+   fullpatch          Redownload an entire PhreakNet source file
    ccache             Globally install ccache to speed up recompilation
 
    *** Miscellaneous ***
    docgen             Generate Asterisk user documentation
    pubdocs            Generate Asterisk user documentation (deprecated)
+   applist            List Asterisk dialplan applications in current source
+   funclist           List Asterisk dialplan functions in current source
    edit               Edit PhreakScript
 
 Options:
@@ -331,6 +362,8 @@ Options:
        --upstream     update: Specify upstream source
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --boilerplate  sounds: Also install boilerplate sounds
+       --audit        install: Audit package installation
+	   --fast         install: Compile as fast as possible
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
@@ -385,27 +418,32 @@ download_if_missing() {
 
 install_prereq() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
+		# Ubuntu 22.04 prompts for restarts by default, inhibit this: https://askubuntu.com/questions/1367139/apt-get-upgrade-auto-restart-services
+		if [ -f /etc/needrestart/needrestart.conf ]; then
+			sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
+		fi
 		apt-get clean
 		apt-get update -y
 		apt-get upgrade -y
 		if [ "$ENHANCED_INSTALL" = "1" ]; then
 			apt-get dist-upgrade -y
 		fi
-		apt-get install -y wget curl sox libcurl4-openssl-dev dnsutils bc git # necessary for install and basic operation.
+		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc git mpg123 # necessary for install and basic operation.
 		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
-			apt-get install -y ntp iptables tcpdump sox mpg123 php festival fail2ban mariadb-server
+			apt-get install -y ntp tcpdump festival
 		fi
-		if [ "$TEST_SUITE" = "1" ]; then
+		if [ "$DEVMODE" = "1" ]; then
 			apt-get install -y xmlstarlet # only needed in developer mode for doc validation.
 		fi
 		# used to feed the country code non-interactively
 		apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
+	# TODO: missing yum support
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -f
 		pkg upgrade -y
-		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl sox mpg123 git bind-tools gmake subversion xmlstarlet # bind-tools for dig
+		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl mpg123 git bind-tools gmake subversion xmlstarlet # bind-tools for dig
 		pkg info e2fsprogs-libuuid
 		#if [ $? -ne 0 ]; then
 		#	if [ ! -d /usr/ports/misc/e2fsprogs-libuuid/ ]; then # https://www.freshports.org/misc/e2fsprogs-libuuid/
@@ -423,6 +461,8 @@ ensure_installed() {
 	if ! which "$1" > /dev/null; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
 			apt-get install -y "$1"
+		elif [ "$PAC_MAN" = "yum" ]; then
+			yum install -y "$1"
 		else
 			echoerr "Not sure how to satisfy requirement $1"
 		fi
@@ -449,7 +489,7 @@ install_boilerplate() {
 	fi
 	printf "Backing up %s configs, just in case...\n" $AST_CONFIG_DIR
 	mkdir -p /tmp/etc_asterisk
-	cp $AST_CONFIG_DIR/*.conf /tmp/etc/_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
+	cp $AST_CONFIG_DIR/*.conf /tmp/etc_asterisk # do we really trust users not to make a mistake? backup to tmp, at least...
 	EXTENSIONS_CONF_FILE="extensions.conf"
 	if [ -f $AST_CONFIG_DIR/freepbx_module_admin.conf ]; then
 		printf "%s\n" "Detected FreePBX installation..."
@@ -465,6 +505,7 @@ install_boilerplate() {
 	pwd
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/modules.conf -O $AST_CONFIG_DIR/modules.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/chan_dahdi.conf -O $AST_CONFIG_DIR/chan_dahdi.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
@@ -507,7 +548,7 @@ install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asteri
 	FREEPBX_VERSION="freepbx-16.0-latest"
 	# avoid using if possible
 	# PHP 7.4 is supported: https://www.freepbx.org/freepbx-16-is-now-released-for-general-availability/
-	apt-get -y install apache2 mariadb-server libapache2-mod-php7.4 php7.4 php-pear php7.4-cgi php7.4-common php7.4-curl php7.4-mbstring php7.4-gd php7.4-mysql php7.4-bcmath php7.4-zip php7.4-xml php7.4-imap php7.4-json php7.4-snmp
+	apt-get -y install apache2 mariadb-server php libapache2-mod-php7.4 php7.4 php-pear php7.4-cgi php7.4-common php7.4-curl php7.4-mbstring php7.4-gd php7.4-mysql php7.4-bcmath php7.4-zip php7.4-xml php7.4-imap php7.4-json php7.4-snmp
 	cd $AST_SOURCE_PARENT_DIR
 	wget http://mirror.freepbx.org/modules/packages/freepbx/$FREEPBX_VERSION.tgz -O $AST_SOURCE_PARENT_DIR/$FREEPBX_VERSION.tgz
 	tar -xvzf $FREEPBX_VERSION.tgz
@@ -557,8 +598,10 @@ uninstall_freepbx() {
 
 run_testsuite_test() {
 	testcount=$(($testcount + 1))
-	./runtests.py --test=tests/$1
+	./runInVenv.sh python3 runtests.py --test=tests/$1
+	# XXX It also seems that if pre-reqs are not satisfied, exit code is 0?
 	if [ $? -ne 0 ]; then # test failed
+		printf "Exit code was %d\n" $?
 		ls
 		lastrun=`get_newest_astdir` # get the directory containing the logs from the most recently run test
 		ls "$lastrun/ast1/var/log/asterisk/full.txt"
@@ -585,7 +628,7 @@ run_testsuite_test_only() { # $2 = stress test
 		iterations=7
 	fi
 	while [ $iterations -gt 0 ]; do # POSIX for loop
-		$AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
+		./runInVenv.sh python3 $AST_SOURCE_PARENT_DIR/testsuite/runtests.py --test=tests/$1
 		if [ $? -ne 0 ]; then # test failed
 			echo "ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1"
 			lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test ############# this is not FreeBSD compatible.
@@ -608,6 +651,9 @@ run_testsuite_tests() {
 		exit 1
 	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
+
+	# run manually for good measure, and so we get the full output
+	./setupVenv.sh
 
 	run_testsuite_test "apps/assert"
 	run_testsuite_test "apps/dialtone"
@@ -666,17 +712,38 @@ add_phreak_testsuite() {
 	printf "%s\n" "Finished patching testsuite"
 }
 
+gerrit_patch() {
+	printf "%s\n" "Downloading and applying Gerrit patch $1"
+	wget -q $2 -O $1.patch.base64
+	if [ $? -ne 0 ]; then
+		echoerr "Patch download failed"
+		exit 2
+	fi
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		b64decode -r $1.patch.base64 > $1.patch
+		if [ $? -ne 0 ]; then
+			exit 2
+		fi
+	else
+		base64 --decode $1.patch.base64 > $1.patch
+	fi
+	# Apply the patch file
+	git apply $1.patch
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			sleep 2
+		else
+			exit 2
+		fi
+	fi
+	rm $1.patch.base64 $1.patch
+}
+
 install_testsuite_itself() {
 	apt-get clean
 	apt-get update -y
 	apt-get upgrade -y
-	apt-get install -y liblua5.1-0-dev lua5.3 git python python-setuptools
-
-	# Python 2 support is going away in Debian
-	curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py # https://stackoverflow.com/a/64240018/6110631
-	python get-pip.py
-	pip2 install pyyaml
-	pip2 install twisted
 
 	cd $AST_SOURCE_PARENT_DIR
 	if [ -d "testsuite" ]; then
@@ -692,40 +759,26 @@ install_testsuite_itself() {
 		echoerr "Failed to download testsuite..."
 		return 1
 	fi
-	cd testsuite/asttest
-	make
-	make install
-	asttest
-	cd ..
-	cd addons
-	make update
-	cd starpy
-	python setup.py install
-	cd ../..
-	apt-get install -y python-twisted
-	pip install twisted
-	# sipp
+	cd testsuite
+
+	./contrib/scripts/install_prereq install
+	# In theory, the below is not necessary:
+	pip3 install pyyaml
+	pip3 install twisted
+
 	cd $AST_SOURCE_PARENT_DIR
-	git clone https://github.com/SIPp/sipp.git
-	cd sipp
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y cmake libsctp-dev libgsl-dev
-	fi
-	git checkout v3.6.0 ## This is the latest version we KNOW works.
-	./build.sh --prefix=/usr --with-openssl --with-pcap --with-rtpstream --with-sctp --with-gsl CFLAGS=-w
-	./sipp -v
-	make install
-	cd $AST_SOURCE_PARENT_DIR
-	# ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
-	# ./runtests.py -l # list all tests
+	./setupVenv.sh
+	# ./runInVenv.sh python3 ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
+	./runInVenv.sh python3 ./runtests.py -l # list all tests
 	add_phreak_testsuite
 	printf "%s\n" "Asterisk Test Suite installation complete"
 }
 
 configure_devmode() {
-	./configure --enable-dev-mode
+	./configure --enable-dev-mode --with-jansson-bundled
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK --enable DO_CRASH menuselect.makeopts
+	menuselect/menuselect --enable COMPILE_DOUBLE --enable DEBUG_THREADS --enable MALLOC_DEBUG menuselect.makeopts
 	menuselect/menuselect --enable-category MENUSELECT_TESTS menuselect.makeopts
 }
 
@@ -742,33 +795,6 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	make
 	make install
 	install_testsuite_itself
-}
-
-gerrit_patch() {
-	printf "%s\n" "Downloading and applying Gerrit patch $1"
-	wget -q $2 -O $1.diff.base64
-	if [ $? -ne 0 ]; then
-		echoerr "Patch download failed"
-		exit 2
-	fi
-	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		b64decode -r $1.diff.base64 > $1.diff
-		if [ $? -ne 0 ]; then
-			exit 2
-		fi
-	else
-		base64 --decode $1.diff.base64 > $1.diff
-	fi
-	git apply $1.diff
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			sleep 2
-		else
-			exit 2
-		fi
-	fi
-	rm $1.diff.base64 $1.diff
 }
 
 dahdi_undo() {
@@ -797,6 +823,21 @@ dahdi_custom_patch() {
 	rm /tmp/$1.patch
 }
 
+custom_patch() {
+	printf "Applying custom patch: %s\n" "$1"
+	if [ ! -f "$2" ]; then
+		echoerr "File $2 does not exist"
+		exit 2
+	fi
+	wget -q "$3" -O /tmp/$1.patch --no-cache
+	patch -u -b "$2" -i /tmp/$1.patch
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply custom patch (patch -u -b $2 -i /tmp/$1.patch)... this should be reported..."
+		exit 2
+	fi
+	rm /tmp/$1.patch
+}
+
 dahdi_patch() {
 	printf "Applying unmerged DAHDI patch: %s\n" "$1"
 	wget -q "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$1" -O /tmp/$1.patch --no-cache
@@ -819,6 +860,17 @@ git_patch() {
 	rm "/tmp/$1"
 }
 
+git_custom_patch() {
+	printf "Applying git patch: %s\n" "$1"
+	wget -q "$1" -O /tmp/tmp_git_patch.diff --no-cache
+	git apply "/tmp/tmp_git_patch.diff"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply git patch... this should be reported..."
+		exit 2
+	fi
+	rm "/tmp/tmp_git_patch.diff"
+}
+
 dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Reverting patches that removed driver support in DAHDI..."
 	dahdi_undo $1 "dahdi_pci_module" "Remove unnecessary dahdi_pci_module macro" "4af6f69fff19ea3cfb9ab0ff86a681be86045215"
@@ -837,14 +889,46 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Finished undoing DAHDI removals!"
 }
 
-install_dahdi() {
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y linux-headers-`uname -r` build-essential binutils-dev autoconf dh-autoreconf libusb-dev
-		apt install -y pkg-config m4 libtool automake autoconf
+linux_headers_info() {
+	printf "Your kernel: "
+	uname -r
+	printf "Available headers for your system: \n"
+	printf "You may need to upgrade your kernel using apt-get dist-upgrade to install the build headers for your system.\n"
+	apt search linux-headers 2>1 | grep "linux-headers"
+	printf "Installed:\n"
+	ls -la /lib/modules/
+}
+
+linux_headers_install() {
+	# Special case for Raspberry Pi
+	grep -i Model /proc/cpuinfo | grep -q Raspberry
+	if [ $? -ne 0 ]; then
+		apt-get install -y linux-headers-`uname -r`
+	else
+		apt-get install -y raspberrypi-kernel-headers
 	fi
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download system headers"
-		exit 2
+		kernel=`uname -r`
+		echoerr "Unable to find automatic installation candidate for $kernel"
+		# install the generic kernel headers
+		# this usually won't happen in a VM, but can happen in containers. For example, the containers used for GitHub actions.
+		GENERIC_HEADERS=1
+		apt-get install -y linux-headers-amd64
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to download system headers and exception failed"
+			linux_headers_info
+			exit 2
+		fi
+	fi
+}
+
+install_dahdi() {
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y build-essential binutils-dev autoconf dh-autoreconf libusb-dev
+		apt-get install -y pkg-config m4 libtool automake autoconf
+		linux_headers_install
+	else
+		echoerr "Unable to install potential DAHDI prerequisites"
 	fi
 	cd $AST_SOURCE_PARENT_DIR
 	# just in case, for some reason, these already existed... don't let them throw everything off:
@@ -879,23 +963,19 @@ install_dahdi() {
 	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
 
+	DAHDI_CFLAGS=""
+	if [ "$GENERIC_HEADERS" = "1" ]; then
+		ls -la /lib/modules/
+		hdrver=`ls /lib/modules`
+		DAHDI_CFLAGS="KVERS=$hdrver" # overwrite from exact match with uname -r to whatever we happen to have
+		printf "We do NOT have an exact kernel match: %s\n" "$hdrver"
+	else
+		printf "We have an exact kernel match\n"
+	fi
+
 	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 	fi
-
-	# these bring the master branch up to the next branch (alternate to git clone git://git.asterisk.org/dahdi/linux dahdi-linux -b next)
-	dahdi_patch "45ac6a30f922f4eef54c0120c2a537794b20cf5c"
-	dahdi_patch "6e5197fed4f3e56a45f7cf5085d2bac814269807"
-	dahdi_patch "ac300cd895160c8d292e1079d6bf95af5ab23874"
-	dahdi_patch "c98f59eead28cf66b271b031288542e34e603c43"
-	dahdi_patch "34b9c77c9ab2794d4e912461e4c1080c4b1f6184"
-	dahdi_patch "26fb7c34cba98c08face72cf29b70dfdc71449c6"
-	dahdi_patch "90e8a54e3a482c3cee6afc6b430bb0aab7ee8f34"
-	dahdi_patch "97e744ad9604bd7611846da0b9c0c328dc80f262"
-	dahdi_patch "4df746fe3ffd6678f36b16c9b0750fa552da92e4"
-	dahdi_patch "6d4c748e0470efac90e7dc4538ff3c5da51f0169"
-	dahdi_patch "d228a12f1caabdbcf15a757a0999e7da57ba374d"
-	dahdi_patch "5c840cf43838e0690873e73409491c392333b3b8"
 
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
@@ -904,16 +984,25 @@ install_dahdi() {
 		echoerr "Skipping feature patches..."
 	fi
 
-	# needs to be rebased for master:
 	git_patch "hearpulsing-dahlin.diff"
 
-	make
+	# Don't compile the XPP driver for 32-bit ARM
+	if [ "`uname -m`" = "armv7l" ]; then
+		printf "Not compiling XPP driver for 32-bit ARM.\n"
+		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
+	fi
+
+	# Compiler fixes for newer kernels (5.15, 5.17, 5.18)
+	# doesn't apply cleanly, but patches needed:
+	#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
+
+	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
 		exit 1
 	fi
-	make install
-	make all install config
+	make install $DAHDI_CFLAGS
+	make all install config $DAHDI_CFLAGS
 
 	# DAHDI Tools
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
@@ -923,9 +1012,9 @@ install_dahdi() {
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
 	# Compiler fixes
-	dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
-	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
-	dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xtalk_sync.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xtalk.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-95
+	#dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
+	#dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
+	#dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xtalk_sync.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xtalk.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-95
 
 	# New Features
 
@@ -936,7 +1025,7 @@ install_dahdi() {
 	# autoreconf -i
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
 	./configure
-	make
+	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Tools compilation failed, aborting install"
 		exit 1
@@ -987,6 +1076,8 @@ install_dahdi() {
 	tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
 	rm ${LIBPRI_SOURCE_NAME}.tar.gz
 	cd ${LIBPRI_SOURCE_NAME}
+	# Unmerged compiler fix patch for q921/q931 in libpri:
+	gerrit_patch 19311 "https://gerrit.asterisk.org/changes/libpri~19311/revisions/2/patch?download"
 	make && make install
 
 	# Wanpipe
@@ -995,10 +1086,12 @@ install_dahdi() {
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	cd ${WANPIPE_SOURCE_NAME}
-	# ./Setup dahdi
-	./Setup install --silent
+	custom_patch "af_wanpipe" "patches/kdrivers/src/wanrouter/af_wanpipe.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/af_wanpipe.diff"
+	./Setup dahdi --silent
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
+		sleep 1
+		#exit 2
 	else
 		wanrouter stop
 		wanrouter start
@@ -1006,11 +1099,11 @@ install_dahdi() {
 	service dahdi restart
 }
 
-phreak_tree_module() { # $1 = file to patch
+phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 	printf "Adding new module: %s\n" "$1"
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download module: $2"
+		echoerr "Failed to download module: $1"
 		if [ "$2" != "1" ]; then # unless failure is acceptable, abort
 			exit 2
 		fi
@@ -1046,7 +1139,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	cd $AST_SOURCE_PARENT_DIR/$2
 
 	## Add Standalone PhreakNet Modules
+	phreak_tree_module "apps/app_assert.c"
 	phreak_tree_module "apps/app_callback.c"
+	phreak_tree_module "apps/app_ccsa.c"
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_loopplayback.c"
@@ -1064,6 +1159,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_verify.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
+	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_dtmf_flash.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
@@ -1071,8 +1167,13 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_ochannel.c"
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
+	phreak_tree_module "funcs/func_tech.c"
 	phreak_tree_module "res/res_coindetect.c"
+	if [ "$DEVMODE" = "1" ]; then
+		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
+	fi
 	phreak_tree_module "res/res_dialpulse.c"
+	phreak_tree_module "res/res_irc.c"
 
 	## Third Party Modules
 	printf "Adding new module: %s\n" "apps/app_tdd.c"
@@ -1083,11 +1184,14 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Add patches to existing modules
 	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
-	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # Bug fix to app_dial (prevent infinite loop)
-	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # Add fax timing controls to SIP channel driver
+	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # app_dial: Bug fix to prevent infinite loop on progress-sent DTMF
+	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # chan_sip: Add fax timing controls
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
 	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
+	if [ "$SIP_CISCO" != "1" ]; then # this patch has a merge conflict with SIP usecallmanager patches
+		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
+	fi
 
 	# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
 	git_patch "hearpulsing-ast.diff"
@@ -1096,38 +1200,50 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
 	fi
 
-	## Gerrit patches: merged, remove in 18.13
-	if [ "$AST_ALT_VER" != "master" ]; then # apply specified merged patches, unless we just cloned master
-		:
+	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does. Might make sense to wait until the Gerrit to GitHub migration.
+
+	## Gerrit patches: merged, remove in next release
+	if [ "$AST_ALT_VER" != "master" ] && [ "$AST_SRC_DIR" != "asterisk-18.15.0" ]; then # apply specified merged patches, unless we just cloned master
+		gerrit_patch 18523 "https://gerrit.asterisk.org/changes/asterisk~18523/revisions/3/patch?download" # cli: Prevent assertions on startup from bad ao2 refs
+		gerrit_patch 18001 "https://gerrit.asterisk.org/changes/asterisk~18001/revisions/7/patch?download" # features: add transfer initiation options
+		gerrit_patch 18883 "https://gerrit.asterisk.org/changes/asterisk~18883/revisions/3/patch?download" # lock.c: Add AMI event for deadlocks
+		gerrit_patch 18974 "https://gerrit.asterisk.org/changes/asterisk~18974/revisions/4/patch?download" # app_amd: Add option to play audio during AMD
+		gerrit_patch 19150 "https://gerrit.asterisk.org/changes/asterisk~19150/revisions/2/patch?download" # func_frame_trace: remove bogus assertion
+		gerrit_patch 19056 "https://gerrit.asterisk.org/changes/asterisk~19056/revisions/3/patch?download" # app_confbridge: add end_marked_any
+		gerrit_patch 19055 "https://gerrit.asterisk.org/changes/asterisk~19055/revisions/2/patch?download" # pbx variables: use const char if possible
+		gerrit_patch 18831 "https://gerrit.asterisk.org/changes/asterisk~18831/revisions/4/patch?download" # improve log levels
+		gerrit_patch 19205 "https://gerrit.asterisk.org/changes/asterisk~19205/revisions/1/patch?download" # func_strings: Add trim functions
+		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
+		gerrit_patch 19156 "https://gerrit.asterisk.org/changes/asterisk~19156/revisions/1/patch?download" # app_bridgewait: add noanswer option
+		gerrit_patch 15893 "https://gerrit.asterisk.org/changes/asterisk~15893/revisions/11/patch?download" # func_export
 	fi
 
 	## Gerrit patches: remove once merged
-	# phreak_tree_module "apps/app_if.c"
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
-	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/1/patch?download" # app_signal
+	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
-	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix
-	gerrit_patch 18305 "https://gerrit.asterisk.org/changes/asterisk~18305/revisions/6/patch?download" # fix buggy callerid
-	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
-	# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/2/patch?download" # chan_dahdi: add dialmode
-	gerrit_patch 18362 "https://gerrit.asterisk.org/changes/asterisk~18362/revisions/1/patch?download" # chan_dahdi: add POLARITY function
+	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
 
-	if [ "$TEST_SUITE" = "1" ]; then # highly experimental
+	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/2/patch?download" # app_broadcast
+	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
+	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
+	gerrit_patch 18824 "https://gerrit.asterisk.org/changes/asterisk~18824/revisions/3/patch?download" # res_pjsip_logger: Add method-based logging option
+	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
+	# todo func_export supersedes func_ochannel: remove func_ochannel
+	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
+
+	git_patch "prefixinclude.diff" # pbx: prefix includes
+
+	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
-		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/7/patch?download" # res_pbx_validate
+		# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/3/patch?download" # chan_dahdi: add dialmode
+		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
 		:
 	fi
 
-	# Gerrit patches: never going to be merged upstream (do not remove):
-	if [ "$SIP_CISCO" != "1" ]; then # this patch has a merge conflict with SIP usecallmanager patches
-		gerrit_patch 16569 "https://gerrit.asterisk.org/changes/asterisk~16569/revisions/5/patch?download" # chan_sip: Add custom parameters
-	fi
-	# gerrit_patch 18063 "https://gerrit.asterisk.org/changes/asterisk~18063/revisions/1/patch?download" # func_channel: Add TECH_EXISTS ### todo: does not cleanly apply.
-	gerrit_patch 16629 "https://gerrit.asterisk.org/changes/asterisk~16629/revisions/2/patch?download" # app_assert
-
 	## Menuselect updates
 	make menuselect.makeopts
-	menuselect/menuselect --enable app_memory menuselect.makeopts # app_memory doesn't compile by default
+	menuselect/menuselect --enable app_memory --enable res_cliexec menuselect.makeopts # enable modules that are not built by default
 }
 
 phreak_gerrit_off() {
@@ -1175,6 +1291,7 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 }
 
 install_odbc() {
+	assert_installed mariadb-server
 	# https://wiki.asterisk.org/wiki/display/AST/Getting+Asterisk+Connected+to+MySQL+via+ODBC
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install -y unixodbc unixodbc-dev unixodbc-bin mariadb-server
@@ -1262,12 +1379,23 @@ quell_mysql() {
 	fi
 }
 
+coredump_prep() {
+	ensure_installed "gdb" # for astcoredumper
+	quell_mysql # we need all the CPU and memory we can get
+	swap=`swapon --show | wc -l | tr -d '\n'`
+	if [ "$swap" = "0" ]; then
+		$FILE_PATH enable-swap # enable swap, since we'll probably run out of memory otherwise...
+	fi
+	freediskspace=`df / | awk '{print $4}' | tail -n +2 | tr -d '\n'`
+	if [ $freediskspace -lt 700000 ]; then
+		# A core dump can be around 700 MB, so ensure we have enough space to actually dump it.
+		$FILE_PATH freedisk
+	fi
+}
+
 get_backtrace() { # $1 = "1" to upload
 	dmesg | tail -4
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y gdb # for astcoredumper
-	fi
-	quell_mysql
+	coredump_prep
 	printf "%s" "Core dump pattern is: "
 	sysctl -n kernel.core_pattern # sysctl -w kernel.core_pattern=core
 	printf "%s\n" "Finding core dump to process, this may take a moment..."
@@ -1438,7 +1566,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,disa:,drivers,freepbx,api-key:,rotate,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,fast,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1463,17 +1591,20 @@ while true; do
 		-h | --help ) cmd="help"; shift ;;
 		-o | --flag-test ) FLAG_TEST=1; shift;;
 		-s | --sip ) CHAN_SIP=1; shift ;;
-		-t | --testsuite ) TEST_SUITE=1; shift ;;
+		-t | --testsuite ) TEST_SUITE=1; DEVMODE=1; shift ;;
 		-u | --user ) AST_USER=$2; shift 2;;
 		-v | --version ) AST_ALT_VER=$2; shift 2;;
 		-w | --weaktls ) WEAK_TLS=1; shift ;;
+		--audit ) PKG_AUDIT=1; shift ;;
 		--cisco ) SIP_CISCO=1; shift ;;
 		--sccp ) CHAN_SCCP=1; shift ;;
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
 		--disa ) PHREAKNET_DISA=$2; shift 2;;
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
+		--devmode ) DEVMODE=1; shift ;;
 		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
+		--fast ) FAST_COMPILE=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
@@ -1485,8 +1616,8 @@ while true; do
 		--) shift; break ;;
 		# If invalid options were passed, then getopt should have reported an error,
 		# which we checked as VALID_ARGUMENTS when getopt was called...
-		*) echo "Unexpected option: $1"
-		   cmd="help"; shift; break ;;
+		*) die "Unexpected option: $1"
+		   #cmd="help"; shift; break ;;
 	esac
 done
 
@@ -1579,6 +1710,8 @@ elif [ "$cmd" = "wizard" ]; then
 		dialog_result "$ans" "y" "--vanilla"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to prevent installation of nonrequired dependencies?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		dialog_result "$ans" "y" "--minimal"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to audit package installation?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--audit"
 	fi
 
 	ans=$(dialog --nocancel --default-item 'n' --menu "Last question! Do you want to begin installation automatically?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
@@ -1588,9 +1721,13 @@ elif [ "$cmd" = "wizard" ]; then
 	echog "You have completed the installation command wizard. You may use the following command to install according to your preferences:"
 	printf "phreaknet install%s\n" "$wizardresult"
 	if [ "$ans" = "y" ]; then
-		printf "Automatically installing with the determined options...\n"
-		sleep 1
-		exec phreaknet install "$wizardresult"
+		if which phreaknet > /dev/null; then
+			printf "Automatically installing with the determined options...\n"
+			sleep 1
+			exec phreaknet install "$wizardresult"
+		else
+			echoerr "Could not find PhreakScript in PATH. Please ensure this is run as root, and manually run the above command."
+		fi
 	fi
 elif [ "$cmd" = "make" ]; then
 	# chmod +x phreaknet.sh
@@ -1605,12 +1742,38 @@ elif [ "$cmd" = "make" ]; then
 		echo "PhreakScript could not be added to path. Is it already there?"
 		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
+elif [ "$cmd" = "man" ]; then
+	cd /tmp
+	wget "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.1.md"
+	ensure_installed pandoc
+	# f option required for double dash to work correctly: https://github.com/jgm/pandoc/issues/5404
+	pandoc phreaknet.1.md -f markdown-smart -s -t man -o phreaknet.1
+	if [ ! -d /usr/local/man/man1 ]; then
+		mkdir /usr/local/man/man1
+	fi
+	cp phreaknet.1 /usr/local/man/man1
+	gzip /usr/local/man/man1/phreaknet.1
+	mandb
+elif [ "$cmd" = "mancached" ]; then
+	cd /tmp
+	wget "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.1"
+	if [ ! -d /usr/local/man/man1 ]; then
+		mkdir /usr/local/man/man1
+	fi
+	cp phreaknet.1 /usr/local/man/man1
+	gzip /usr/local/man/man1/phreaknet.1
+	mandb
 elif [ "$cmd" = "install" ]; then
-	if [ "$TEST_SUITE" = "1" ]; then
-		uname -a
-		apt-get install -y linux-headers-`uname -r` build-essential
+	if [ "$PKG_AUDIT" = "1" ]; then
+		pkg_before=$( apt list --installed )
+	fi
+	if [ "$DEVMODE" = "1" ]; then
+		apt-get install -y build-essential
+		# Install the Linux headers if we can, but don't abort if we can't.
+		apt-get install -y linux-headers-`uname -r`
 		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
-			echoerr "DAHDI is not compatible with this system"
+			echoerr "DAHDI is potentially incompatible with this system (missing kernel build headers)"
+			linux_headers_info
 		fi
 	fi
 	assert_root
@@ -1753,8 +1916,8 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	./contrib/scripts/install_prereq install
 	./contrib/scripts/get_mp3_source.sh
-	if [ "$TEST_SUITE" = "1" ]; then
-		./configure --with-jansson-bundled --enable-dev-mode
+	if [ "$DEVMODE" = "1" ]; then
+		configure_devmode
 	else
 		./configure --with-jansson-bundled
 	fi
@@ -1777,10 +1940,8 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$ENABLE_BACKTRACES" = "1" ]; then
 		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
 	fi
-	if [ "$TEST_SUITE" = "1" ]; then
-		configure_devmode
-	fi
-	if [ "$CHAN_DAHDI" = "1" ]; then
+	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. This will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
+	if [ -d /etc/dahdi ]; then
 		# in reality, this will never fail, even if they can't be enabled...
 		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
 	fi
@@ -1827,23 +1988,27 @@ elif [ "$cmd" = "install" ]; then
 		gmake
 		cd ../..
 	fi
+	niceval=""
+	if [ "$FAST_COMPILE" = "1" ]; then
+		niceval="-15" # -15 to speed up compilation by increasing CPU priority.
+	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		nice $AST_MAKE ASTLDFLAGS=-lcrypt main
 	else
-		nice $AST_MAKE -j2 # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+		nice $AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 	fi
 
 	if [ $? -ne 0 ]; then
-		if [ "$TEST_SUITE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
+		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
 	fi
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		$AST_MAKE full # some XML syntax warnings aren't shown unless make full is run
 	fi
 	if [ $? -ne 0 ]; then
-		if [ "$TEST_SUITE" = "1" ]; then
+		if [ "$DEVMODE" = "1" ]; then
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
 		exit 2
@@ -1861,6 +2026,9 @@ elif [ "$cmd" = "install" ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
 	$AST_MAKE install # actually install modules
+	if [ "$DEVMODE" = "1" ]; then
+		$AST_MAKE install-headers # install development headers
+	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
 			nm -D ${FILE} | grep PJ_AF_INET
@@ -1915,7 +2083,7 @@ elif [ "$cmd" = "install" ]; then
 			git fetch
 			git pull
 			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
-			make -j2 && make install && make reload
+			make -j$(nproc) && make install && make reload
 			if [ $? -ne 0 ]; then
 				echoerr "Failed to install chan_sccp"
 				exit 2
@@ -1924,10 +2092,13 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	# Development Mode (Asterisk Test Suite)
-	if [ "$TEST_SUITE" = "1" ]; then
+	if [ "$DEVMODE" = "1" ]; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
 			apt-get install -y gdb # for astcoredumper
 		fi
+	fi
+
+	if [ "$TEST_SUITE" = "1" ]; then
 		install_testsuite_itself
 	fi
 
@@ -1945,6 +2116,15 @@ elif [ "$cmd" = "install" ]; then
 		printf "%s\n" "Installation of FreePBX GUI will begin in 5 seconds..."
 		sleep 5 # give time to read the message above, if we're watching...
 		install_freepbx
+	fi
+	if [ "$PKG_AUDIT" = "1" ]; then
+		pkg_after=$( apt list --installed )
+		printf "%s\n" "Package Audit: Before/After"
+		# diff wants a file...
+		printf "%s" "$pkg_before" > /tmp/phreaknet_audit_before.txt
+		printf "%s" "$pkg_after" > /tmp/phreaknet_audit_after.txt
+		diff /tmp/phreaknet_audit_before.txt /tmp/phreaknet_audit_after.txt
+		rm /tmp/phreaknet_audit_before.txt /tmp/phreaknet_audit_after.txt
 	fi
 elif [ "$cmd" = "freepbx" ]; then
 	install_freepbx_checks
@@ -2028,9 +2208,54 @@ elif [ "$cmd" = "ulaw" ]; then
 			sox $f --rate 8000 --channels 1 --type ul $withoutextension.ulaw lowpass 3400 highpass 300
 		done
 	fi
+elif [ "$cmd" = "remsil" ]; then
+	ensure_installed sox
+	# if there is only 1 file, sox -m will fail, ignore.
+	if [ ${#2} -gt 0 ]; then # a specific file
+		f="$2"
+		withoutextension=`printf '%s' "$f" | sed -r 's|^(.*?)\.\w+$|\1|'`
+		withoutextensionplus="${withoutextension}_"
+		sox "$f" "remsil-$withoutextensionplus.wav" silence 1 1.5 0.1% 1 1.5 0.1% : newfile : restart # individual files
+		#echo sox -m remsil-$withoutextensionplus*.wav "remsil-$withoutextensionplus.wav" # combined file
+		#ls remsil-$withoutextensionplus*.wav
+		#sox -m remsil-$withoutextensionplus*.wav "remsil-$withoutextensionplus.wav"
+		# XXX: For some reason, this (and above) doesn't work right, it can/will only merge some of the files, instead of all of them, making this useless
+		sox -m $(for ff in remsil-$withoutextensionplus*.wav; do echo -n "$ff "; done) "remsil-$withoutextensionplus.wav"
+	else
+		for f in *.wav; do
+			withoutextension=`printf '%s' "$f" | sed -r 's|^(.*?)\.\w+$|\1|'`
+			withoutextensionplus="${withoutextension}_"
+			sox "$f" "remsil-$withoutextensionplus.wav" silence 1 1.5 0.1% 1 1.5 0.1% : newfile : restart
+			sox -m remsil-$withoutextensionplus*.wav "remsil-$withoutextensionplus.wav" 2>&1 >/dev/null
+		done
+	fi
 elif [ "$cmd" = "docverify" ]; then
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # show the XML validation errors
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml 2>&1 | grep "doc/core-en_US.xml:" | cut -d':' -f2 | cut -d'.' -f1 | xargs  -d "\n" -I{} sed "{}q;d" doc/core-en_US.xml # show the offending lines
+elif [ "$cmd" = "fullpatch" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	if [ $? -ne 0 ]; then
+		die "Asterisk not currently installed?"
+	fi
+	read -r -p "Source File: " filename
+	# ${var:i:j} substring expansion not available in POSIX sh
+	if [ "$(expr substr "$filename" 1 4)" = "app_" ]; then
+		filename="apps/${filename}"
+	elif [ "$(expr substr "$filename" 1 5)" = "func_" ]; then
+		filename="funcs/${filename}"
+	elif [ "$(expr substr "$filename" 1 4)" = "res_" ]; then
+		filename="res/${filename}"
+	fi
+	length=$(expr length "${filename}")
+	clen=$(( $length - 1 )) # 1 not 2, since we're 1-indexed
+	if [ $clen -gt 0 ]; then
+		if [ "$(expr substr "$filename" "$clen" 2)" != ".c" ]; then
+			printf "Auto appending .c file extension\n"
+			filename="${filename}.c"
+		fi
+	fi
+	phreak_tree_module "$filename"
 elif [ "$cmd" = "gerrit" ]; then
 	read -r -p "Gerrit Patchset: " gurl
 	phreak_gerrit_off "$gurl"
@@ -2201,6 +2426,9 @@ elif [ "$cmd" = "keygen" ]; then
 	else
 		printf "%s\n" "--rotate flag not provided, skipping key rotation or creation."
 	fi
+	if [ ! -f phreaknetrsa.pub ]; then
+		die "File phreaknetrsa.pub not found"
+	fi
 	if [ ${#INTERLINKED_APIKEY} -gt 30 ] && [ ${#PHREAKNET_CLLI} -eq 11 ]; then
 		wanip=`dig +short myip.opendns.com @resolver4.opendns.com`
 		printf "%s %s\n" "Autodetected WAN IP address is" $wanip
@@ -2214,22 +2442,21 @@ elif [ "$cmd" = "keygen" ]; then
 	fi
 	touch $AST_CONFIG_DIR/iax-phreaknet-rsa-in.conf
 	# touch $AST_CONFIG_DIR/iax-phreaknet-rsa-out.conf # no longer necessary for >= 18.9
-	## If you are running Asterisk as not root, make the user as which Asterisk runs own the private key and the new files:
-	# chown asterisk phreaknetrsa.key
-	# chown asterisk $AST_CONFIG_DIR/iax-phreaknet*
+	# Determine what user Asterisk is running as.
+	# cut on ; before = so that we properly handled commented out lines.
+	astrunuser=$( grep "runuser" $AST_CONFIG_DIR/asterisk.conf | cut -d';' -f1 | cut -d'=' -f2 | xargs | tr -d '\n' )
+	if [ ${#astrunuser} -gt 0 ]; then
+		## If you are running Asterisk as non-root, make the user as which Asterisk runs own the private key and the new files:
+		chown "$astrunuser" phreaknetrsa.key
+		chown "$astrunuser" $AST_CONFIG_DIR/iax.conf
+		chown "$astrunuser" $AST_CONFIG_DIR/iax-phreaknet*
+	fi
 	asterisk -rx "module reload res_crypto"
 	asterisk -rx "keys init"
 	asterisk -rx "keys show"
 elif [ "$cmd" = "fail2ban" ]; then
-	if [ ! -d /etc/fail2ban ]; then
-		if [ "$PAC_MAN" = "apt-get" ]; then
-			apt-get install -y fail2ban
-		fi
-		if [ ! -d /etc/fail2ban ]; then
-			echoerr "fail2ban was not installed and could not be auto-installed"
-			exit 1
-		fi
-	fi
+	ensure_installed iptables
+	ensure_installed fail2ban
 	if [ -f /etc/fail2ban/filter.d/asterisk.conf ]; then
 		echoerr "Existing fail2ban configuration for Asterisk already found, exiting..."
 		exit 1
@@ -2476,6 +2703,10 @@ elif [ "$cmd" = "dialplanfiles" ]; then
 	fi
 	grep "config.c: Parsing " /var/log/asterisk/$channel
 	rm /var/log/asterisk/$channel
+elif [ "$cmd" = "applist" ]; then
+	grep -ERo ",([A-Z][A-Za-z]+)\(" | cut -d',' -f2 | cut -d'(' -f1 | sort | uniq
+elif [ "$cmd" = "funclist" ]; then
+	grep -ERo "\{([A-Z]+)\(" | cut -d'{' -f2 | cut -d'(' -f1 | sort | uniq
 elif [ "$cmd" = "paste" ]; then
 	if [ ${#2} -eq 0 ]; then
 		echoerr "Usage: phreaknet paste <filename>"
@@ -2537,7 +2768,18 @@ elif [ "$cmd" = "backtrace-only" ]; then
 elif [ "$cmd" = "backtrace" ]; then
 	get_backtrace 1
 elif [ "$cmd" = "rundump" ]; then
-	$AST_VARLIB_DIR/scripts/ast_coredumper --RUNNING
+	coredump_prep
+	$AST_VARLIB_DIR/scripts/ast_coredumper --RUNNING > /tmp/ast_coredumper.txt
+	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer necessarily simply just /tmp/core-full.txt
+	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
+		echoerr "Failed to get core dump of running process"
+		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
+		exit 2
+	fi
+	cat /tmp/ast_coredumper.txt
+	rm -f /tmp/ast_coredumper.txt
+	printf "%s\n" "Uploading paste of backtrace..."
+	paste_post "$corefullpath"
 elif [ "$cmd" = "ccache" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://github.com/ccache/ccache/releases/download/v4.5.1/ccache-4.5.1.tar.gz
@@ -2664,6 +2906,9 @@ elif [ "$cmd" = "freedisk" ]; then
 	if [ -f /var/log/apache2/modsec_audit.log ]; then
 		echo "" > /var/log/apache2/modsec_audit.log
 	fi
+	if [ -f /var/log/asterisk/security ]; then
+		echo "" > /var/log/asterisk/security
+	fi
 	if [ -d /var/crash ]; then
 		rm -f /var/crash/core*
 	fi
@@ -2690,6 +2935,9 @@ elif [ "$cmd" = "freedisk" ]; then
 elif [ "$cmd" = "topdisk" ]; then
 	df -h -x squashfs -x tmpfs -x devtmpfs
 	find / -printf '%s %p\n'| sort -nr | head -50
+elif [ "$cmd" = "topdir" ]; then
+	# For largest directories in current directory:
+	du -sh * | sort -rh
 elif [ "$cmd" = "enable-swap" ]; then
 # https://www.digitalocean.com/community/tutorials/how-to-add-swap-space-on-debian-10
 	assert_root
@@ -2721,7 +2969,7 @@ elif [ "$cmd" = "enable-swap" ]; then
 	# cp /etc/fstab /etc/fstab.bak
 	# echo '/swapfile none swap sw 0 0' | tee -a /etc/fstab
 	cat /proc/sys/vm/swappiness
-	sysctl vm.swappiness=25
+	sysctl vm.swappiness=60 # should be high but not too high, see: https://stackoverflow.com/questions/44954336/gdb-commits-suicide-kills-debugged-process-out-of-a-sudden
 	sysctl vm.vfs_cache_pressure=50
 elif [ "$cmd" = "disable-swap" ]; then
 	assert_root
@@ -2745,7 +2993,6 @@ elif [ "$cmd" = "disable-swap" ]; then
 elif [ "$cmd" = "examples" ]; then
 	printf "%s\n\n" 	"========= PhreakScript Example Usages ========="
 	printf "%s\n\n" 	"Presented in the logical order of usage, but with multiple variations for each command."
-	printf "%s\n\n" 	"phreaknet update                   Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n\n" 	"Installation commands:"
 	printf "%s\n"		"phreaknet install                  Install the latest version of Asterisk."
 	printf "%s\n"		"phreaknet install --cc=44          Install the latest version of Asterisk, with country code 44."
@@ -2769,7 +3016,11 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"phreaknet update                   Update PhreakScript. No Asterisk or configuration modification will occur."
 	printf "%s\n"		"phreaknet update --upstream=URL    Update PhreakScript using URL as the upstream source (for testing)."
 	printf "%s\n"		"phreaknet patch                    Apply the latest PhreakNet configuration patches."
+	printf "%s\n"		"phreaknet fullpatch app_verify     Download the latest version of the app_verify module."
 	printf "\n"
+elif [ "$cmd" = "version" ]; then
+	printf "%s" "PhreakScript "
+	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
 elif [ "$cmd" = "info" ]; then
 	phreakscript_info
 elif [ "$cmd" = "about" ]; then

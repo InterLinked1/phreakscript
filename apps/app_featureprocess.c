@@ -335,19 +335,10 @@ static void assign_vars(struct ast_channel *chan, struct ast_str *strbuf, char *
 static int check_condition(struct ast_channel *chan, struct ast_str *strbuf, char *condition)
 {
 	int res;
-#define BUGGY_AST_SUB 1
 
-#if BUGGY_AST_SUB
-	char substituted[1024];
-#endif
-
-#if BUGGY_AST_SUB
-	pbx_substitute_variables_helper(chan, condition, substituted, sizeof(substituted) - 1);
-	ast_str_set(&strbuf, 0, "%s", substituted);
-#else
 	ast_str_reset(strbuf);
 	ast_str_substitute_variables(&strbuf, 0, chan, condition);
-#endif
+
 	ast_debug(2, "Condition to check: %s (evaluates to %s)\n", condition, ast_str_buffer(strbuf));
 	res = pbx_checkcondition(ast_str_buffer(strbuf));
 	ast_str_reset(strbuf);
@@ -415,12 +406,11 @@ static int featureproc_exec(struct ast_channel *chan, const char *data)
 	char *argstr, *cur = NULL;
 	struct ast_str *strbuf = NULL;
 
-	argstr = ast_strdupa((char *) data);
-
-	if (ast_strlen_zero(argstr)) {
+	if (ast_strlen_zero(data)) {
 		ast_log(LOG_WARNING, "%s requires an argument\n", app);
 		return -1;
 	}
+	argstr = ast_strdupa((char *) data);
 	if (!(strbuf = ast_str_create(512))) {
 		ast_log(LOG_ERROR, "Could not allocate memory for response.\n");
 		return -1;

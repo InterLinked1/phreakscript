@@ -47,6 +47,28 @@ curltimeout = 5
 ;
 ;local_var = __cvs
 ;
+; Name of variable in which to store STIR/SHAKEN disposition (North America only).
+; If not specified, no STIR/SHAKEN extraction will be performed.
+; Only applies if your SIP provider sends the verstat parameter
+; in the From or P-Asserted-Identity header.
+; Only supported on PJSIP channels. Disabled by default.
+;
+; Variable value will be as follows:
+; A = TN-Validation-Passed / TN-Validation-Passed-A
+; B = TN-Validation-Passed-B
+; C = TN-Validation-Passed-C
+; D = No-TN-Validation
+; E = (Empty)
+; F = TN-Validation-Failed
+;
+;stirshaken_var = __ssverstat
+;
+; Name of variable in which a remote STIR/SHAKEN disposition is stored.
+; If provided, will be used to update statistics. The stirshaken_var
+; variable will NOT automatically be set to this! Use setinvars to do this.
+;
+;remote_stirshaken_var = IAXVAR(ssverstat)
+;
 ; Number on this node which can be used against us in a reverse lookup for
 ; positive identification. A lookup for this number in the telephony domain
 ; must resolve to this node. Any such number will suffice.

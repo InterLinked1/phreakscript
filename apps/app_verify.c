@@ -29,10 +29,6 @@
  * \verbinclude verify.conf.sample
  */
 
-/*!
- * \todo Add STIR/SHAKEN integration at some point
- */
-
 /*** MODULEINFO
 	<support_level>extended</support_level>
  ***/
@@ -77,8 +73,9 @@
 			in a dialplan variable. Verification is performed in conjunction with
 			pre-specified parameters and allows spoofed or fradulent calls in a
 			peer-to-peer trunking system to be screened out.</para>
-			<para>This application may only be used with IAX2 channels,
+			<para>This application may generally only be used with IAX2 channels,
 			except for simple verify methods regex and pattern.</para>
+			<para>STIR/SHAKEN processing is only supported on SIP/PJSIP channels.</para>
 		</description>
 		<see-also>
 			<ref type="application">OutVerify</ref>
@@ -185,7 +182,19 @@
 				<configOption name="local_var">
 					<synopsis>Name of variable in which to store the verification result.</synopsis>
 					<description>
-						<para>Name of variable in which to store the verification result. Be sure to prefix with double underscore if the variable should carry through Dial. To make the variable persist through Dial, be sure to prefix with double underscore if desired.</para>
+						<para>Name of variable in which to store the verification result. To make the variable persist through Dial, prefix with double underscore.</para>
+					</description>
+				</configOption>
+				<configOption name="stirshaken_var">
+					<synopsis>Name of variable in which to store the STIR/SHAKEN disposition.</synopsis>
+					<description>
+						<para>Name of variable in which to store the STIR/SHAKEN disposition. To make the variable persist through Dial, prefix with double underscore.</para>
+					</description>
+				</configOption>
+				<configOption name="remote_stirshaken_var">
+					<synopsis>Name of remote variable in which the STIR/SHAKEN disposition can be found.</synopsis>
+					<description>
+						<para>Name of remote variable in which the STIR/SHAKEN disposition can be found.</para>
 					</description>
 				</configOption>
 				<configOption name="via_number">
@@ -369,6 +378,8 @@ struct call_verify {
 	char validatetokenrequest[PATH_MAX];	/*!< HTTP lookup for token verification */
 	char obtaintokenrequest[PATH_MAX];		/*!< HTTP lookup for obtaining a verification token */
 	char local_var[AST_MAX_CONTEXT];		/*!< Variable in which to store verification status */
+	char stirshaken_var[AST_MAX_CONTEXT];	/*!< Variable in which to store STIR/SHAKEN disposition */
+	char remote_stirshaken_var[AST_MAX_CONTEXT]; /*!< Variable in which remote STIR/SHAKEN disposition arrives */
 	char via_number[AST_MAX_CONTEXT]; 		/*!< Number on this node, used for downstream identification */
 	char remote_var[AST_MAX_CONTEXT];		/*!< Variable in which verification status arrives to us */
 	char via_remote_var[AST_MAX_CONTEXT];	/*!< Variable in which upstream node identification arrives */
@@ -409,6 +420,9 @@ struct call_verify {
 static int curltimeout = DEFAULT_CURL_TIMEOUT;		/*!< Curl Timeout */
 
 static AST_RWLIST_HEAD_STATIC(verifys, call_verify);
+
+char stir_shaken_stats[2][6];
+ast_mutex_t ss_lock;
 
 /*! \brief Allocate and initialize verify profile */
 static struct call_verify *alloc_profile(const char *vname)
@@ -486,6 +500,8 @@ static void profile_set_param(struct call_verify *v, const char *param, const ch
 	VERIFY_LOAD_STR_PARAM(validatetokenrequest, val[0]);
 	VERIFY_LOAD_STR_PARAM(obtaintokenrequest, val[0]);
 	VERIFY_LOAD_STR_PARAM(local_var, val[0] && !contains_whitespace(val)); /* could cause bad things to happen if we try setting a var name with spaces */
+	VERIFY_LOAD_STR_PARAM(stirshaken_var, val[0] && !contains_whitespace(val)); /* could cause bad things to happen if we try setting a var name with spaces */
+	VERIFY_LOAD_STR_PARAM(remote_stirshaken_var, val[0] && !contains_whitespace(val)); /* could cause bad things to happen if we try setting a var name with spaces */
 	VERIFY_LOAD_STR_PARAM(via_number, val[0] && !contains_whitespace(val));
 	VERIFY_LOAD_STR_PARAM(remote_var, val[0] && !contains_whitespace(val));
 	VERIFY_LOAD_STR_PARAM(via_remote_var, val[0] && !contains_whitespace(val));
@@ -697,7 +713,6 @@ static int verify_log(struct ast_channel *chan, char *level, char *msg)
 
 static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
 {
-#define GLOBAL_USERAGENT "asterisk-libcurl-agent/1.0"
 	CURL **curl;
 	char curl_errbuf[CURL_ERROR_SIZE + 1];
 
@@ -719,7 +734,7 @@ static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
 	}
 
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, curltimeout);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, GLOBAL_USERAGENT);
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, AST_CURL_USER_AGENT);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_string_callback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
 	curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -859,7 +874,7 @@ static void parse_iax2_dial_string(char *data, struct ast_str *strbuf)
 
 /* based on https://www.binarytides.com/hostname-to-ip-address-c-sockets-linux/ */
 /* not ideal, but ast_get_ip seems to have issues under the hood... */
-static int hostname_to_ip(char *hostname , char *ip)
+static int hostname_to_ip(struct ast_channel *chan, char *hostname , char *ip)
 {
 	struct addrinfo hints, *servinfo, *p;
 	struct sockaddr_in *h;
@@ -869,8 +884,12 @@ static int hostname_to_ip(char *hostname , char *ip)
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 
+	/* DNS lookups could potentially take a while, so autoservice the channel just in case. */
+	ast_autoservice_start(chan);
+
 	if ((rv = getaddrinfo(hostname, "4569", &hints, &servinfo)) != 0) {
 		ast_log(LOG_WARNING, "getaddrinfo: %s\n", gai_strerror(rv));
+		ast_autoservice_stop(chan);
 		return 1;
 	}
 
@@ -882,6 +901,9 @@ static int hostname_to_ip(char *hostname , char *ip)
 
 	freeaddrinfo(servinfo);
 	ast_debug(1, "Hostname '%s' resolved to IP address '%s'\n", hostname, ip);
+
+	ast_autoservice_stop(chan);
+
 	return 0;
 }
 
@@ -989,6 +1011,76 @@ static int v_success(char *name, int in)
 	return 0;
 }
 
+static char ss_handle_verstat(const char *verstat)
+{
+	ast_assert(!ast_strlen_zero(verstat));
+	if (!strcmp(verstat, "TN-Validation-Passed") || !strcmp(verstat, "TN-Validation-Passed-A")) {
+		return 'A';
+	} else if (!strcmp(verstat, "TN-Validation-Passed-B")) {
+		return 'B';
+	} else if (!strcmp(verstat, "TN-Validation-Passed-C")) {
+		return 'C';
+	} else if (!strcmp(verstat, "No-TN-Validation")) {
+		return 'D';
+	} else if (!strcmp(verstat, "TN-Validation-Failed")) {
+		return 'F';
+	} else {
+		ast_log(LOG_WARNING, "Unexpected verstat param value: '%s'\n", verstat);
+		return 0;
+	}
+}
+
+static char parse_hdr_for_verstat(const char *hdr_name, char *hdr, char **verstat)
+{
+	char *chunk;
+	while ((chunk = strsep(&hdr, ";"))) {
+		if (!strncmp(chunk, "verstat=", 8)) {
+			char *end;
+			chunk += 8;
+			if (ast_strlen_zero(chunk)) {
+				ast_log(LOG_WARNING, "verstat parameter is empty?\n");
+				break;
+			}
+			/* Don't care about anything after this parameter, so stop as soon as we find a symbol, e.g. @, ;, >, etc. */
+			end = chunk;
+			while (*end) {
+				if (!isalpha(*end) && *end != '-') {
+					*end = '\0';
+					break;
+				}
+				end++;
+			}
+			ast_debug(3, "%s header contains verstat parameter: %s\n", hdr_name, chunk);
+			*verstat = chunk;
+			return ss_handle_verstat(chunk);
+		}
+	}
+	return 0;
+}
+
+static void stir_shaken_stat_inc(int type, char c)
+{
+	ast_assert(type == 0 || type == 1);
+	ast_mutex_lock(&ss_lock);
+	switch (c) {
+	case 'A':
+	case 'B':
+	case 'C':
+	case 'D':
+	case 'E':
+	case 'F':
+		stir_shaken_stats[type][c - 'A'] += 1;
+		break;
+	default:
+		if (isprint(c)) {
+			ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %c\n", c);
+		} else if (c) {
+			ast_log(LOG_WARNING, "Unexpected STIR/SHAKEN rating: %d\n", c);
+		}
+	}
+	ast_mutex_unlock(&ss_lock);
+}
+
 #define VERIFY_STRDUP(field) ast_copy_string(field, v->field, sizeof(field));
 
 static int verify_exec(struct ast_channel *chan, const char *data)
@@ -999,7 +1091,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	int blacklisted = 0, success = 0;
 
 	int curl, method, extendtrust, allowtoken, sanitychecks, threshold, blacklist_failopen;
-	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], blacklist_endpoint[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
+	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], stirshaken_var[AST_MAX_CONTEXT], remote_stirshaken_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], blacklist_endpoint[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
 	float blacklist_threshold;
 
 	AST_DECLARE_APP_ARGS(args,
@@ -1054,6 +1146,8 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	VERIFY_STRDUP(verifycontext);
 	VERIFY_STRDUP(via_remote_var);
 	VERIFY_STRDUP(local_var);
+	VERIFY_STRDUP(stirshaken_var);
+	VERIFY_STRDUP(remote_stirshaken_var);
 	VERIFY_STRDUP(remote_var);
 	VERIFY_STRDUP(token_remote_var);
 	VERIFY_STRDUP(validatetokenrequest);
@@ -1090,6 +1184,76 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	}
 	ast_debug(1, "Verifying call against number '%s'\n", callerid);
 	ast_channel_unlock(chan);
+
+	/* Analyze STIR/SHAKEN result, if applicable */
+	if (!ast_strlen_zero(stirshaken_var)) {
+		char ss_verstat = 0;
+		char *verstat = NULL;
+		char from_hdr[512];
+		char pai_hdr[512];
+		char ss_result[2];
+		int unsupported = 0;
+
+		from_hdr[0] = pai_hdr[0] = '\0';
+
+		if (!strcmp(ast_channel_tech(chan)->type, "PJSIP")) {
+			ast_func_read(chan, "PJSIP_HEADER(read,From,1)", from_hdr, sizeof(from_hdr));
+			ast_func_read(chan, "PJSIP_HEADER(read,P-Asserted-Identity,1)", pai_hdr, sizeof(pai_hdr));
+		} else if (!strcmp(ast_channel_tech(chan)->type, "SIP")) {
+			ast_func_read(chan, "SIP_HEADER(From,1)", from_hdr, sizeof(from_hdr));
+			ast_func_read(chan, "SIP_HEADER(P-Asserted-Identity,1)", pai_hdr, sizeof(pai_hdr));
+		} else {
+			ast_log(LOG_WARNING, "STIR/SHAKEN only supported on PJSIP channels\n");
+			unsupported = 1;
+		}
+		if (!unsupported) {
+			/* STIR/SHAKEN references (including carrier implementations) consulted, in no particular order:
+			 * https://www.carrierx.com/documentation/how-it-works/stir-shaken#introduction
+			 * https://help.webex.com/en-us/article/8j6te9/Spam-or-fraud-call-indication-in-Webex-Calling
+			 * https://www.metaswitch.com/knowledge-center/reference/what-is-stir/shaken
+			 * https://www.vitelity.com/frequently-asked-questions-about-stir-shaken/
+			 * https://doc.didww.com/services/did/stir-shaken.html
+			 * https://support.telnyx.com/en/articles/5402969-stir-shaken-with-telnyx
+			 * https://transnexus.com/whitepapers/shaken-vs/
+			 * https://www.plivo.com/docs/sip-trunking/concepts/stir-shaken
+			 */
+
+			if (ast_strlen_zero(from_hdr)) {
+				ast_log(LOG_WARNING, "From header is empty?\n"); /* How can there not be a From header? */
+			} else {
+				ss_verstat = parse_hdr_for_verstat("From", from_hdr, &verstat);
+			}
+			if (!ss_verstat) { /* Didn't find anything in the From header, let's try the PAI header now */
+				ss_verstat = parse_hdr_for_verstat("P-Asserted-Identity", pai_hdr, &verstat);
+			}
+
+			if (ss_verstat) {
+				ast_verb(4, "STIR/SHAKEN rating is '%c' (%s)\n", ss_verstat, S_OR(verstat, "UNKNOWN"));
+				snprintf(ss_result, sizeof(ss_result), "%c", ss_verstat);
+				pbx_builtin_setvar_helper(chan, stirshaken_var, ss_result);
+				stir_shaken_stat_inc(0, ss_verstat);
+			} else {
+				ast_debug(2, "No STIR/SHAKEN information available\n");
+				pbx_builtin_setvar_helper(chan, stirshaken_var, "E");
+				stir_shaken_stat_inc(0, 'E');
+			}
+		}
+	} else if (!ast_strlen_zero(remote_stirshaken_var)) {
+		/* If remote result available, use that purely to update the statistics. */
+		char result[3];
+		int size = strlen(remote_stirshaken_var) + 4;
+		char iaxvartmp[size]; /* ${} + null terminator */
+		snprintf(iaxvartmp, size, "${%s}", remote_stirshaken_var);
+		result[0] = '\0';
+		pbx_substitute_variables_helper(chan, iaxvartmp, result, sizeof(result));
+		if (strlen(result) > 1) {
+			ast_log(LOG_WARNING, "Received invalid STIR/SHAKEN disposition from upstream: %s\n", result);
+		} else {
+			char ss_verstat = result[0];
+			stir_shaken_stat_inc(1, ss_verstat);
+			/* Don't automatically set the local var to the remote var, setinvars will do this, if requested. */
+		}
+	}
 
 	if (method == 2) {
 		if (!curl) {
@@ -1294,7 +1458,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		ast_debug(1, "Calling host is '%s'\n", peer);
 		ast_str_reset(strbuf);
 
-		if (hostname_to_ip(peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
+		if (hostname_to_ip(chan, peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
 			goto fail;
 		}
 		ast_debug(1, "%s resolved to %s, next, comparing it with %s\n", peer, ip, peerip);
@@ -1619,7 +1783,7 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 
 			parse_iax2_dial_string(lookup, strbuf); /* get the host */
 			peer = ast_strdupa(ast_str_buffer(strbuf));
-			if (hostname_to_ip(peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
+			if (hostname_to_ip(chan, peer, ip)) { /* yes, this works with both hostnames and IP addresses, so just try to resolve everything */
 				ast_debug(1, "Failed to resolve hostname '%s'\n", peer);
 				malicious = 1;
 			} else if (flagprivateip && is_private_ipv4(ip)) { /* make sure it's not a private IPv4 address */
@@ -1663,6 +1827,59 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 	}
 
 	return 0;
+}
+
+static const char *stir_shaken_name(char c)
+{
+	switch (c) {
+	case 'A':
+		return "A: Full Attestation";
+	case 'B':
+		return "B: Partial Attestation";
+	case 'C':
+		return "C: Gateway Attestation";
+	case 'D':
+		return "D: No Validation";
+	case 'E':
+		return "E: Empty (No parameter)";
+	case 'F':
+		return "F: Failed Validation";
+	default:
+		break;
+	}
+	ast_assert(0);
+	return "";
+}
+
+static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	int total[2];
+	char c;
+
+	total[0] = total[1] = 0;
+
+	switch(cmd) {
+	case CLI_INIT:
+		e->command = "verify show stirshaken";
+		e->usage =
+			"Usage: verify show stirshaken\n"
+			"       Display STIR/SHAKEN call statistics.\n";
+		return NULL;
+	case CLI_GENERATE:
+		return NULL;
+	}
+
+	ast_cli(a->fd, "%-30s %14s %14s\n", "STIR/SHAKEN Rating", "# Direct Calls", "Passthru Calls");
+	for (c = 'A'; c <= 'F'; c++) {
+		ast_cli(a->fd, "%-30s %14d %14d\n", stir_shaken_name(c), stir_shaken_stats[0][c - 'A'], stir_shaken_stats[1][c - 'A']);
+		total[0] += stir_shaken_stats[0][c - 'A'];
+		total[1] += stir_shaken_stats[1][c - 'A'];
+	}
+	ast_cli(a->fd, "------------------------------ ----------\n");
+	ast_cli(a->fd, "%-30s %14d %14d\n", "Total # STIR/SHAKEN Calls", total[0], total[1]);
+	ast_cli(a->fd, "%-30s %14s %14d\n", "", "=", total[0] + total[1]);
+
+	return CLI_SUCCESS;
 }
 
 /*! \brief CLI command to list verification profiles */
@@ -1796,6 +2013,7 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 static char *handle_reset_stats(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	struct call_verify *v;
+	char c;
 
 	switch(cmd) {
 	case CLI_INIT:
@@ -1817,10 +2035,19 @@ static char *handle_reset_stats(struct ast_cli_entry *e, int cmd, struct ast_cli
 	}
 	AST_RWLIST_UNLOCK(&verifys);
 
+	/* Reset STIR/SHAKEN stats */
+	ast_mutex_lock(&ss_lock);
+	for (c = 'A'; c <= 'F'; c++) {
+		stir_shaken_stats[0][c - 'A'] = 0;
+		stir_shaken_stats[1][c - 'A'] = 0;
+	}
+	ast_mutex_unlock(&ss_lock);
+
 	return CLI_SUCCESS;
 }
 
 static struct ast_cli_entry verify_cli[] = {
+	AST_CLI_DEFINE(handle_show_stirshaken, "Display STIR/SHAKEN statistics"),
 	AST_CLI_DEFINE(handle_show_profiles, "Display statistics about verification profiles"),
 	AST_CLI_DEFINE(handle_show_profile, "Displays information about a verification profile"),
 	AST_CLI_DEFINE(handle_reset_stats, "Resets call verification statistics for all profiles"),
@@ -1857,6 +2084,8 @@ static int unload_module(void)
 static int load_module(void)
 {
 	int res;
+
+	ast_mutex_init(&ss_lock);
 
 	if (reload_verify(0)) {
 		return AST_MODULE_LOAD_DECLINE;

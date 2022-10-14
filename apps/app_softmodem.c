@@ -54,8 +54,11 @@
 #include "asterisk/dsp.h"
 #include "asterisk/manager.h"
 
-#ifndef AST_MODULE
-#define AST_MODULE "app_softmodem"
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE
+#define FALSE 0
 #endif
 
 /*** DOCUMENTATION
@@ -68,7 +71,7 @@
 				<para>Hostname. Default is 127.0.0.1</para>
 			</parameter>
 			<parameter name="port" required="false">
-				<para>Port. Default is 21 (default Telnet port).</para>
+				<para>Port. Default is 23 (default Telnet port).</para>
 			</parameter>
 			<parameter name="options">
 				<optionlist>
@@ -714,7 +717,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data) {
 	session.ulmheader=0;
 	session.sendnull=0;
 
-	parse=ast_strdupa(data);
+	parse=ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args,parse);
 
 	if (args.host) {

@@ -145,7 +145,7 @@ static int dtmf2flash_helper(struct ast_channel *chan, const char *cmd, char *da
 		AST_APP_ARG(duration);
 	);
 
-	parse = ast_strdupa(data);
+	parse = ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args, parse);
 
 	if (!(framedata = ast_calloc(1, sizeof(*framedata)))) {
