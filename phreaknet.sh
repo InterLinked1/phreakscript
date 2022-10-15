@@ -769,6 +769,7 @@ install_testsuite_itself() {
 	pip3 install twisted
 
 	cd $AST_SOURCE_PARENT_DIR
+	cd testsuite
 	./setupVenv.sh
 	# ./runInVenv.sh python3 ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
 	./runInVenv.sh python3 ./runtests.py -l # list all tests
@@ -1176,6 +1177,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
 	fi
 	phreak_tree_module "res/res_dialpulse.c"
+	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
 
 	## Third Party Modules
