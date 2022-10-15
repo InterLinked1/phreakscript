@@ -1234,7 +1234,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
 	gerrit_patch 18824 "https://gerrit.asterisk.org/changes/asterisk~18824/revisions/3/patch?download" # res_pjsip_logger: Add method-based logging option
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
-	gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # res_pjsip_session: add overlap_context option
 	# todo func_export supersedes func_ochannel: remove func_ochannel
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
@@ -1244,6 +1243,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		# does not cleanly patch, do not uncomment:
 		# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/3/patch?download" # chan_dahdi: add dialmode
 		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
+		# gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # res_pjsip_session: add overlap_context option
 		:
 	fi
 
