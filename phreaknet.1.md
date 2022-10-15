@@ -183,6 +183,9 @@ the best Asterisk and DAHDI experience.
 **rundump**
 : Get a backtrace from the running Asterisk process
 
+**reftrace**
+: Process reference count logs
+
 ## Developer Debugging
 
 **valgrind**
@@ -260,6 +263,9 @@ The following options may be used with the **install** command.
 
 **--drivers**
 : Also install DAHDI drivers removed in 2018 by Sangoma
+
+**--fast**
+: Compile as fast as possible (recommended for development or idle systems, but not in-place production upgrades)
 
 **-f**, **--force**
 : Force install a new version of DAHDI/Asterisk, even if one already exists, overwriting old source

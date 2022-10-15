@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.90 (2022-09-28)
+# v0.1.91 (2022-10-15)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-10-15 0.1.91 PhreakScript: add reftrace command
 # 2022-09-28 0.1.90 DAHDI: remove merged DAHDI compiler fix, add libpri compiler fix
 # 2022-09-16 0.1.89 Asterisk: add unmerged patches
 # 2022-09-03 0.1.88 Asterisk: add unmerged patches
@@ -254,7 +255,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -322,6 +323,7 @@ Commands:
    backtrace          Use astcoredumper to process a backtrace and upload to InterLinked Paste
    backtrace-only     Use astcoredumper to process a backtrace
    rundump            Get a backtrace from the running Asterisk process
+   reftrace           Process reference count logs
 
    *** Developer Debugging ***
    valgrind           Run Asterisk under valgrind
@@ -363,7 +365,7 @@ Options:
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --boilerplate  sounds: Also install boilerplate sounds
        --audit        install: Audit package installation
-	   --fast         install: Compile as fast as possible
+       --fast         install: Compile as fast as possible
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
@@ -1151,6 +1153,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_predial.c"
 	phreak_tree_module "apps/app_pulsar.c"
 	phreak_tree_module "apps/app_randomplayback.c"
+	phreak_tree_module "apps/app_remoteaccess.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
 	phreak_tree_module "apps/app_selective.c"
 	phreak_tree_module "apps/app_softmodem.c"
@@ -1202,8 +1205,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does. Might make sense to wait until the Gerrit to GitHub migration.
 
+	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
+
 	## Gerrit patches: merged, remove in next release
-	if [ "$AST_ALT_VER" != "master" ] && [ "$AST_SRC_DIR" != "asterisk-18.15.0" ]; then # apply specified merged patches, unless we just cloned master
+	if [ "$AST_ALT_VER" != "master" ] && [ "$AST_ALT_VER" != "20.0.0-rc2" ] && [ "$AST_SRC_DIR" != "18.15.0" ]; then # apply specified merged patches, unless we just cloned master
 		gerrit_patch 18523 "https://gerrit.asterisk.org/changes/asterisk~18523/revisions/3/patch?download" # cli: Prevent assertions on startup from bad ao2 refs
 		gerrit_patch 18001 "https://gerrit.asterisk.org/changes/asterisk~18001/revisions/7/patch?download" # features: add transfer initiation options
 		gerrit_patch 18883 "https://gerrit.asterisk.org/changes/asterisk~18883/revisions/3/patch?download" # lock.c: Add AMI event for deadlocks
@@ -1224,11 +1229,12 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
 
-	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/2/patch?download" # app_broadcast
+	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/6/patch?download" # app_broadcast
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
 	gerrit_patch 18824 "https://gerrit.asterisk.org/changes/asterisk~18824/revisions/3/patch?download" # res_pjsip_logger: Add method-based logging option
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
+	gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # res_pjsip_session: add overlap_context option
 	# todo func_export supersedes func_ochannel: remove func_ochannel
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
@@ -1764,6 +1770,11 @@ elif [ "$cmd" = "mancached" ]; then
 	gzip /usr/local/man/man1/phreaknet.1
 	mandb
 elif [ "$cmd" = "install" ]; then
+	if [ ${#AST_USER} -eq 0 ]; then
+		echoerr "WARNING: You are installing Asterisk to run as root. This is not recommended."
+		echoerr "Specify -u or --user to specify a run user"
+		sleep 2
+	fi
 	if [ "$PKG_AUDIT" = "1" ]; then
 		pkg_before=$( apt list --installed )
 	fi
@@ -2780,6 +2791,11 @@ elif [ "$cmd" = "rundump" ]; then
 	rm -f /tmp/ast_coredumper.txt
 	printf "%s\n" "Uploading paste of backtrace..."
 	paste_post "$corefullpath"
+elif [ "$cmd" = "reftrace" ]; then
+	# Should be compiled with REF_DEBUG
+	# Asterisk should be stopped (not running)
+	/var/lib/asterisk/scripts/refcounter.py -f /var/log/asterisk/refs -n > /tmp/refs.txt
+	ls -la /tmp/refs.txt
 elif [ "$cmd" = "ccache" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://github.com/ccache/ccache/releases/download/v4.5.1/ccache-4.5.1.tar.gz
