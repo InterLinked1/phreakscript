@@ -86,7 +86,7 @@
 			</parameter>
 		</syntax>
 		<description>
-			<para>This is an implementation of Remote Access, as used with AT&mp;T/5ESS.</para>
+			<para>This is an implementation of Remote Access, as used with AT&amp;T/5ESS.</para>
 			<para>The audio prompts referenced in this module are required for this module to work.</para>
 			<para>Available features should be defined as extensions (by feature code) in the same extension.
 			A special priority of 1000 is used to Return() the a filename announcing the name of the feature.</para>
