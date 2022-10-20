@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.91 (2022-10-15)
+# v0.1.92 (2022-10-20)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-10-20 0.1.92 Asterisk: target Asterisk 20.0.0
 # 2022-10-15 0.1.91 PhreakScript: add reftrace command
 # 2022-09-28 0.1.90 DAHDI: remove merged DAHDI compiler fix, add libpri compiler fix
 # 2022-09-16 0.1.89 Asterisk: add unmerged patches
@@ -154,7 +155,7 @@ AST_VARLIB_DIR="/var/lib/asterisk"
 AST_SOURCE_PARENT_DIR="/usr/src"
 
 # Script environment variables
-AST_SOURCE_NAME="asterisk-18-current"
+AST_SOURCE_NAME="asterisk-20-current"
 LIBPRI_SOURCE_NAME="libpri-1.6.0"
 WANPIPE_SOURCE_NAME="wanpipe-7.0.34"
 ODBC_VER="3.1.14"
@@ -1210,15 +1211,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
 
 	## Gerrit patches: merged, remove in next release
-	if [ "$AST_ALT_VER" != "master" ] && [ "$AST_ALT_VER" != "20.0.0-rc2" ] && [ "$AST_SRC_DIR" != "18.15.0" ]; then # apply specified merged patches, unless we just cloned master
+	if [ "$AST_ALT_VER" != "master" ] && [ "$AST_ALT_VER" != "20.0.0" ] && [ "$AST_SRC_DIR" != "18.15.0" ]; then # apply specified merged patches, unless we just cloned master
 		gerrit_patch 18523 "https://gerrit.asterisk.org/changes/asterisk~18523/revisions/3/patch?download" # cli: Prevent assertions on startup from bad ao2 refs
-		gerrit_patch 18001 "https://gerrit.asterisk.org/changes/asterisk~18001/revisions/7/patch?download" # features: add transfer initiation options
-		gerrit_patch 18883 "https://gerrit.asterisk.org/changes/asterisk~18883/revisions/3/patch?download" # lock.c: Add AMI event for deadlocks
 		gerrit_patch 18974 "https://gerrit.asterisk.org/changes/asterisk~18974/revisions/4/patch?download" # app_amd: Add option to play audio during AMD
-		gerrit_patch 19150 "https://gerrit.asterisk.org/changes/asterisk~19150/revisions/2/patch?download" # func_frame_trace: remove bogus assertion
-		gerrit_patch 19056 "https://gerrit.asterisk.org/changes/asterisk~19056/revisions/3/patch?download" # app_confbridge: add end_marked_any
 		gerrit_patch 19055 "https://gerrit.asterisk.org/changes/asterisk~19055/revisions/2/patch?download" # pbx variables: use const char if possible
-		gerrit_patch 18831 "https://gerrit.asterisk.org/changes/asterisk~18831/revisions/4/patch?download" # improve log levels
 		gerrit_patch 19205 "https://gerrit.asterisk.org/changes/asterisk~19205/revisions/1/patch?download" # func_strings: Add trim functions
 		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
 		gerrit_patch 19156 "https://gerrit.asterisk.org/changes/asterisk~19156/revisions/1/patch?download" # app_bridgewait: add noanswer option
