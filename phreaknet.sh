@@ -1211,8 +1211,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
 
 	## Gerrit patches: merged, remove in next release
-	if [ "$AST_ALT_VER" != "master" ] && [ "$AST_ALT_VER" != "20.0.0" ] && [ "$AST_SRC_DIR" != "18.15.0" ]; then # apply specified merged patches, unless we just cloned master
-		gerrit_patch 18523 "https://gerrit.asterisk.org/changes/asterisk~18523/revisions/3/patch?download" # cli: Prevent assertions on startup from bad ao2 refs
+	if [ "$AST_ALT_VER" != "" ] && [ "$AST_ALT_VER" != "master" ] && [ "$AST_ALT_VER" != "20.0.0" ] && [ "$AST_SRC_DIR" != "18.15.0" ]; then # apply specified merged patches, unless we just cloned master
 		gerrit_patch 18974 "https://gerrit.asterisk.org/changes/asterisk~18974/revisions/4/patch?download" # app_amd: Add option to play audio during AMD
 		gerrit_patch 19055 "https://gerrit.asterisk.org/changes/asterisk~19055/revisions/2/patch?download" # pbx variables: use const char if possible
 		gerrit_patch 19205 "https://gerrit.asterisk.org/changes/asterisk~19205/revisions/1/patch?download" # func_strings: Add trim functions
