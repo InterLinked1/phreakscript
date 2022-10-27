@@ -183,6 +183,9 @@ the best Asterisk and DAHDI experience.
 **rundump**
 : Get a backtrace from the running Asterisk process
 
+**threads**
+: Get information about current Asterisk threads
+
 **reftrace**
 : Process reference count logs
 

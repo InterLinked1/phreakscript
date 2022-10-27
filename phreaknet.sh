@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.92 (2022-10-20)
+# v0.1.93 (2022-10-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-10-27 0.1.93 Asterisk: add unmerged patches, PhreakScript: add threads command
 # 2022-10-20 0.1.92 Asterisk: target Asterisk 20.0.0
 # 2022-10-15 0.1.91 PhreakScript: add reftrace command
 # 2022-09-28 0.1.90 DAHDI: remove merged DAHDI compiler fix, add libpri compiler fix
@@ -256,7 +257,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -324,6 +325,7 @@ Commands:
    backtrace          Use astcoredumper to process a backtrace and upload to InterLinked Paste
    backtrace-only     Use astcoredumper to process a backtrace
    rundump            Get a backtrace from the running Asterisk process
+   threads            Get information about current Asterisk threads
    reftrace           Process reference count logs
 
    *** Developer Debugging ***
@@ -438,8 +440,8 @@ install_prereq() {
 		if [ "$DEVMODE" = "1" ]; then
 			apt-get install -y xmlstarlet # only needed in developer mode for doc validation.
 		fi
+		# apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		# used to feed the country code non-interactively
-		apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
 	# TODO: missing yum support
@@ -458,6 +460,7 @@ install_prereq() {
 	else
 		echoerr "Could not determine what package manager to use..."
 	fi
+	apt autoremove
 }
 
 ensure_installed() {
@@ -1188,14 +1191,13 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
 
 	## Add patches to existing modules
-	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
 	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # app_dial: Bug fix to prevent infinite loop on progress-sent DTMF
 	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # chan_sip: Add fax timing controls
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
 	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
-	if [ "$SIP_CISCO" != "1" ]; then # this patch has a merge conflict with SIP usecallmanager patches
+	if [ "$SIP_CISCO" != "1" ]; then # XXX this patch has a merge conflict with SIP usecallmanager patches
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
@@ -1203,7 +1205,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	git_patch "hearpulsing-ast.diff"
 
 	if [ "$WEAK_TLS" = "1" ]; then
-		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only required for older ATAs that require older TLS protocols.
+		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only beneficial for older ATAs that require older TLS protocols.
 	fi
 
 	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does. Might make sense to wait until the Gerrit to GitHub migration.
@@ -1221,6 +1223,14 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	## Gerrit patches: remove once merged
+	gerrit_patch 19419 "https://gerrit.asterisk.org/changes/asterisk~19419/revisions/2/patch?download" # chan_dahdi: request bug fix
+	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
+	gerrit_patch 19418 "https://gerrit.asterisk.org/changes/asterisk~19418/revisions/5/patch?download" # 32-bit compilation fixes
+	gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # chan_pjsip: add overlap_context option
+	gerrit_patch 19308 "https://gerrit.asterisk.org/changes/asterisk~19308/revisions/2/patch?download" # app_meetme: Fix deadlock and crash with SLA
+	gerrit_patch 18830 "https://gerrit.asterisk.org/changes/asterisk~18830/revisions/9/patch?download" # res_pjsip_parameters: Add parameter support
+	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
+
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
@@ -1228,8 +1238,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/6/patch?download" # app_broadcast
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
-	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
-	gerrit_patch 18824 "https://gerrit.asterisk.org/changes/asterisk~18824/revisions/3/patch?download" # res_pjsip_logger: Add method-based logging option
+	gerrit_patch 19410 "https://gerrit.asterisk.org/changes/asterisk~19410/revisions/1/patch?download" # res_pjsip_logger: Add method-based logging option
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
 	# todo func_export supersedes func_ochannel: remove func_ochannel
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -1961,8 +1970,6 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	# in 19+, ADSI is not built by default. We should always build and enable it.
 	menuselect/menuselect --enable res_adsi --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
-	# Disable things that were deprecated in 16 and were already removed in 19. These will not exist in the next LTS, so if anyone is using them, make 'em aware of it.
-	menuselect/menuselect --disable res_monitor --disable app_url --disable app_image --disable app_ices --disable chan_oss --disable app_dahdiras --disable app_nbscat menuselect.makeopts
 	# Disable the built-in skinny and mgcp modules, since there are better alternatives, and they're deprecated as of 19
 	menuselect/menuselect --disable chan_skinny --disable chan_mgcp menuselect.makeopts
 	# Who's actually using this?
@@ -2065,7 +2072,7 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/#AST_USER="asterisk"/AST_USER="$AST_USER"/g' /etc/default/asterisk
 		sed -i 's/#AST_GROUP="asterisk"/AST_GROUP="$AST_USER"/g' /etc/default/asterisk
 		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /var/cache/asterisk /usr/sbin/asterisk
-		sed -i 's/create 640 root root/create 640 $AST_USER $AST_USER/g' /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
+		sed -i "s/create 640 root root/create 640 $AST_USER $AST_USER/g" /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
 		# by default, it has the asterisk user, so simply uncomment it:
 		sed -i 's/;runuser =/runuser =/' $AST_CONFIG_DIR/asterisk.conf
 		sed -i 's/;rungroup =/rungroup =/' $AST_CONFIG_DIR/asterisk.conf
@@ -2777,7 +2784,7 @@ elif [ "$cmd" = "backtrace" ]; then
 	get_backtrace 1
 elif [ "$cmd" = "rundump" ]; then
 	coredump_prep
-	$AST_VARLIB_DIR/scripts/ast_coredumper --RUNNING > /tmp/ast_coredumper.txt
+	nice -5 $AST_VARLIB_DIR/scripts/ast_coredumper --RUNNING > /tmp/ast_coredumper.txt
 	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer necessarily simply just /tmp/core-full.txt
 	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
 		echoerr "Failed to get core dump of running process"
@@ -2788,6 +2795,16 @@ elif [ "$cmd" = "rundump" ]; then
 	rm -f /tmp/ast_coredumper.txt
 	printf "%s\n" "Uploading paste of backtrace..."
 	paste_post "$corefullpath"
+elif [ "$cmd" = "threads" ]; then
+	# Debug CPU usage of specific threads.
+	pid=`cat /var/run/asterisk/asterisk.pid`
+	if [ ${#pid} -eq 0 ]; then
+		echoerr "Asterisk is not currently running."
+		exit 1
+	fi
+	ps -o pid,lwp,pcpu,pmem,comm,cmd -L $pid
+	/sbin/asterisk -rx "core show threads"
+	# Running phreaknet rundump here is probably useful as well.
 elif [ "$cmd" = "reftrace" ]; then
 	# Should be compiled with REF_DEBUG
 	# Asterisk should be stopped (not running)
