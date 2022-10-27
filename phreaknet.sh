@@ -1226,7 +1226,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 19419 "https://gerrit.asterisk.org/changes/asterisk~19419/revisions/2/patch?download" # chan_dahdi: request bug fix
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
 	gerrit_patch 19418 "https://gerrit.asterisk.org/changes/asterisk~19418/revisions/5/patch?download" # 32-bit compilation fixes
-	gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # chan_pjsip: add overlap_context option
+	
 	gerrit_patch 19308 "https://gerrit.asterisk.org/changes/asterisk~19308/revisions/2/patch?download" # app_meetme: Fix deadlock and crash with SLA
 	gerrit_patch 18830 "https://gerrit.asterisk.org/changes/asterisk~18830/revisions/9/patch?download" # res_pjsip_parameters: Add parameter support
 	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
@@ -1247,6 +1247,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
+		# gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # chan_pjsip: add overlap_context option
 		# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/3/patch?download" # chan_dahdi: add dialmode
 		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
 		# gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # res_pjsip_session: add overlap_context option
