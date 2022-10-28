@@ -126,6 +126,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 			/* If there's already a prefix, insert comma for 2nd dial tone now. Otherwise the prefix code is the first digit below and we do so afterwards. */
 			if (!ast_strlen_zero(prefix) && ignorepat) {
 				/* If there's an ignorepat for this prefix, insert a comma for second dial tone */
+				/* Note that Grandstream does not currently support 2nd dial tones, but this won't cause any issues otherwise. */
 				buf_append(buf, len, ",");
 				ignorepat = 0;
 			}
@@ -138,7 +139,10 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 			} else if (*name == 'X') {
 				buf_append(buf, len, "x"); /* Digit maps do recognize 'x', but they use lowercase x, not uppercase X */
 			} else if (*name == '!') {
+#if 0
+				/* S0 is not support by Grandstream. So we should just ignore ! characters. */
 				buf_append(buf, len, "S0"); /* Translate ! into immediate match */
+#endif
 			} else {
 				/* Process [] ranges as an entire unit */
 				if (*name == '[') {
