@@ -107,6 +107,9 @@ the best Asterisk and DAHDI experience.
 **keygen**
 : Install and update PhreakNet RSA keys. If you are installing keys for the first time, you should specify the --rotate flag.
 
+**keyperms**
+: Ensure that TLS keys are readable
+
 ## Maintenace
 
 **update**

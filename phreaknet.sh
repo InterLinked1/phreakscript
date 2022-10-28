@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.93 (2022-10-27)
+# v0.1.94 (2022-10-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-10-27 0.1.94 PhreakScript: add keyperms command
 # 2022-10-27 0.1.93 Asterisk: add unmerged patches, PhreakScript: add threads command
 # 2022-10-20 0.1.92 Asterisk: target Asterisk 20.0.0
 # 2022-10-15 0.1.91 PhreakScript: add reftrace command
@@ -257,7 +258,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -297,6 +298,7 @@ Commands:
    bconfig            Install PhreakNet boilerplate config
    config             Install PhreakNet boilerplate config and autoconfigure PhreakNet variables
    keygen             Install and update PhreakNet RSA keys
+   keyperms           Ensure that TLS keys are readable
 
    *** Maintenance ***
    update             Update PhreakScript
@@ -419,6 +421,77 @@ download_if_missing() {
 	else
 		printf "Audio file already present, not overwriting: %s\n" "$1"
 	fi
+}
+
+make_file_readable() { # $1 = file to make readable.
+	bottomdir=`dirname "$1"`
+	realfilename=`printf '%s' "$1" | xargs | cut -d' ' -f 1`
+	if [ ! -f "$realfilename" ]; then
+		echoerr "File $realfilename does not exist"
+		# If the file doesn't exist, forget about it.
+		return
+	fi
+
+	newfilename=`realpath $realfilename`
+	if [ "${#newfilename}" -gt 0 ]; then
+		# If we have realpath, follow symlinks too.
+		if [ "$newfilename" != "$realfilename" ]; then
+			printf "Followed symlink from %s to %s\n" "$realfilename" "$newfilename"
+			realfilename="$newfilename"
+		fi
+	else
+		echoerr "realpath is not supported on this system"
+	fi
+
+	printf "chmod -R +r %s\n" "$bottomdir"
+	chmod -R +r "$bottomdir" # This directory should contain only keys.
+	cd "$bottomdir"
+	if [ $? -eq 0 ]; then
+		chmod +r "$realfilename" # Make the file itself readable.
+		# Make all its parent directories readable.
+		# FYI: Stop when we get to /etc, because if you chmod 744 /etc, you will have a VERY BAD DAY.
+		# If you're reading this and already having a bad day, do chmod 755 /etc and that will fix it.
+		# You need +x permissions to go into directories, not just read permissions.
+		while [ `pwd` != "/" ] && [ `pwd` != "/etc" ] ; do
+			ls -dla $curdir
+			curdir=`pwd`
+			printf "chmod 755 %s\n" "$curdir"
+			cd ..
+			chmod 755 $curdir
+			ls -dla $curdir
+			if [ $? -ne 0 ]; then
+				echoerr "Failed to set key permissions"
+				break
+			fi
+		done
+	fi
+}
+
+make_keys_readable() {
+	# Bad things will happen if Asterisk cannot read the TLS keys that it needs.
+	# This will do a directory traversal to the location(s) of TLS keys and make sure
+	# that the keys and all their parent directories are readable. If any parent
+	# directory in the chain doesn't have the right permissions then things will fail.
+
+	# Save the current working directory.
+	curdir=`pwd`
+
+	# grep commands: Don't show filename in output. Ignore files with <. Remove leading whitespace, eliminate lines beginning with ; (comment), take only the first word
+
+	# tlscertfile used by http.conf and sip.conf
+	# Simpler methods of looping on each line of output only work in bash and not POSIX sh
+	echo -n "" > /tmp/astkeylist.txt
+	grep -h -R "tlscertfile" /etc/asterisk | grep -v '<' | cut -d'=' -f 2 | sed 's/^[ \t]*//' | sed '/^;/d' | grep -e ".pem" -e ".key" | cut -d' ' -f 1 >> /tmp/astkeylist.txt
+	grep -h -R "priv_key_file" /etc/asterisk | grep -v '<' | cut -d'=' -f 2 | sed 's/^[ \t]*//' | sed '/^;/d' | grep -e ".pem" -e ".key" | cut -d' ' -f 1 >> /tmp/astkeylist.txt
+
+	while read filename
+	do
+		printf "Processing potential key: %s\n" "$filename"
+		make_file_readable "$filename"
+	done < /tmp/astkeylist.txt # POSIX compliant
+	rm /tmp/astkeylist.txt
+
+	cd $curdir # Restore original working directory.
 }
 
 install_prereq() {
@@ -2092,6 +2165,11 @@ elif [ "$cmd" = "install" ]; then
 		fi
 	fi
 
+	# Make sure we can read any keys we need, or Asterisk will not be happy when it restarts.
+	if [ -d /etc/letsencrypt ]; then
+		make_keys_readable
+	fi
+
 	if [ "$CHAN_SCCP" = "1" ]; then
 		cd $AST_SOURCE_PARENT_DIR
 		cd chan-sccp
@@ -2470,6 +2548,8 @@ elif [ "$cmd" = "keygen" ]; then
 	asterisk -rx "module reload res_crypto"
 	asterisk -rx "keys init"
 	asterisk -rx "keys show"
+elif [ "$cmd" = "keyperms" ]; then
+	make_keys_readable
 elif [ "$cmd" = "fail2ban" ]; then
 	ensure_installed iptables
 	ensure_installed fail2ban
