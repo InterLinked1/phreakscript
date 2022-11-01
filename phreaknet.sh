@@ -729,6 +729,10 @@ run_testsuite_tests() {
 		echoerr "Directory $AST_SOURCE_PARENT_DIR/testsuite does not exist!"
 		exit 1
 	fi
+	if [ ! -f "$AST_CONFIG_DIR/asterisk.conf" ]; then
+		echoerr "$AST_CONFIG_DIR/asterisk.conf not found"
+		exit 1
+	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
 	# run manually for good measure, and so we get the full output
@@ -875,6 +879,23 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	make
 	make install
 	install_testsuite_itself
+}
+
+install_samples() {
+	# Only install sample config files if this is the first time (configs aren't already present on the system)
+	if [ ! -f "$AST_CONFIG_DIR/asterisk.conf" ]; then
+		if [ -d "$AST_CONFIG_DIR" ]; then
+			echoerr "$AST_CONFIG_DIR existed but not $AST_CONFIG_DIR/asterisk.conf? Strange... installing sample configs now."
+		fi
+		# the phoneprov files will fail to install if make install has not been run yet, so we do this AFTER make install.
+		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
+		rm $AST_CONFIG_DIR/users.conf # remove users.conf, because a) it's stupid, and shouldn't be used, and b) it creates warnings when reloading other modules, e.g. chan_dahdi.
+		# Change a few defaults for our sanity. This makes Asterisk more usable immediately without modifying or replacing the configs.
+		sed -i 's/;verbose =/verbose =/' $AST_CONFIG_DIR/asterisk.conf
+		sed -i 's/;timestamp =/timestamp =/' $AST_CONFIG_DIR/asterisk.conf
+	else
+		printf "Skipping sample config installation, since %s already exists\n" $AST_CONFIG_DIR
+	fi
 }
 
 dahdi_undo() {
@@ -2114,14 +2135,7 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$DEVMODE" = "1" ]; then
 		$AST_MAKE install-headers # install development headers
 	fi
-	# Only generate config if this is the first time
-	if [ ! -d "$AST_CONFIG_DIR" ]; then
-		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
-		rm $AST_CONFIG_DIR/users.conf # remove users.conf, because a) it's stupid, and shouldn't be used, and b) it creates warnings when reloading other modules, e.g. chan_dahdi.
-		# Change a few defaults for our sanity. This makes Asterisk more usable immediately without modifying or replacing the configs.
-		sed -i 's/;verbose =/verbose =/' $AST_CONFIG_DIR/asterisk.conf
-		sed -i 's/;timestamp =/timestamp =/' $AST_CONFIG_DIR/asterisk.conf
-	fi
+	install_samples
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
 			nm -D ${FILE} | grep PJ_AF_INET
@@ -2444,9 +2458,7 @@ elif [ "$cmd" = "config" ]; then
 		echoerr "Asterisk configuration directory does not exist"
 		exit 1
 	fi
-	if [ ! -d "$AST_CONFIG_DIR" ]; then
-		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
-	fi
+	install_samples
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
 		printf '\a'
 		read -r -p "InterLinked API key: " INTERLINKED_APIKEY
@@ -2486,9 +2498,7 @@ elif [ "$cmd" = "bconfig" ]; then
 		echoerr "Asterisk configuration directory does not exist"
 		exit 1
 	fi
-	if [ ! -d "$AST_CONFIG_DIR" ]; then
-		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
-	fi
+	install_samples
 	install_boilerplate
 elif [ "$cmd" = "keygen" ]; then
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
