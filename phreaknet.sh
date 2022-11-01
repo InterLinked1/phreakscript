@@ -1296,6 +1296,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	## Gerrit patches: remove once merged
+	gerrit_patch 19319 "https://gerrit.asterisk.org/changes/asterisk~19319/revisions/2/patch?download" # res_tonedetect: Add ringback support to TONE_DETECT
 	gerrit_patch 19419 "https://gerrit.asterisk.org/changes/asterisk~19419/revisions/2/patch?download" # chan_dahdi: request bug fix
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
 	gerrit_patch 19418 "https://gerrit.asterisk.org/changes/asterisk~19418/revisions/5/patch?download" # 32-bit compilation fixes
@@ -2103,12 +2104,7 @@ elif [ "$cmd" = "install" ]; then
 		exit 2
 	fi
 
-	# Only generate config if this is the first time
 	# Install Asterisk
-	if [ ! -d "$AST_CONFIG_DIR" ]; then
-		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
-		rm $AST_CONFIG_DIR/users.conf # remove users.conf, because a) it's stupid, and shouldn't be used, and b) it creates warnings when reloading other modules, e.g. chan_dahdi.
-	fi
 	if [ -d /usr/lib/asterisk/modules ]; then
 		rm -f /usr/lib/asterisk/modules/*.so
 	elif [ -d /usr/local/lib/asterisk/modules ]; then
@@ -2117,6 +2113,14 @@ elif [ "$cmd" = "install" ]; then
 	$AST_MAKE install # actually install modules
 	if [ "$DEVMODE" = "1" ]; then
 		$AST_MAKE install-headers # install development headers
+	fi
+	# Only generate config if this is the first time
+	if [ ! -d "$AST_CONFIG_DIR" ]; then
+		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
+		rm $AST_CONFIG_DIR/users.conf # remove users.conf, because a) it's stupid, and shouldn't be used, and b) it creates warnings when reloading other modules, e.g. chan_dahdi.
+		# Change a few defaults for our sanity. This makes Asterisk more usable immediately without modifying or replacing the configs.
+		sed -i 's/;verbose =/verbose =/' $AST_CONFIG_DIR/asterisk.conf
+		sed -i 's/;timestamp =/timestamp =/' $AST_CONFIG_DIR/asterisk.conf
 	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
