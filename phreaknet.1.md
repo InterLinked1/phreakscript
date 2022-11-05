@@ -270,6 +270,9 @@ The following options may be used with the **install** command.
 **--drivers**
 : Also install DAHDI drivers removed in 2018 by Sangoma
 
+**--extcodecs**
+: Specify this if any external codecs are being or will be installed. Failure to do so may result in a crash on startup.
+
 **--fast**
 : Compile as fast as possible (recommended for development or idle systems, but not in-place production upgrades)
 

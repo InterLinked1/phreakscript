@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.94 (2022-10-27)
+# v0.1.95 (2022-11-05)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-11-05 0.1.95 PhreakScript: add minimal external codec handling
 # 2022-10-27 0.1.94 PhreakScript: add keyperms command
 # 2022-10-27 0.1.93 Asterisk: add unmerged patches, PhreakScript: add threads command
 # 2022-10-20 0.1.92 Asterisk: target Asterisk 20.0.0
@@ -205,6 +206,7 @@ SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
 DEBUG_LEVEL=0
 FREEPBX_GUI=0
 GENERIC_HEADERS=0
+EXTERNAL_CODECS=0
 
 handler() {
 	kill $BGPID
@@ -374,6 +376,7 @@ Options:
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
+       --extcodecs    install: Specify this if any external codecs are being or will be installed
        --freepbx      install: Install FreePBX GUI (not recommended)
        --manselect    install: Manually run menuselect yourself
        --minimal      install: Do not upgrade the kernel or install nonrequired dependencies (such as utilities that may be useful on typical Asterisk servers)
@@ -885,7 +888,7 @@ install_samples() {
 	# Only install sample config files if this is the first time (configs aren't already present on the system)
 	if [ ! -f "$AST_CONFIG_DIR/asterisk.conf" ]; then
 		if [ -d "$AST_CONFIG_DIR" ]; then
-			echoerr "$AST_CONFIG_DIR existed but not $AST_CONFIG_DIR/asterisk.conf? Strange... installing sample configs now."
+			printf "$AST_CONFIG_DIR existed but not $AST_CONFIG_DIR/asterisk.conf... Installing sample configs now."
 		fi
 		# the phoneprov files will fail to install if make install has not been run yet, so we do this AFTER make install.
 		$AST_MAKE samples # do not run this on upgrades or it will wipe out your config!
@@ -1321,10 +1324,20 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 19419 "https://gerrit.asterisk.org/changes/asterisk~19419/revisions/2/patch?download" # chan_dahdi: request bug fix
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
 	gerrit_patch 19418 "https://gerrit.asterisk.org/changes/asterisk~19418/revisions/5/patch?download" # 32-bit compilation fixes
-	
+	gerrit_patch 19461 "https://gerrit.asterisk.org/changes/asterisk~19461/revisions/5/patch?download" # fix crash due to wrong free function being used
+
 	gerrit_patch 19308 "https://gerrit.asterisk.org/changes/asterisk~19308/revisions/2/patch?download" # app_meetme: Fix deadlock and crash with SLA
 	gerrit_patch 18830 "https://gerrit.asterisk.org/changes/asterisk~18830/revisions/9/patch?download" # res_pjsip_parameters: Add parameter support
-	phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
+	gerrit_patch 19468 "https://gerrit.asterisk.org/changes/asterisk~19468/revisions/1/patch?download" # app_voicemail: send email for file copies
+	gerrit_patch 19469 "https://gerrit.asterisk.org/changes/asterisk~19469/revisions/1/patch?download" # app_mixmonitor: add d option
+
+	if [ "$EXTERNAL_CODECS" = "1" ]; then
+		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
+	else
+		# WARNING: This will cause a crash due to ABI compatibility if any external codecs are used. Use the older translate.diff patch in that case.
+		# This has been merged into master, but for the above reason will not appear in Asterisk until v21 when new binary codec modules are created for external codecs.
+		gerrit_patch 15953 "https://gerrit.asterisk.org/changes/asterisk~15953/revisions/7/patch?download" # translate.c: Prefer better codecs on ties.
+	fi
 
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
@@ -1674,7 +1687,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,fast,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,extcodecs,fast,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1712,6 +1725,7 @@ while true; do
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
 		--devmode ) DEVMODE=1; shift ;;
 		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
+		--extcodecs ) EXTERNAL_CODECS=1; shift ;;
 		--fast ) FAST_COMPILE=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
@@ -1814,6 +1828,8 @@ elif [ "$cmd" = "wizard" ]; then
 		dialog_result "$ans" "y" "--testsuite"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to manually run menuselect?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		dialog_result "$ans" "y" "--manselect"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you or will you require support for external codecs?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "y" "--extcodecs"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install only generic Asterisk, without any PhreakNet enhancements?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		dialog_result "$ans" "y" "--vanilla"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to prevent installation of nonrequired dependencies?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
@@ -1827,7 +1843,7 @@ elif [ "$cmd" = "wizard" ]; then
 
 	printf "\n\n"
 	echog "You have completed the installation command wizard. You may use the following command to install according to your preferences:"
-	printf "phreaknet install%s\n" "$wizardresult"
+	printf "phreaknet install %s\n" "$wizardresult"
 	if [ "$ans" = "y" ]; then
 		if which phreaknet > /dev/null; then
 			printf "Automatically installing with the determined options...\n"
@@ -1876,6 +1892,10 @@ elif [ "$cmd" = "install" ]; then
 		echoerr "WARNING: You are installing Asterisk to run as root. This is not recommended."
 		echoerr "Specify -u or --user to specify a run user"
 		sleep 2
+	fi
+	if [ "$EXTERNAL_CODECS" = "1" ] && [ "$AST_ALT_VER" = "master" ]; then
+		echoerr "WARNING: External codecs should not be installed with the master branch."
+		echoerr "This may cause ABI (Application Binary Interface) issues, including crashes."
 	fi
 	if [ "$PKG_AUDIT" = "1" ]; then
 		pkg_before=$( apt list --installed )
