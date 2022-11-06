@@ -31,8 +31,8 @@ index c655f1bcfc..20acce4aeb 100644
  #ifdef NEED_DEBUG_HERE
  				ast_log(LOG_NOTICE,"Returning recursive match of %s\n", e->exten);
  #endif
-+				if (action == E_SPAWN && chan && include_exten != exten) {
-+					ast_debug(1, "Updating EXTEN from %s to %s\n", exten, include_exten);
++				if (0 && action == E_SPAWN && chan && include_exten != exten) { /* XXX Do not do this or it will mess up execution after priority 1 */
++					ast_debug(1, "Updating EXTEN from %s to %s\n", exten, include_exten); /* And don't set the context explicitly, that's wrong. EXTEN cannot change. */
 +					ast_channel_exten_set(chan, include_exten); /* So that ${EXTEN} matches the EXTEN in the included context */
 +				}
  				return e;
