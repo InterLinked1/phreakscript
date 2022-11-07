@@ -3,12 +3,15 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 18.14.0 (latest LTS release of Asterisk)
+- Asterisk 20.0.0 (latest LTS release of Asterisk)
 - DAHDI Linux 3.2.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.2.0 (with optional DAHDI install flag)
-- many additional features and stability improvements (see change log for full details)
+- many additional features and stability improvements
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
-   - DAHDI/wanpipe compilation fixes
+   - DAHDI/wanpipe/LibPRI compilation fixes
+   - Native coin and blue boxing support
+   - Real time dial pulsing support
+   - Automatic dialplan context to digit map generation
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver)
       - Cisco Call Manager support for `chan_sip`
@@ -47,7 +50,7 @@ PhreakScript installs:
       - ``KeyPrefetch``
       - ``SIPAddParameter``
       - ``IRCSendMessage``
-      - ``Softmodem`` (third-party)
+      - ``Softmodem`` (third-party, with compiler fixes)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
       - ``TECH_EXISTS``
