@@ -41,6 +41,7 @@ PhreakScript installs:
       - ``WaitForSignal``
       - ``WaitForDeposit``
       - ``CoinDisposition``
+      - ``SendCWCID``
       - ``DialSpeedTest``
       - ``LoopDisconnect``
       - ``ToneSweep``
