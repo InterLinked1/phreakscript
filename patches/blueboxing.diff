@@ -1,0 +1,42 @@
+diff --git a/main/dsp.c b/main/dsp.c
+index 8b4e3ee60f..9ddaf68bec 100644
+--- a/main/dsp.c
++++ b/main/dsp.c
+@@ -199,7 +199,7 @@ enum gsamp_thresh {
+ 
+ #define BELL_MF_THRESHOLD	1.6e9
+ #define BELL_MF_TWIST		4.0     /* 6dB */
+-#define BELL_MF_RELATIVE_PEAK	12.6    /* 11dB */
++#define BELL_MF_RELATIVE_PEAK	6.3     /* 6dB */
+ 
+ #if defined(BUSYDETECT_TONEONLY) && defined(BUSYDETECT_COMPARE_TONE_AND_SILENCE)
+ #error You cant use BUSYDETECT_TONEONLY together with BUSYDETECT_COMPARE_TONE_AND_SILENCE
+@@ -622,22 +622,23 @@ static int tone_detect(struct ast_dsp *dsp, tone_detect_state_t *s, int16_t *amp
+ 		hit = 0;
+ 		if (TONE_THRESHOLD <= tone_energy
+ 			&& tone_energy > s->energy * s->threshold) {
+-			ast_debug(10, "%d Hz tone Hit! %2d Ew=%.4E, Et=%.4E, s/n=%10.2f\n", s->freq, s->hit_count, tone_energy, s->energy, tone_energy / (s->energy - tone_energy));
++			ast_debug(7, "%d Hz tone Hit! %2d Ew=%.4E, Et=%.4E, s/n=%10.2f\n", s->freq, s->hit_count, tone_energy, s->energy, tone_energy / (s->energy - tone_energy));
+ 			hit = 1;
+ 		}
+ 
+-		if (s->hit_count) {
++		/* Sometimes we may get a lot of hits but not get 2 in succession, leading to a false negative, so always increment */
++		if (hit) {
+ 			s->hit_count++;
+ 		}
+ 
+ 		if (hit == s->last_hit) {
+ 			if (!hit) {
+ 				/* Two successive misses. Tone ended */
++				if (s->hit_count) {
++					ast_debug(9, "Tone ended (had %d/%d hits)\n", s->hit_count, s->hits_required);
++				}
+ 				s->hit_count = 0;
+-			} else if (!s->hit_count) {
+-				s->hit_count++;
+ 			}
+-
+ 		}
+ 
+ 		if (s->hit_count == s->hits_required) {
