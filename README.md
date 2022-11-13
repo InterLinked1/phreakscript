@@ -29,8 +29,11 @@ PhreakScript installs:
       - ``RemoteAccess``
       - ``RequestCallback``
       - ``CancelCallback``
+      - ``ScheduleWakeupCall``
+      - ``HandleWakeupCall``
       - ``CCSA``
       - ``PreDial``
+      - ``SetMWI``
       - ``PlayDigits``
       - ``StreamSilence``
       - ``RevertivePulse``
