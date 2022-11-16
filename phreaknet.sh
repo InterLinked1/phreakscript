@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.95 (2022-11-05)
+# v0.1.96 (2022-11-16)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-11-16 0.1.96 Asterisk: add out of tree modules
 # 2022-11-05 0.1.95 PhreakScript: add minimal external codec handling
 # 2022-10-27 0.1.94 PhreakScript: add keyperms command
 # 2022-10-27 0.1.93 Asterisk: add unmerged patches, PhreakScript: add threads command
@@ -1238,19 +1239,22 @@ phreak_tree_patch() { # $1 = patched file, $2 = patch name
 
 phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	### Inject custom PhreakNet patches to add additional functionality and features.
-	###  If/when/as these are integrated upstream, they will be removed from this function. 
+	### If/when/as these are integrated upstream, they will be removed from this function. 
 
 	cd $AST_SOURCE_PARENT_DIR/$2
 
 	## Add Standalone PhreakNet Modules
 	phreak_tree_module "apps/app_assert.c"
 	phreak_tree_module "apps/app_callback.c"
+	phreak_tree_module "apps/app_callerid.c"
 	phreak_tree_module "apps/app_ccsa.c"
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
+	phreak_tree_module "apps/app_keyprefetch.c"
 	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
+	phreak_tree_module "apps/app_mwi.c"
 	phreak_tree_module "apps/app_playdigits.c"
 	phreak_tree_module "apps/app_predial.c"
 	phreak_tree_module "apps/app_pulsar.c"
@@ -1262,17 +1266,21 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_streamsilence.c"
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
-	phreak_tree_module "apps/app_keyprefetch.c"
+	phreak_tree_module "apps/app_wakeupcall.c"
+
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
+
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_dtmf_flash.c"
+	phreak_tree_module "funcs/func_nanpa.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_numpeer.c"
 	phreak_tree_module "funcs/func_ochannel.c"
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "funcs/func_tech.c"
+
 	phreak_tree_module "res/res_coindetect.c"
 	if [ "$DEVMODE" = "1" ]; then
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
@@ -1280,6 +1288,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "res/res_dialpulse.c"
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
+	phreak_tree_module "res/res_pjsip_presence.c"
 
 	## Third Party Modules
 	printf "Adding new module: %s\n" "apps/app_tdd.c"
@@ -1314,9 +1323,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		gerrit_patch 18974 "https://gerrit.asterisk.org/changes/asterisk~18974/revisions/4/patch?download" # app_amd: Add option to play audio during AMD
 		gerrit_patch 19055 "https://gerrit.asterisk.org/changes/asterisk~19055/revisions/2/patch?download" # pbx variables: use const char if possible
 		gerrit_patch 19205 "https://gerrit.asterisk.org/changes/asterisk~19205/revisions/1/patch?download" # func_strings: Add trim functions
-		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
 		gerrit_patch 19156 "https://gerrit.asterisk.org/changes/asterisk~19156/revisions/1/patch?download" # app_bridgewait: add noanswer option
 		gerrit_patch 15893 "https://gerrit.asterisk.org/changes/asterisk~15893/revisions/11/patch?download" # func_export
+	fi
+	if [ "$AST_ALT_VER" != "" ] && [ "$AST_ALT_VER" != "master" ]; then
+		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
 	fi
 
 	## Gerrit patches: remove once merged
@@ -1330,6 +1341,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 18830 "https://gerrit.asterisk.org/changes/asterisk~18830/revisions/9/patch?download" # res_pjsip_parameters: Add parameter support
 	gerrit_patch 19468 "https://gerrit.asterisk.org/changes/asterisk~19468/revisions/1/patch?download" # app_voicemail: send email for file copies
 	gerrit_patch 19469 "https://gerrit.asterisk.org/changes/asterisk~19469/revisions/1/patch?download" # app_mixmonitor: add d option
+	gerrit_patch 19474 "https://gerrit.asterisk.org/changes/asterisk~19474/revisions/2/patch?download" # xmldoc: Allow documentation to be reloaded
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
@@ -1351,6 +1363,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	# todo func_export supersedes func_ochannel: remove func_ochannel
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
+	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
@@ -1526,6 +1539,7 @@ get_backtrace() { # $1 = "1" to upload
 	fi
 	if [ $? -ne 0 ]; then
 		mostrecentcoredump=`ls -v * | grep "^core" | tail -1`
+		printf "Most recent core dump: %s\n" "$mostrecentcoredump"
 		$AST_VARLIB_DIR/scripts/ast_coredumper "$mostrecentcoredump" > /tmp/ast_coredumper.txt
 	fi
 	printf "Exit code is %d\n" $?
