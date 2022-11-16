@@ -12,6 +12,7 @@ PhreakScript installs:
    - Native coin and blue boxing support
    - Real time dial pulsing support
    - Automatic dialplan context to digit map generation
+   - Presence publishing (PJSIP)
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver)
       - Cisco Call Manager support for `chan_sip`
