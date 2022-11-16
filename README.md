@@ -71,6 +71,7 @@ PhreakScript installs:
       - ``DB_MAXKEY``
       - ``DB_MINKEY``
       - ``DB_UNIQUE``
+      - ``NANPA``
       - ``SIP_PARAMETER``
       - ``GROUP_VAR`` (third-party)
       - ``GROUP_MATCH_LIST_START`` (third-party)
