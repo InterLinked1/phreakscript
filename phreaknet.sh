@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.96 (2022-11-16)
+# v0.1.97 (2022-11-20)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-11-20 0.1.97 Asterisk: update usecallmanager target
 # 2022-11-16 0.1.96 Asterisk: add out of tree modules
 # 2022-11-05 0.1.95 PhreakScript: add minimal external codec handling
 # 2022-10-27 0.1.94 PhreakScript: add keyperms command
@@ -163,7 +164,7 @@ AST_SOURCE_NAME="asterisk-20-current"
 LIBPRI_SOURCE_NAME="libpri-1.6.0"
 WANPIPE_SOURCE_NAME="wanpipe-7.0.34"
 ODBC_VER="3.1.14"
-CISCO_CM_SIP="cisco-usecallmanager-18.13.0"
+CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
 AST_ALT_VER=""
 MIN_ARGS=1
 FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
