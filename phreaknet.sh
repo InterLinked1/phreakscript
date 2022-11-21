@@ -1121,16 +1121,10 @@ install_dahdi() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
-	# Compiler fixes
-	#dahdi_custom_patch "dahdi_cfg" "$DAHDI_TOOLS_SRC_DIR/dahdi_cfg.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_cfg.diff" # bug fix for buffer too small for snprintf. See https://issues.asterisk.org/jira/browse/DAHTOOL-89
-	#dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xusb_libusb.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xusb.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-94
-	#dahdi_custom_patch "xusb_libusb" "$DAHDI_TOOLS_SRC_DIR/xpp/xtalk/xtalk_sync.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/xtalk.diff" # https://issues.asterisk.org/jira/browse/DAHTOOL-95
-
 	# New Features
 
-	# needs to be rebased for master:
 	# hearpulsing
-	git_patch "hearpulsing-dahtool.patch"
+	git_patch "hearpulsing-dahtool.patch" # hearpulsing
 
 	# autoreconf -i
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
@@ -1292,7 +1286,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_nanpa.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_numpeer.c"
-	phreak_tree_module "funcs/func_ochannel.c"
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "funcs/func_tech.c"
@@ -1344,10 +1337,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 	if [ "$AST_ALT_VER" != "" ] && [ "$AST_ALT_VER" != "master" ]; then
 		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
-		gerrit_patch 19403 "https://gerrit.asterisk.org/changes/asterisk~19403/revisions/2/patch?download" # chan_dahdi: fix compiler warnings
 	fi
 
 	## Gerrit patches: remove once merged
+	gerrit_patch 19403 "https://gerrit.asterisk.org/changes/asterisk~19403/revisions/2/patch?download" # chan_dahdi: fix compiler warnings
 	gerrit_patch 19319 "https://gerrit.asterisk.org/changes/asterisk~19319/revisions/2/patch?download" # res_tonedetect: Add ringback support to TONE_DETECT
 	gerrit_patch 19419 "https://gerrit.asterisk.org/changes/asterisk~19419/revisions/2/patch?download" # chan_dahdi: request bug fix
 	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
@@ -1377,11 +1370,12 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
 	gerrit_patch 19410 "https://gerrit.asterisk.org/changes/asterisk~19410/revisions/1/patch?download" # res_pjsip_logger: Add method-based logging option
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
-	# todo func_export supersedes func_ochannel: remove func_ochannel
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
+
+	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ]; then
 		printf "Installing patches for experimental features\n"
@@ -2961,7 +2955,7 @@ elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/
 	cd /tmp
 	asterisk -rx "core stop now"
 	sleep 1
-	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp --log-fd=9 asterisk -vvvvcg 9 > asteriskvalgrind.txt
+	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp -s --log-fd=9 asterisk -vvvvcg 9 > /tmp/asteriskvalgrind.txt
 	paste_post "/tmp/asteriskvalgrind.txt"
 	ls /tmp/asteriskvalgrind.txt
 elif [ "$cmd" = "cppcheck" ]; then
