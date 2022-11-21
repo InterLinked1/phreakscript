@@ -831,7 +831,7 @@ static int _selective_read(struct ast_channel *chan, char *buf, int maxdigits, c
 		already++;
 	}
 
-	va_start(ap, termafter);
+	va_start(ap, timeout);
 	while ( (arg = (char*) va_arg(ap, char *)) && !ast_strlen_zero(arg)) {
 		char *front, *filestmp, *files = ast_strdup(arg);
 		filestmp = files; /* don't overwrite files, or we can't free it */
