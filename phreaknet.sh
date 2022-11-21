@@ -195,6 +195,8 @@ DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
 ENHANCED_INSTALL=1
+EXPERIMENTAL_FEATURES=0
+LIGHTWEIGHT=0
 FAST_COMPILE=0
 PKG_AUDIT=0
 MANUAL_MENUSELECT=0
@@ -374,7 +376,9 @@ Options:
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --boilerplate  sounds: Also install boilerplate sounds
        --audit        install: Audit package installation
+	   --experimental install: Install experimental features that may not be production ready
        --fast         install: Compile as fast as possible
+       --lightweight  install: Only install basic, required modules for basic Asterisk functionality
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
@@ -1216,6 +1220,17 @@ phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 	fi
 }
 
+custom_module() { # $1 = filename, $2 = URL to download
+	printf "Adding new module: %s\n" "$1"
+	wget -q "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download module: $1"
+		if [ "$2" != "1" ]; then # unless failure is acceptable, abort
+			exit 2
+		fi
+	fi
+}
+
 phreak_nontree_patch() { # $1 = patched file, $2 = patch name
 	printf "Applying patch %s to %s\n" "$2" "$1"
 	wget -q "$3" -O "/tmp/$2" --no-cache
@@ -1329,6 +1344,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 	if [ "$AST_ALT_VER" != "" ] && [ "$AST_ALT_VER" != "master" ]; then
 		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
+		gerrit_patch 19403 "https://gerrit.asterisk.org/changes/asterisk~19403/revisions/2/patch?download" # chan_dahdi: fix compiler warnings
 	fi
 
 	## Gerrit patches: remove once merged
@@ -1352,7 +1368,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		gerrit_patch 15953 "https://gerrit.asterisk.org/changes/asterisk~15953/revisions/7/patch?download" # translate.c: Prefer better codecs on ties.
 	fi
 
-	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/6/patch?download" # app_if (newer version)
+	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/8/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
@@ -1366,6 +1382,16 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
+
+	if [ "$EXPERIMENTAL_FEATURES" = "1" ]; then
+		printf "Installing patches for experimental features\n"
+		git_custom_patch "https://code.phreaknet.org/asterisk/pubsub.diff"
+		custom_module "include/asterisk/res_pjsip_body_generator_types.h" "https://code.phreaknet.org/asterisk/res_pjsip_body_generator_types.h"
+		custom_module "res/res_pjsip_device_features.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features.c"
+		custom_module "res/res_pjsip_device_features_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features_body_generator.c"
+		custom_module "res/res_pjsip_sca.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca.c"
+		custom_module "res/res_pjsip_sca_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca_body_generator.c"
+	fi
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
@@ -1702,7 +1728,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,extcodecs,fast,freepbx,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -1740,9 +1766,11 @@ while true; do
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
 		--devmode ) DEVMODE=1; shift ;;
 		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
+		--experimental ) EXPERIMENTAL_FEATURES=1; shift ;;
 		--extcodecs ) EXTERNAL_CODECS=1; shift ;;
 		--fast ) FAST_COMPILE=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
+		--lightweight ) LIGHTWEIGHT=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
 		--upstream ) SCRIPT_UPSTREAM=$2; shift 2;;
@@ -1847,6 +1875,10 @@ elif [ "$cmd" = "wizard" ]; then
 		dialog_result "$ans" "y" "--extcodecs"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install only generic Asterisk, without any PhreakNet enhancements?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		dialog_result "$ans" "y" "--vanilla"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install only basic modules (may significantly degrade functionality)?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "n" "--lightweight"
+		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install experimental features that may not be production ready?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+		dialog_result "$ans" "n" "--experimental"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to prevent installation of nonrequired dependencies?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		dialog_result "$ans" "y" "--minimal"
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to audit package installation?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
@@ -1854,7 +1886,6 @@ elif [ "$cmd" = "wizard" ]; then
 	fi
 
 	ans=$(dialog --nocancel --default-item 'n' --menu "Last question! Do you want to begin installation automatically?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
-	dialog_result "$ans" "y" "--vanilla"
 
 	printf "\n\n"
 	echog "You have completed the installation command wizard. You may use the following command to install according to your preferences:"
@@ -1903,14 +1934,27 @@ elif [ "$cmd" = "mancached" ]; then
 	gzip /usr/local/man/man1/phreaknet.1
 	mandb
 elif [ "$cmd" = "install" ]; then
+	preinstall_warn=0
 	if [ ${#AST_USER} -eq 0 ]; then
 		echoerr "WARNING: You are installing Asterisk to run as root. This is not recommended."
 		echoerr "Specify -u or --user to specify a run user"
-		sleep 2
+		printf "\n"
+		preinstall_warn=1
+	fi
+	if [ "$LIGHTWEIGHT" = "1" ]; then
+		echoerr "WARNING: You have specified --lightweight, which will disable most modules from building."
+		echoerr "This may result in a system that is not suitable for production usage."
+		printf "\n"
+		preinstall_warn=1
 	fi
 	if [ "$EXTERNAL_CODECS" = "1" ] && [ "$AST_ALT_VER" = "master" ]; then
 		echoerr "WARNING: External codecs should not be installed with the master branch."
 		echoerr "This may cause ABI (Application Binary Interface) issues, including crashes."
+		printf "\n"
+		preinstall_warn=1
+	fi
+	if [ "$preinstall_warn" = "1" ]; then
+		sleep 2
 	fi
 	if [ "$PKG_AUDIT" = "1" ]; then
 		pkg_before=$( apt list --installed )
@@ -2049,7 +2093,7 @@ elif [ "$cmd" = "install" ]; then
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
 		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
-		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/cisco-usecallmanager-18.10.0.patch" -O /tmp/$CISCO_CM_SIP.patch
+		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/$CISCO_CM_SIP.patch" -O /tmp/$CISCO_CM_SIP.patch
 		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
 		if [ $? -ne 0 ]; then
 			echoerr "WARNING: Call Manager patch may have failed to apply correctly"
@@ -2088,7 +2132,7 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$ENABLE_BACKTRACES" = "1" ]; then
 		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
 	fi
-	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. This will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
+	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. Trashis will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
 	if [ -d /etc/dahdi ]; then
 		# in reality, this will never fail, even if they can't be enabled...
 		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
@@ -2122,6 +2166,46 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		freebsd_port_patches
+	fi
+
+	if [ "$LIGHTWEIGHT" = "1" ]; then
+		printf "Disabling most modules from building...\n"
+		# This is less intended for lean production systems than for situations where we may want to recompile Asterisk a very large number of times,
+		# and we can afford to exclude modules to compile as fast as possible.
+
+		# Start by disabling almost everything.
+		menuselect/menuselect --disable-category MENUSELECT_ADDONS --disable-category MENUSELECT_APPS menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_CDR --disable-category MENUSELECT_CEL menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_CHANNELS --disable-category MENUSELECT_CODECS menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_FORMATS --disable-category MENUSELECT_FUNCS --disable-category MENUSELECT_PBX --disable-category MENUSELECT_RES menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_TESTS --disable-category MENUSELECT_CFLAGS menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_UTILS --disable-category MENUSELECT_AGIS menuselect.makeopts
+
+		# Now explicitly enable things we probably want.
+		# Core
+		menuselect/menuselect --enable app_bridgeaddchan --enable app_channelredirect --enable app_chanspy --enable app_confbridge --enable app_dial --enable app_exec menuselect.makeopts
+		menuselect/menuselect --enable app_flash --enable app_mixmonitor --enable app_originate --enable app_playback --enable app_playtones --enable app_read menuselect.makeopts
+		menuselect/menuselect --enable chan_bridge_media --enable chan_dahdi --enable chan_iax2 --enable chan_pjsip menuselect.makeopts
+		menuselect/menuselect --enable codec_a_mu --enable codec_dahdi --enable codec_ulaw menuselect.makeopts
+		menuselect/menuselect --enable format_pcm --enable format_sln --enable format_wav menuselect.makeopts
+		menuselect/menuselect --enable func_callerid --enable func_cdr --enable func_channel --enable func_curl --enable func_cut --enable func_db --enable func_global menuselect.makeopts
+		menuselect/menuselect --enable func_pjsip_aor --enable func_pjsip_contact --enable func_pjsip_endpoint --enable func_shell --enable func_volume menuselect.makeopts
+		menuselect/menuselect --enable pbx_config --enable pbx_spool menuselect.makeopts
+		menuselect/menuselect --enable res_clialiases --enable res_clioriginate --enable res_crypto --enable res_curl --enable res_fax menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip --enable res_pjsip_acl --enable res_pjsip_authenticator_digest --enable res_pjsip_caller_id menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip_cli --enable res_pjsip_dtmf_info --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip_header_funcs --enable res_pjsip_logger --enable res_pjsip_notify --enable res_pjsip_outbound_registration menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip_pubsub --enable res_pjsip_session --enable res_rtp_asterisk menuselect.makeopts
+		menuselect/menuselect --enable res_sorcery_astdb --enable res_sorcery_config --enable res_sorcery_memory --enable res_sorcery_memory_cache menuselect.makeopts
+		menuselect/menuselect --enable res_srtp --enable res_timing_timerfd menuselect.makeopts
+		menuselect/menuselect --enable res_geolocation --enable res_statsd menuselect.makeopts # required for res_pjsip to load
+		# Extended
+		menuselect/menuselect --enable app_stack --enable app_if menuselect.makeopts
+		menuselect/menuselect --enable func_frame_trace menuselect.makeopts
+		menuselect/menuselect --enable res_cliexec menuselect.makeopts
+		# "Deprecated"
+		menuselect/menuselect --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
+		menuselect/menuselect --enable res_adsi menuselect.makeopts
 	fi
 
 	if [ "$MANUAL_MENUSELECT" = "1" ]; then

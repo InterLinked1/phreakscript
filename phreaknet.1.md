@@ -270,6 +270,9 @@ The following options may be used with the **install** command.
 **--drivers**
 : Also install DAHDI drivers removed in 2018 by Sangoma
 
+**--experimental**
+: Install experimental features that may not be production ready
+
 **--extcodecs**
 : Specify this if any external codecs are being or will be installed. Failure to do so may result in a crash on startup.
 
@@ -282,6 +285,9 @@ directories if necessary.
 
 **--freepbx**
 : Install FreePBX GUI (not recommended)
+
+**--lightweight**
+: Only install basic, required modules for basic Asterisk functionality. This may not be suitable for production systems.
 
 **--manselect**
 : Manually run menuselect yourself. Generally, this is unnecessary.
