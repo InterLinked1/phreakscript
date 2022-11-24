@@ -339,11 +339,12 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 #ifdef HAVE_DAHDI
 			ast_channel_lock(chan);
 			if (pvt->cidspill) {
-				ast_log(LOG_WARNING, "cidspill already exists??\n");
+				ast_channel_unlock(chan);
+				ast_log(LOG_WARNING, "cidspill already exists??\n"); /* We're probably getting a legitimate call waiting at the same time we're trying to execute this. */
 				return 0;
 			}
-
 			if (!(pvt->cidspill = ast_malloc((sas ? 2400 + 680 : 680) + READ_SIZE * 4))) {
+				ast_channel_unlock(chan);
 				ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
 				return -1;
 			}
@@ -410,6 +411,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 
 		ast_channel_lock(chan);
 		if (!(pvt->cidspill = ast_malloc(MAX_CALLERID_SIZE))) {
+			ast_channel_unlock(chan);
 			ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
 			return -1;
 		}
