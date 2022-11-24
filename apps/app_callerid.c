@@ -122,22 +122,26 @@ static const char *app = "SendCWCID";
 static int await_ack(struct ast_channel *chan, int ms)
 {
 	int res = ast_waitfordigit(chan, ms);
-	if (res > 0 && res != 'A' && res != 'D') {
+	if (res == 'A') {
+		ast_verb(4, "CPE is Type III (ADSI) capable\n");
+	} else if (res == 'D') {
+		ast_verb(4, "CPE is Type II (non-ADSI) capable\n");
+	} else if (res > 0 && res != 'A' && res != 'D') {
 		ast_log(LOG_WARNING, "Unexpected acknowledgment from CPE: '%c'\n", res);
+	} else {
+		ast_verb(4, "CPE is not off-hook Caller ID capable\n");
 	}
 	return res;
 }
 
-/* XXX copy of adsi_careful_send from res_adsi */
+/* XXX copy of adsi_careful_send from res_adsi. Should be a core function in callerid.c? */
 static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int len, int *remain)
 {
-	/* Sends carefully on a full duplex channel by using reading for
-	   timing */
+	/* Sends carefully on a full duplex channel by using reading for timing */
 	struct ast_frame *inf;
 	struct ast_frame outf = {
 		.frametype = AST_FRAME_VOICE,
 		.subclass.format = ast_format_ulaw,
-		.data.ptr = buf,
 	};
 	int amt;
 
@@ -151,6 +155,7 @@ static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int 
 			*remain = *remain - amt;
 		}
 
+		outf.data.ptr = buf;
 		outf.datalen = amt;
 		outf.samples = amt;
 		if (ast_write(chan, &outf)) {
@@ -181,7 +186,7 @@ static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int 
 		}
 
 		if (ast_format_cmp(inf->subclass.format, ast_format_ulaw) != AST_FORMAT_CMP_EQUAL) {
-			ast_log(LOG_WARNING, "Channel not in ulaw?\n");
+			ast_log(LOG_WARNING, "Channel not in ulaw? (in %s)\n", ast_format_get_name(inf->subclass.format));
 			ast_frfree(inf);
 			return -1;
 		}
@@ -191,14 +196,13 @@ static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int 
 		} else if (remain) {
 			*remain = inf->datalen - amt;
 		}
+		outf.data.ptr = buf;
 		outf.datalen = amt;
 		outf.samples = amt;
 		if (ast_write(chan, &outf)) {
 			ast_log(LOG_WARNING, "Failed to carefully write frame\n");
 			ast_frfree(inf);
 			return -1;
-		} else {
-			ast_debug(1, "Wrote buffer: %p, amt %d\n", buf, amt); 
 		}
 		/* Update pointers and lengths */
 		buf += amt;
@@ -232,12 +236,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(options);
 	);
 
-	if (ast_strlen_zero(data)) {
-		ast_log(LOG_WARNING, "Must specify a number\n");
-		return -1;
-	}
-
-	argcopy = ast_strdupa(data);
+	argcopy = ast_strdupa(S_OR(data, ""));
 	AST_STANDARD_APP_ARGS(args, argcopy);
 
 	if (!ast_strlen_zero(args.options)) {
@@ -302,7 +301,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 				ast_log(LOG_WARNING, "%s is not a DAHDI channel\n", ast_channel_name(chan));
 				break;
 			}
-		
+
 			memset(&dahdip, 0, sizeof(dahdip));
 			res = ioctl(ast_channel_fd(chan, 0), DAHDI_GET_PARAMS, &dahdip);
 
@@ -310,12 +309,16 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 				ast_log(LOG_WARNING, "Unable to get parameters of %s: %s\n", ast_channel_name(chan), strerror(errno));
 				break;
 			}
-			if (!(dahdip.sigtype & __DAHDI_SIG_FXO)) {
+			if (!(dahdip.sigtype & __DAHDI_SIG_FXO)) { /* FXO signaling for FXS stations! */
 				ast_log(LOG_WARNING, "%s is not an FXS Channel\n", ast_channel_name(chan));
 				break;
 			}
 
 			pvt = ast_channel_tech_pvt(chan);
+			if (!pvt) {
+				ast_log(LOG_WARNING, "No channel pivot?\n");
+				break;
+			}
 			if (!dahdi_analog_lib_handles(pvt->sig, 0, 0)) {
 				ast_log(LOG_WARNING, "Channel signalling is not analog");
 				break;
@@ -326,15 +329,15 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 #else
 		ast_log(LOG_WARNING, "DAHDI required for native option but not present\n");
 #endif
-		ast_debug(1, "Using %s spill method\n", pvt && dahdi ? "DAHDI" : "non-DAHDI");
 	}
 
 	ast_stopstream(chan);
-	ast_debug(1, "Writing spill on %s\n", ast_channel_name(chan));
+	ast_debug(1, "Writing spill on %s using %s spill method\n", ast_channel_name(chan), dahdi ? "DAHDI native" : "generic");
 
 	if (cas) { /* send a CAS, and maybe a SAS... */
 		if (dahdi) { /* if we can, use the native DAHDI code to dump the FSK spill */
 #ifdef HAVE_DAHDI
+			ast_channel_lock(chan);
 			if (pvt->cidspill) {
 				ast_log(LOG_WARNING, "cidspill already exists??\n");
 				return 0;
@@ -342,17 +345,20 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 
 			if (!(pvt->cidspill = ast_malloc((sas ? 2400 + 680 : 680) + READ_SIZE * 4))) {
 				ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+				return -1;
 			}
 			ast_gen_cas(pvt->cidspill, sas, sas ? 2400 + 680 : 680, AST_LAW(pvt));
 			pvt->callwaitcas = 1;
 			pvt->cidlen = (sas ? 2400 + 680 : 680) + READ_SIZE * 4;
 			pvt->cidpos = 0;
+			ast_channel_unlock(chan);
 
 			/* wait for CID spill in dahdi_read (as opposed to calling send_caller directly */
 			if (ast_safe_sleep(chan, sas ? 300 + 85 : 85)) {
 				ast_debug(1, "ast_safe_sleep returned -1\n");
 				return -1;
 			}
+			/* chan_dahdi will free pvt->cidspill */
 #endif
 		} else {
 			unsigned char *cidspill;
@@ -361,33 +367,35 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 				ast_log(LOG_WARNING, "Unable to set '%s' to signed linear format (write)\n", ast_channel_name(chan));
 				return -1;
 			}
+			if (ast_set_read_format(chan, ast_format_ulaw)) {
+				ast_log(LOG_WARNING, "Unable to set read format to ULAW\n");
+				return -1;
+			}
 
 			if (!(cidspill = ast_malloc((sas ? 2400 + 680 : 680) + READ_SIZE * 4))) {
 				ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+				return -1;
 			}
 			ast_gen_cas(cidspill, sas, sas ? 2400 + 680 : 680, ast_format_ulaw);
 
-			/*! \todo Non-DAHDI sending does not currently work.
-			 * This is likely due to the same bug that caused ADSI to break between Asterisk 12 and 13.
-			 * Once that issue is fixed, we should circle back to this and ensure this works. */
 			if (cwcid_careful_send(chan, cidspill, sas ? 2400 + 680 : 680, NULL)) {
+				ast_free(cidspill);
 				ast_log(LOG_WARNING, "Failed to write cidspill\n");
 				return -1;
 			}
+			ast_free(cidspill);
 		}
 	}
 
-	res = await_ack(chan, 400); /* wait up to 400ms for ACK */
+	res = await_ack(chan, 500); /* wait up to 500ms for ACK */
 	if (res == -1) {
 		ast_debug(1, "await_ack returned -1\n");
 		return -1;
 	}
 	if (ack) { /* make sure we got the ACK, if we're supposed to check */
 		if (res != 'A' && res != 'D') {
-			ast_verb(3, "CPE is not CWCID capable\n");
-			return 0;
+			return 0; /* Didn't get ACK, abort. */
 		}
-		ast_verb(3, "CPE is CWCID capable\n");
 	}
 	res = 0;
 
@@ -400,8 +408,10 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 			}
 		}
 
+		ast_channel_lock(chan);
 		if (!(pvt->cidspill = ast_malloc(MAX_CALLERID_SIZE))) {
 			ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+			return -1;
 		}
 		/* similar to my_send_callerid in chan_dahdi.c: */
 		pvt->callwaitcas = 0;
@@ -417,6 +427,8 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 		pvt->cidlen += READ_SIZE * 4;
 		pvt->cidpos = 0;
 		pvt->cid_suppress_expire = 0;
+		ast_channel_unlock(chan);
+
 		/* wait for CID spill in dahdi_read (as opposed to calling send_caller directly */
 		if (ast_safe_sleep(chan, pvt->cidlen / 8)) {
 			return -1;
@@ -427,6 +439,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 				return -1;
 			}
 		}
+		/* chan_dahdi will free pvt->cidspill */
 #endif
 	} else {
 		unsigned char *cidspill;
@@ -434,6 +447,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 
 		if (!(cidspill = ast_malloc(MAX_CALLERID_SIZE))) {
 			ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+			return -1;
 		}
 		cidlen = ast_callerid_callwaiting_full_generate(cidspill,
 			cnam,
@@ -446,8 +460,9 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 
 		if (cwcid_careful_send(chan, cidspill, cidlen, NULL)) {
 			ast_log(LOG_WARNING, "Failed to write cidspill\n");
-			return -1;
+			res = -1;
 		}
+		ast_free(cidspill);
 	}
 
 	ast_debug(1, "res is %d\n", res);
