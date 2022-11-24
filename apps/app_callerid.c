@@ -40,8 +40,16 @@
 #include "asterisk/callerid.h"
 #include "asterisk/adsi.h"
 #include "asterisk/format_cache.h"
+
+#ifdef HAVE_DAHDI
+/* Don't even include chan_dahdi header files unless we have DAHDI */
 #include "../channels/sig_analog.h" /* use READ_SIZE */
 #include "../channels/chan_dahdi.h"
+/* XXX from chan_dahdi.c */
+#define AST_LAW(p) (((p)->law == DAHDI_LAW_ALAW) ? ast_format_alaw : ast_format_ulaw)
+#else
+#define READ_SIZE 160
+#endif
 
 /*** DOCUMENTATION
 	<application name="SendCWCID" language="en_US">
@@ -214,8 +222,6 @@ static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int 
 
 static int cwcid_exec(struct ast_channel *chan, const char *data)
 {
-/* XXX from chan_dahdi.c */
-#define AST_LAW(p) (((p)->law == DAHDI_LAW_ALAW) ? ast_format_alaw : ast_format_ulaw)
 	char *argcopy = NULL;
 	struct ast_flags flags = {0};
 	int res = 0;
