@@ -77,19 +77,9 @@
 			present in the default Allison Smith sounds library.</para>
 		</description>
 	</application>
-	<application name="HandleWakeupCall" language="en_US">
-		<synopsis>
-			Wakeup call handler
-		</synopsis>
-		<syntax/>
-		<description>
-			<para>This application is used internally and should not be called from the dialplan.</para>
-		</description>
-	</application>
  ***/
 
 static char *app = "ScheduleWakeupCall";
-static char *app2 = "HandleWakeupCall";
 
 static char qdir[255];
 
@@ -271,8 +261,8 @@ static int create_call_file(struct wuc_data *wuc, enum wuc_type type, time_t epo
 	}
 
 	fprintf(fp, "Channel: %s\n", wuc->destination);
-	fprintf(fp, "Application: %s\n", app2);
-	fprintf(fp, "Data: %s_%s_%02d%02d\n", wuc->userid, type == WAKEUP_CALL_SINGLE ? "single" : "rec", uhr, umin);
+	fprintf(fp, "Application: %s\n", app);
+	fprintf(fp, "Data: *%s_%s_%02d%02d\n", wuc->userid, type == WAKEUP_CALL_SINGLE ? "single" : "rec", uhr, umin);
 	fprintf(fp, "CallerID: WAKEUP CALL <%s>\n", S_OR(wuc->callerid, ""));
 	fprintf(fp, "MaxRetries: %d\n", 3);
 	fprintf(fp, "RetryTime: %d\n", 540); /* The standard "snooze" time is 9 minutes. */
@@ -567,7 +557,7 @@ static int wuc_respond_exec(struct ast_channel *chan, const char *data)
 	int i, res;
 
 	if (ast_strlen_zero(data)) {
-		ast_log(LOG_ERROR, "%s called without arguments. Do not attempt to call this from the dialplan.\n", data);
+		return -1;
 	}
 
 	/* Reschedule the next call, if necessary. */
@@ -615,6 +605,9 @@ static int wuc_exec(struct ast_channel *chan, const char *data)
 	if (ast_strlen_zero(data)) {
 		ast_log(LOG_WARNING, "%s requires arguments\n", app);
 		return -1;
+	} else if (*data == '*') {
+		/* Internal handler for wake up call delivery. */
+		return wuc_respond_exec(chan, data + 1);
 	}
 
 	tmp = ast_strdupa(data);
@@ -764,7 +757,6 @@ static int unload_module(void)
 	int res;
 
 	res = ast_unregister_application(app);
-	res = ast_unregister_application(app2);
 
 	return res;
 }
@@ -776,7 +768,6 @@ static int load_module(void)
 	snprintf(qdir, sizeof(qdir), "%s/%s", ast_config_AST_SPOOL_DIR, "outgoing");
 
 	res |= ast_register_application_xml(app, wuc_exec);
-	res |= ast_register_application_xml(app2, wuc_respond_exec);
 
 	return res;
 }
