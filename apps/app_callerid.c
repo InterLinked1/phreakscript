@@ -73,6 +73,10 @@
 				<para>Redirecting reason, e.g. REDIRECTING(reason).</para>
 				<para>Default is none (not sent).</para>
 			</parameter>
+			<parameter name="timezone">
+				<para>TZ-format timezone to use for date/time.</para>
+				<para>Default is the system time zone.</para>
+			</parameter>
 			<parameter name="options">
 				<optionlist>
 					<option name="c">
@@ -230,6 +234,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 	char *clidnum, *clidname;
 	int presentation = -1, redirecting = -1, qualifier = 0;
 	int dahdi = 0; /* whether to try to use native DAHDI */
+	const char *tz;
 #ifdef HAVE_DAHDI
 	struct dahdi_pvt *pvt = NULL;
 #endif
@@ -239,6 +244,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(name);
 		AST_APP_ARG(presentation);
 		AST_APP_ARG(redirecting);
+		AST_APP_ARG(timezone);
 		AST_APP_ARG(options);
 	);
 
@@ -264,6 +270,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 		}
 	}
 
+	tz = args.timezone;
 	clidnum = ast_strlen_zero(args.number) ? ast_channel_caller(chan)->id.number.str : args.number;
 	if (strlen(clidnum) > 15) {
 		ast_log(LOG_WARNING, "Caller ID number '%s' is greater than 15 characters and will be truncated\n", clidnum);
@@ -424,14 +431,15 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 		/* similar to my_send_callerid in chan_dahdi.c: */
 		pvt->callwaitcas = 0;
 		pvt->cidcwexpire = 0;
-		pvt->cidlen = ast_callerid_callwaiting_full_generate(pvt->cidspill,
+		pvt->cidlen = ast_callerid_callwaiting_full_tz_generate(pvt->cidspill,
 			cnam,
 			clid,
 			NULL,
 			redirecting,
 			presentation,
 			qualifier,
-			AST_LAW(pvt));
+			AST_LAW(pvt),
+			tz);
 		pvt->cidlen += READ_SIZE * 4;
 		pvt->cidpos = 0;
 		pvt->cid_suppress_expire = 0;
@@ -457,15 +465,15 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 			ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
 			return -1;
 		}
-		cidlen = ast_callerid_callwaiting_full_generate(cidspill,
+		cidlen = ast_callerid_callwaiting_full_tz_generate(cidspill,
 			cnam,
 			clid,
 			NULL,
 			redirecting,
 			presentation,
 			qualifier,
-			ast_format_ulaw);
-
+			ast_format_ulaw,
+			tz);
 		if (cwcid_careful_send(chan, cidspill, cidlen, NULL)) {
 			ast_log(LOG_WARNING, "Failed to write cidspill\n");
 			res = -1;
