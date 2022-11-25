@@ -137,11 +137,12 @@ static int on_call_file(const char *dir_name, const char *filename, void *obj)
 
 	ast_debug(4, "Found call file: %s\n", filename);
 	if (strncmp(wuc->prefix, filename, wuc->prefixlength)) {
+		ast_debug(3, "%s does not begin with %s\n", filename, wuc->prefix);
 		return 0; /* Not us. */
 	}
 
 	/* Determine what type of wakeup call this is, by the filename. */
-	tmp = filename + strlen("app_wakeupcall");
+	tmp = filename + strlen("app_wakeupcall"); /* I think gcc will optimize this at compile time. */
 	if (ast_strlen_zero(tmp)) {
 		return 0;
 	}
@@ -154,9 +155,9 @@ static int on_call_file(const char *dir_name, const char *filename, void *obj)
 		return 0;
 	}
 
-	if (!strncmp(tmp, "single", 6)) {
+	if (ast_begins_with(tmp, "single")) {
 		wuctype = WAKEUP_CALL_SINGLE;
-	} else if (!strncmp(tmp, "rec", 3)) {
+	} else if (ast_begins_with(tmp, "rec")) {
 		wuctype = WAKEUP_CALL_RECURRING;
 	} else {
 		wuctype = WAKEUP_CALL_ANY;
@@ -164,6 +165,7 @@ static int on_call_file(const char *dir_name, const char *filename, void *obj)
 	}
 
 	if (wuc->filter != WAKEUP_CALL_ANY && wuctype != wuc->filter) {
+		ast_debug(3, "File %s does not match filter %s\n", filename, wuctype == WAKEUP_CALL_RECURRING ? "recurring" : "single");
 		return 0; /* Some kind of wakeup call that we don't care about. */
 	}
 
