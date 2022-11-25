@@ -109,6 +109,22 @@
 			This application functions using the same idea as an "orange box".</para>
 			<para>On DAHDI channels, the native channel driver hooks for Call Waiting Caller ID
 			can be used. On all other channels, it will be generated as linear audio.</para>
+			<variablelist>
+				<variable name="CWCIDSTATUS">
+					<value name="SUCCESS">
+						Call Waiting Caller ID successfully sent to CPE.
+					</value>
+					<value name="UNSUPPORTED">
+						CPE does not support off-hook Caller ID. This is not set if the d option is used.
+					</value>
+					<value name="FAILURE">
+						General failure occured.
+					</value>
+					<value name="HANGUP">
+						Channel hung up before spill could complete.
+					</value>
+				</variable>
+			</variablelist>
 		</description>
 	</application>
  ***/
@@ -130,6 +146,7 @@ AST_APP_OPTIONS(cwcid_option_flags, {
 });
 
 static const char *app = "SendCWCID";
+static const char *var = "CWCIDSTATUS";
 
 static int await_ack(struct ast_channel *chan, int ms)
 {
@@ -354,11 +371,13 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 			if (pvt->cidspill) {
 				ast_channel_unlock(chan);
 				ast_log(LOG_WARNING, "cidspill already exists??\n"); /* We're probably getting a legitimate call waiting at the same time we're trying to execute this. */
+				pbx_builtin_setvar_helper(chan, var, "FAILURE");
 				return 0;
 			}
 			if (!(pvt->cidspill = ast_malloc((sas ? 2400 + 680 : 680) + READ_SIZE * 4))) {
 				ast_channel_unlock(chan);
 				ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+				pbx_builtin_setvar_helper(chan, var, "FAILURE");
 				return -1;
 			}
 			ast_gen_cas(pvt->cidspill, sas, sas ? 2400 + 680 : 680, AST_LAW(pvt));
@@ -370,6 +389,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 			/* wait for CID spill in dahdi_read (as opposed to calling send_caller directly */
 			if (ast_safe_sleep(chan, sas ? 300 + 85 : 85)) {
 				ast_debug(1, "ast_safe_sleep returned -1\n");
+				pbx_builtin_setvar_helper(chan, var, "HANGUP");
 				return -1;
 			}
 			/* chan_dahdi will free pvt->cidspill */
@@ -379,15 +399,18 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 
 			if (ast_set_write_format(chan, ast_format_ulaw)) {
 				ast_log(LOG_WARNING, "Unable to set '%s' to signed linear format (write)\n", ast_channel_name(chan));
+				pbx_builtin_setvar_helper(chan, var, "FAILURE");
 				return -1;
 			}
 			if (ast_set_read_format(chan, ast_format_ulaw)) {
 				ast_log(LOG_WARNING, "Unable to set read format to ULAW\n");
+				pbx_builtin_setvar_helper(chan, var, "FAILURE");
 				return -1;
 			}
 
 			if (!(cidspill = ast_malloc((sas ? 2400 + 680 : 680) + READ_SIZE * 4))) {
 				ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+				pbx_builtin_setvar_helper(chan, var, "FAILURE");
 				return -1;
 			}
 			ast_gen_cas(cidspill, sas, sas ? 2400 + 680 : 680, ast_format_ulaw);
@@ -395,6 +418,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 			if (cwcid_careful_send(chan, cidspill, sas ? 2400 + 680 : 680, NULL)) {
 				ast_free(cidspill);
 				ast_log(LOG_WARNING, "Failed to write cidspill\n");
+				pbx_builtin_setvar_helper(chan, var, "FAILURE");
 				return -1;
 			}
 			ast_free(cidspill);
@@ -404,10 +428,12 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 	res = await_ack(chan, 500); /* wait up to 500ms for ACK */
 	if (res == -1) {
 		ast_debug(1, "await_ack returned -1\n");
+		pbx_builtin_setvar_helper(chan, var, "HANGUP");
 		return -1;
 	}
 	if (ack) { /* make sure we got the ACK, if we're supposed to check */
 		if (res != 'A' && res != 'D') {
+			pbx_builtin_setvar_helper(chan, var, "UNSUPPORTED");
 			return 0; /* Didn't get ACK, abort. */
 		}
 	}
@@ -418,6 +444,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 		while (pvt->cidspill) { /* shouldn't happen */
 			ast_debug(1, "Waiting for cidspill to finish\n");
 			if (ast_safe_sleep(chan, 10)) { /* try not to busy wait */
+				pbx_builtin_setvar_helper(chan, var, "HANGUP");
 				return -1;
 			}
 		}
@@ -426,6 +453,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 		if (!(pvt->cidspill = ast_malloc(MAX_CALLERID_SIZE))) {
 			ast_channel_unlock(chan);
 			ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+			pbx_builtin_setvar_helper(chan, var, "FAILURE");
 			return -1;
 		}
 		/* similar to my_send_callerid in chan_dahdi.c: */
@@ -447,11 +475,13 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 
 		/* wait for CID spill in dahdi_read (as opposed to calling send_caller directly */
 		if (ast_safe_sleep(chan, pvt->cidlen / 8)) {
+			pbx_builtin_setvar_helper(chan, var, "HANGUP");
 			return -1;
 		}
 		while (pvt->cidspill) { /* shouldn't happen */
 			ast_debug(1, "Waiting for cidspill to finish\n");
 			if (ast_safe_sleep(chan, 10)) { /* try not to busy wait */
+				pbx_builtin_setvar_helper(chan, var, "HANGUP");
 				return -1;
 			}
 		}
@@ -463,6 +493,7 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 
 		if (!(cidspill = ast_malloc(MAX_CALLERID_SIZE))) {
 			ast_log(LOG_WARNING, "Failed to malloc cidspill\n");
+			pbx_builtin_setvar_helper(chan, var, "FAILURE");
 			return -1;
 		}
 		cidlen = ast_callerid_callwaiting_full_tz_generate(cidspill,
@@ -476,12 +507,14 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 			tz);
 		if (cwcid_careful_send(chan, cidspill, cidlen, NULL)) {
 			ast_log(LOG_WARNING, "Failed to write cidspill\n");
+			pbx_builtin_setvar_helper(chan, var, "FAILURE");
 			res = -1;
 		}
 		ast_free(cidspill);
 	}
 
 	ast_debug(1, "res is %d\n", res);
+	pbx_builtin_setvar_helper(chan, var, res ? "FAILURE" : "SUCCESS");
 
 	return res;
 }
