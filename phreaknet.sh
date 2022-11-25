@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.97 (2022-11-20)
+# v0.1.98 (2022-11-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-11-25 0.1.98 Asterisk: add unmerged patches
 # 2022-11-20 0.1.97 Asterisk: update usecallmanager target
 # 2022-11-16 0.1.96 Asterisk: add out of tree modules
 # 2022-11-05 0.1.95 PhreakScript: add minimal external codec handling
@@ -1352,6 +1353,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 19468 "https://gerrit.asterisk.org/changes/asterisk~19468/revisions/1/patch?download" # app_voicemail: send email for file copies
 	gerrit_patch 19469 "https://gerrit.asterisk.org/changes/asterisk~19469/revisions/1/patch?download" # app_mixmonitor: add d option
 	gerrit_patch 19474 "https://gerrit.asterisk.org/changes/asterisk~19474/revisions/2/patch?download" # xmldoc: Allow documentation to be reloaded
+	gerrit_patch 19576 "https://gerrit.asterisk.org/changes/asterisk~19576/revisions/4/patch?download" # res_adsi: Fix major regression.
+	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
@@ -2187,7 +2190,7 @@ elif [ "$cmd" = "install" ]; then
 		menuselect/menuselect --enable pbx_config --enable pbx_spool menuselect.makeopts
 		menuselect/menuselect --enable res_clialiases --enable res_clioriginate --enable res_crypto --enable res_curl --enable res_fax menuselect.makeopts
 		menuselect/menuselect --enable res_pjsip --enable res_pjsip_acl --enable res_pjsip_authenticator_digest --enable res_pjsip_caller_id menuselect.makeopts
-		menuselect/menuselect --enable res_pjsip_cli --enable res_pjsip_dtmf_info --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip_dtmf_info --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user menuselect.makeopts
 		menuselect/menuselect --enable res_pjsip_header_funcs --enable res_pjsip_logger --enable res_pjsip_notify --enable res_pjsip_outbound_registration menuselect.makeopts
 		menuselect/menuselect --enable res_pjsip_pubsub --enable res_pjsip_session --enable res_rtp_asterisk menuselect.makeopts
 		menuselect/menuselect --enable res_sorcery_astdb --enable res_sorcery_config --enable res_sorcery_memory --enable res_sorcery_memory_cache menuselect.makeopts
@@ -2200,6 +2203,9 @@ elif [ "$cmd" = "install" ]; then
 		# "Deprecated"
 		menuselect/menuselect --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
 		menuselect/menuselect --enable res_adsi menuselect.makeopts
+	else
+		# Disable non pbx_config config modules to avoid dialplan conflict issues.
+		menuselect/menuselect --disable pbx_ael --disable pbx_lua menuselect.makeopts
 	fi
 
 	if [ "$MANUAL_MENUSELECT" = "1" ]; then
