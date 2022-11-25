@@ -69,7 +69,7 @@
 				<para>Caller ID presentation.</para>
 				<para>Defaults to CALLERID(pres).</para>
 			</parameter>
-			<parameter name="presentation">
+			<parameter name="redirecting">
 				<para>Redirecting reason, e.g. REDIRECTING(reason).</para>
 				<para>Default is none (not sent).</para>
 			</parameter>
@@ -108,7 +108,7 @@
 			handling Call Waiting in the dialplan as opposed to using the channel driver.
 			This application functions using the same idea as an "orange box".</para>
 			<para>On DAHDI channels, the native channel driver hooks for Call Waiting Caller ID
-			will be used. On all other channels, it will be generated as linear audio.</para>
+			can be used. On all other channels, it will be generated as linear audio.</para>
 		</description>
 	</application>
  ***/
