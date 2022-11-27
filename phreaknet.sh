@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.98 (2022-11-25)
+# v0.1.99 (2022-11-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2022-11-27 0.1.99 Asterisk/DAHDI: add app_loopdisconnect
 # 2022-11-25 0.1.98 Asterisk: add unmerged patches
 # 2022-11-20 0.1.97 Asterisk: update usecallmanager target
 # 2022-11-16 0.1.96 Asterisk: add out of tree modules
@@ -1090,12 +1091,21 @@ install_dahdi() {
 
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
+		# Real time dial pulsing (DAHDI to Asterisk)
 		git_patch "dahdi_rtoutpulse.diff"
+		# Loop disconnect on-demand during a call
+		# There are 2 patches here. The first can be applied using git apply
+		git_patch "kewl.diff"
+		# The 2nd one DOES NOT APPLY with git apply and WILL FAIL, because fuzz (offset 33 lines) and git apply is too stupid to deal with that.
+		# Therefore, fallback to using patch, manually, for it.
+		# This is just what we have to do, due to all these out of tree patches stacking up
+		# DAHDI team: PLEASE, PLEASE, PLEASE get your act together so we can stop this nonsense!!!!!!! How phreaking hard is it to merge code???
+		phreak_fuzzy_patch "kewl2.diff"
+		# hearpulsing
+		git_patch "hearpulsing-dahlin.diff"
 	else
-		echoerr "Skipping feature patches..."
+		echoerr "Skipping DAHDI Linux feature patches..."
 	fi
-
-	git_patch "hearpulsing-dahlin.diff"
 
 	# Don't compile the XPP driver for 32-bit ARM
 	if [ "`uname -m`" = "armv7l" ]; then
@@ -1125,7 +1135,9 @@ install_dahdi() {
 	# New Features
 
 	# hearpulsing
-	git_patch "hearpulsing-dahtool.patch" # hearpulsing
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		git_patch "hearpulsing-dahtool.patch" # hearpulsing
+	fi
 
 	# autoreconf -i
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
@@ -1234,6 +1246,10 @@ phreak_nontree_patch() { # $1 = patched file, $2 = patch name
 		exit 2
 	fi
 	patch -u -b "$1" -i "/tmp/$2"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply patch $2"
+		exit 2
+	fi
 	rm "/tmp/$2"
 }
 
@@ -1245,7 +1261,27 @@ phreak_tree_patch() { # $1 = patched file, $2 = patch name
 		exit 2
 	fi
 	patch -u -b "$1" -i "/tmp/$2"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply patch $2"
+		exit 2
+	fi
 	rm "/tmp/$2"
+}
+
+phreak_fuzzy_patch() {
+	printf "Applying patch %s to %s\n" "$1" "$1"
+	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$1" -O "/tmp/$1" --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download patch: $1"
+		exit 2
+	fi
+	patch -p1 < "/tmp/$1"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply patch $1"
+		ls -la "/tmp/$1"
+		exit 2
+	fi
+	rm "/tmp/$1"
 }
 
 phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
@@ -1262,6 +1298,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
+	phreak_tree_module "apps/app_loopdisconnect.c"
 	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
