@@ -1,0 +1,19 @@
+diff --git a/drivers/dahdi/dahdi-base.c b/drivers/dahdi/dahdi-base.c
+index 53ae4ea..a810f0f 100644
+--- a/drivers/dahdi/dahdi-base.c
++++ b/drivers/dahdi/dahdi-base.c
+@@ -8549,11 +8549,11 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
+ 		    case DAHDI_RXSIG_ONHOOK: /* went on hook */
+ 			  /* if not during offhook debounce time */
+ 			if ((chan->txstate != DAHDI_TXSTATE_DEBOUNCE) &&
+-			    (chan->txstate != DAHDI_TXSTATE_KEWL) &&
+-			    (chan->txstate != DAHDI_TXSTATE_AFTERKEWL)) {
++			    (chan->txstate != DAHDI_TXSTATE_KEWL && chan->txstate != DAHDI_TXSTATE_KEWLUSER) &&
++			    (chan->txstate != DAHDI_TXSTATE_AFTERKEWL && chan->txstate != DAHDI_TXSTATE_AFTERKEWLUSER)) {
+ 				chan->itimerset = chan->itimer = chan->rxflashtime * DAHDI_CHUNKSIZE;
+ 			}
+-			if (chan->txstate == DAHDI_TXSTATE_KEWL)
++			if (chan->txstate == DAHDI_TXSTATE_KEWL && chan->txstate == DAHDI_TXSTATE_KEWLUSER)
+ 				chan->kewlonhook = 1;
+ 			break;
+ 		    default:

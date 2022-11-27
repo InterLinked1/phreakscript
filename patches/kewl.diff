@@ -1,0 +1,94 @@
+diff --git a/drivers/dahdi/dahdi-base.c b/drivers/dahdi/dahdi-base.c
+index 53ae4ea..df3c84e 100644
+--- a/drivers/dahdi/dahdi-base.c
++++ b/drivers/dahdi/dahdi-base.c
+@@ -162,7 +162,9 @@ enum dahdi_txstate {
+ 	DAHDI_TXSTATE_RINGON,
+ 	DAHDI_TXSTATE_RINGOFF,
+ 	DAHDI_TXSTATE_KEWL,
++	DAHDI_TXSTATE_KEWLUSER,
+ 	DAHDI_TXSTATE_AFTERKEWL,
++	DAHDI_TXSTATE_AFTERKEWLUSER,
+ 	DAHDI_TXSTATE_PULSEBREAK,
+ 	DAHDI_TXSTATE_PULSEMAKE,
+ 	DAHDI_TXSTATE_PULSEAFTER,
+@@ -4299,8 +4301,8 @@ static int dahdi_ioctl_getparams(struct file *file, unsigned long data)
+ 			param.rxisoffhook = ((sig != DAHDI_RXSIG_ONHOOK) &&
+ 				(sig != DAHDI_RXSIG_INITIAL));
+ 		}
+-	} else if ((chan->txstate == DAHDI_TXSTATE_KEWL) ||
+-		   (chan->txstate == DAHDI_TXSTATE_AFTERKEWL)) {
++	} else if ((chan->txstate == DAHDI_TXSTATE_KEWL || chan->txstate == DAHDI_TXSTATE_KEWLUSER) ||
++		   (chan->txstate == DAHDI_TXSTATE_AFTERKEWL || chan->txstate == DAHDI_TXSTATE_AFTERKEWLUSER)) {
+ 		param.rxisoffhook = 1;
+ 	} else {
+ 		param.rxisoffhook = 0;
+@@ -6812,14 +6814,27 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
+ 				break;
+ 			case DAHDI_OFFHOOK:
+ 				spin_lock_irqsave(&chan->lock, flags);
+-				if ((chan->txstate == DAHDI_TXSTATE_KEWL) ||
+-				  (chan->txstate == DAHDI_TXSTATE_AFTERKEWL)) {
++				if ((chan->txstate == DAHDI_TXSTATE_KEWL || chan->txstate == DAHDI_TXSTATE_KEWLUSER) ||
++				  (chan->txstate == DAHDI_TXSTATE_AFTERKEWL || chan->txstate == DAHDI_TXSTATE_AFTERKEWLUSER)) {
+ 					spin_unlock_irqrestore(&chan->lock, flags);
+ 					return -EBUSY;
+ 				}
+ 				dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_DEBOUNCE, chan->debouncetime);
+ 				spin_unlock_irqrestore(&chan->lock, flags);
+ 				break;
++			case DAHDI_KEWL:
++				spin_lock_irqsave(&chan->lock, flags);
++				if ((chan->sig == DAHDI_SIG_FXOKS) && (chan->txstate != DAHDI_TXSTATE_ONHOOK)
++					/* if other party is already on-hook we shouldn't do any battery drop */
++					&& !((chan->rxhooksig == DAHDI_RXSIG_ONHOOK) && (chan->itimer <= 0))) {
++					/* Do RBS signalling on the channel's behalf */
++					dahdi_rbs_sethook(chan, DAHDI_TXSIG_KEWL, DAHDI_TXSTATE_KEWLUSER, DAHDI_KEWLTIME);
++				} else {
++					spin_unlock_irqrestore(&chan->lock, flags);
++					return -EBUSY;
++				}
++				spin_unlock_irqrestore(&chan->lock, flags);
++				break;
+ 			case DAHDI_RING:
+ 			case DAHDI_START:
+ 				spin_lock_irqsave(&chan->lock, flags);
+@@ -8352,6 +8367,13 @@ static inline void __rbs_otimer_expire(struct dahdi_chan *chan)
+ 		wake_up_interruptible(&chan->waitq);
+ 		break;
+ 
++	case DAHDI_TXSTATE_KEWLUSER:
++		dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_AFTERKEWLUSER, DAHDI_AFTERKEWLTIME);
++		if (chan->file && (chan->file->f_flags & O_NONBLOCK))
++			__qevent(chan, DAHDI_EVENT_HOOKCOMPLETE);
++		wake_up_interruptible(&chan->waitq);
++		break;
++
+ 	case DAHDI_TXSTATE_AFTERKEWL:
+ 		if (chan->kewlonhook)  {
+ 			__qevent(chan,DAHDI_EVENT_ONHOOK);
+@@ -8360,6 +8382,10 @@ static inline void __rbs_otimer_expire(struct dahdi_chan *chan)
+ 		chan->gotgs = 0;
+ 		break;
+ 
++	case DAHDI_TXSTATE_AFTERKEWLUSER:
++		chan->txstate = DAHDI_TXSTATE_OFFHOOK;
++		break;
++
+ 	case DAHDI_TXSTATE_PULSEBREAK:
+ 		dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_PULSEMAKE,
+ 			chan->pulsemaketime);
+diff --git a/include/dahdi/user.h b/include/dahdi/user.h
+index 68e72e0..63e997e 100644
+--- a/include/dahdi/user.h
++++ b/include/dahdi/user.h
+@@ -274,6 +274,9 @@ enum {
+ /* Value for DAHDI_HOOK, turn ringer off */
+ #define DAHDI_RINGOFF  6
+ 
++/* Value for DAHDI_HOOK, loop disconnect on demand */
++#define DAHDI_KEWL 8
++
+ /* Flush and stop the read (input) process */
+ #define DAHDI_FLUSH_READ		1
+ 
