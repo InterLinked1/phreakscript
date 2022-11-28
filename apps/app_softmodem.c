@@ -556,7 +556,7 @@ static int softmodem_communicate(modem_session *s) {
 	server.sin_port=htons(s->port);
 
 	if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
-		ast_log(LOG_WARNING, "Cannot connect to remote host: '%s'\n", s->host);
+		ast_log(LOG_WARNING, "Cannot connect to remote host: '%s': %s\n", s->host, strerror(errno));
 		return res;
 	}
 
