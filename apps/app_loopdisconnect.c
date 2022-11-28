@@ -64,7 +64,7 @@ static char *app = "LoopDisconnect";
 static inline int dahdi_wait_event(int fd)
 {
 	/* Avoid the silly dahdi_waitevent which ignores a bunch of events */
-	int i, j=0;
+	int i, j = 0;
 	i = DAHDI_IOMUX_SIGEVENT;
 	if (ioctl(fd, DAHDI_IOMUX, &i) == -1) {
 		return -1;
