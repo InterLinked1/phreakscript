@@ -410,6 +410,8 @@ static int irc_incoming(char *raw)
 		irc_debug(1, "%s has left %s\n", from, tmp);
 	} else if (!strcasecmp(action, "QUIT")) {
 		irc_debug(1, "%s has quit %s\n", from, tmp);
+	} else if (!strcasecmp(action, "KICK")) {
+		irc_debug(1, "%s has been kicked from %s\n", from, tmp);
 	} else if (!strcasecmp(action, "NICK")) {
 		irc_debug(1, "%s is now known as %s\n", from, tmp);
 	} else if (!strcasecmp(action, "NOTICE")) {
