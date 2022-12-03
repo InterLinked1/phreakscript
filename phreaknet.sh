@@ -1089,6 +1089,12 @@ install_dahdi() {
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 	fi
 
+	# Compiler fixes for 5.17/5.18:
+	# Yet another patch that git apply WILL NOT WORK WITH thanks to the huge divergence from massively broken DAHDI upstream, do a fuzzy patch.
+	phreak_fuzzy_patch "dahdi_pci.diff"
+	custom_fuzzy_patch "b6d9b417e1992868549d443efad11e4f1513c9d7.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/b6d9b417e1992868549d443efad11e4f1513c9d7.diff"
+	custom_fuzzy_patch "09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
+
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		# Real time dial pulsing (DAHDI to Asterisk)
@@ -1271,6 +1277,22 @@ phreak_tree_patch() { # $1 = patched file, $2 = patch name
 phreak_fuzzy_patch() {
 	printf "Applying patch %s to %s\n" "$1" "$1"
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$1" -O "/tmp/$1" --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download patch: $1"
+		exit 2
+	fi
+	patch -p1 < "/tmp/$1"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply patch $1"
+		ls -la "/tmp/$1"
+		exit 2
+	fi
+	rm "/tmp/$1"
+}
+
+custom_fuzzy_patch() {
+	printf "Applying patch %s to %s\n" "$1" "$1"
+	wget -q "$2" -O "/tmp/$1" --no-cache
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download patch: $1"
 		exit 2
