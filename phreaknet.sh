@@ -164,7 +164,7 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 # Script environment variables
 AST_SOURCE_NAME="asterisk-20-current"
 LIBPRI_SOURCE_NAME="libpri-1.6.0"
-WANPIPE_SOURCE_NAME="wanpipe-7.0.34"
+WANPIPE_SOURCE_NAME="wanpipe-7.0.34" # wanpipe-latest
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
 AST_ALT_VER=""
@@ -1203,7 +1203,7 @@ install_dahdi() {
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	cd ${WANPIPE_SOURCE_NAME}
-	custom_patch "af_wanpipe" "patches/kdrivers/src/wanrouter/af_wanpipe.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/af_wanpipe.diff"
+	git_custom_patch "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/af_wanpipe.diff"
 	./Setup dahdi --silent
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
@@ -1354,8 +1354,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
-	# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
-	git_patch "hearpulsing-ast.diff"
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
+		git_patch "hearpulsing-ast.diff"
+	fi
 
 	if [ "$WEAK_TLS" = "1" ]; then
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only beneficial for older ATAs that require older TLS protocols.
