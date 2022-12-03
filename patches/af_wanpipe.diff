@@ -164,4 +164,4 @@ index bbec8bd..02220ca 100644
 +		skb=wp_skb_recv_datagram_noblock(sk,flags,&err);
  	}
  	/*
- 	 *	An error occurred so return it. Because skb_recv_datagram() 
+ 	 *	An error occurred so return it. Because skb_recv_datagram()

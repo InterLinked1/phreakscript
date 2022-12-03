@@ -1203,7 +1203,7 @@ install_dahdi() {
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	cd ${WANPIPE_SOURCE_NAME}
-	git_custom_patch "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/af_wanpipe.diff"
+	phreak_fuzzy_patch "af_wanpipe.diff"
 	./Setup dahdi --silent
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
