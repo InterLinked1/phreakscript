@@ -1220,8 +1220,8 @@ install_wanpipe() {
 	while true; do
 		printf "Checking file: %s\n" "$MYSOURCEDIR/Makefile" >&2
 		if [ ! -f "$MYSOURCEDIR/Makefile" ]; then
-			printf "File %s does not exist\n" "$MYSOURCEDIR/Makefile"
-			exit 1
+			echoerr "File $MYSOURCEDIR/Makefile does not exist\n"
+			break
 		fi
 
 		# POSIX sh doesn't support ${var:x:y} syntax
