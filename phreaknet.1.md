@@ -60,6 +60,9 @@ the best Asterisk and DAHDI experience.
 **dahdi**
 : Install or upgrade DAHDI (only). Generally this command does not need to be used. To install Asterisk with DAHDI, use the install command and provide the -d or --dahdi option instead.
 
+**wanpipe**
+: Install or upgrade wanpipe (only). Generally this command does not need to be used. To install Asterisk with DAHDI and wanpipe, use the install command and provide the -d or --dahdi option instead.
+
 **odbc**
 : Install ODBC (Open Database Connector) for MariaDB
 

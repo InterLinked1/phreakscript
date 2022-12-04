@@ -289,6 +289,7 @@ Commands:
    mancached          Install cached man page (may be outdated)
    install            Install or upgrade PhreakNet-enhanced Asterisk
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
+   wanpipe            Install wanpipe
    odbc               Install ODBC (MariaDB)
    installts          Install Asterisk Test Suite
    fail2ban           Install Asterisk fail2ban configuration
@@ -1204,13 +1205,54 @@ install_dahdi() {
 	make && make install
 
 	# Wanpipe
+	install_wanpipe
+
+	service dahdi restart
+}
+
+install_wanpipe() {
+	MYSOURCEDIR=/lib/modules/$(uname -r)/build
+	MYSOURCEDIRORIG=$MYSOURCEDIR
+
+	# wanpipe currently fails to install on Debian because the wanpipe Setup.sh doesn't support recursive Makefile includes.
+	# Explicitly find the right source directory to use if that's the case.
+	# XXX See below: I don't think this is fully correct at the moment, since SOURCEDIR in wanpipe's Setup.sh is used for multiple, unrelated things.
+	while true; do
+		printf "Checking file: %s\n" "$MYSOURCEDIR/Makefile" >&2
+		if [ ! -f "$MYSOURCEDIR/Makefile" ]; then
+			printf "File %s does not exist\n" "$MYSOURCEDIR/Makefile"
+			exit 1
+		fi
+
+		# POSIX sh doesn't support ${var:x:y} syntax
+		contents=$( cat "$MYSOURCEDIR/Makefile" )
+		first7=$( echo "$contents" | cut -d" " -f1 )
+		if [ "${first7}" = "include" ]; then
+			nextfile=$( echo "$contents" | cut -d" " -f2 )
+			printf "Following include to %s\n" "${nextfile}" >&2
+			MYSOURCEDIR=`dirname "${nextfile}"`
+		else
+			printf "Actual makefile is %s\n" "$MYSOURCEDIR/Makefile" >&2
+			break
+		fi
+	done
+
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	cd ${WANPIPE_SOURCE_NAME}
 	phreak_fuzzy_patch "af_wanpipe.diff"
-	./Setup dahdi --silent
+
+	if [ "$MYSOURCEDIRORIG" != "$MYSOURCEDIR" ]; then
+		echoerr "Your system uses recursive Makefile includes, which wanpipe doesn't yet support... specifying the proper directory explicitly for you"
+		### XXX Currently an issue on Debian (see issue #3 on GitHub). Sangoma is supposedly working on this currently as well.
+		### BUGBUG This makes it get further than before, but doesn't fully work yet.
+		./Setup dahdi --silent --with-linux=$MYSOURCEDIR
+	else
+		./Setup dahdi --silent
+	fi
+
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
 		sleep 1
@@ -1219,7 +1261,6 @@ install_dahdi() {
 		wanrouter stop
 		wanrouter start
 	fi
-	service dahdi restart
 }
 
 phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
@@ -2428,6 +2469,9 @@ elif [ "$cmd" = "freepbx" ]; then
 elif [ "$cmd" = "dahdi" ]; then
 	assert_root
 	install_dahdi
+elif [ "$cmd" = "wanpipe" ]; then
+	assert_root
+	install_wanpipe
 elif [ "$cmd" = "odbc" ]; then
 	assert_root
 	install_odbc
