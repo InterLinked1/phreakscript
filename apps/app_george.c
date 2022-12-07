@@ -219,9 +219,11 @@ static char *hangup_sound = NULL;
 	} \
 	if (ast_strlen_zero(var)) { \
 		ast_log(LOG_NOTICE, "%s was not specified\n", #field); \
+		ast_config_destroy(cfg); \
 		return -1; \
 	} else if (!ast_fileexists((const char*) var, NULL, NULL)) { \
 		ast_log(LOG_WARNING, "%s file does not exist: %s\n", #field, var); \
+		ast_config_destroy(cfg); \
 		return -1; \
 	} \
 }
@@ -233,9 +235,11 @@ static char *hangup_sound = NULL;
 	} \
 	if (ast_strlen_zero(var)) { \
 		ast_log(LOG_NOTICE, "%s was not specified\n", #field); \
+		ast_config_destroy(cfg); \
 		return -1; \
 	} else if (!ast_fileexists((const char*) var, NULL, NULL)) { \
 		ast_log(LOG_WARNING, "%s file does not exist: %s\n", #field, var); \
+		ast_config_destroy(cfg); \
 		return -1; \
 	} \
 }
