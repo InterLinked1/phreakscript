@@ -1360,6 +1360,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_ccsa.c"
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
+	phreak_tree_module "apps/app_george.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
 	phreak_tree_module "apps/app_loopdisconnect.c"
 	phreak_tree_module "apps/app_loopplayback.c"

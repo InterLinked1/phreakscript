@@ -28,6 +28,7 @@ PhreakScript installs:
       - ``FeatureProcess``
       - ``SelectiveFeature``
       - ``RemoteAccess``
+      - ``George``
       - ``RequestCallback``
       - ``CancelCallback``
       - ``ScheduleWakeupCall``
