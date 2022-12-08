@@ -456,6 +456,7 @@ static int switch_calls(struct ast_channel *chan, struct call_info *cinfo)
 
 static int ack_cw(struct ast_channel *chan)
 {
+	ast_debug(4, "Sending DTMF acknowledgment to %s\n", ast_channel_name(chan));
 	if (ast_senddigit(chan, 'D', 200)) {
 		ast_log(LOG_WARNING, "Failed to send DTMF acknowledgment to %s\n", ast_channel_name(chan));
 		return -1;
@@ -630,7 +631,7 @@ static int run_tad(struct ast_channel *chan, int callwait, int receive_cwcid, in
 					sas_asked_about = 0;
 					cinfo.calls[cinfo.active_call].talkthreshold = RESPONSE_FRAMES_REQUIRED_CW;
 					if (receive_cwcid) {
-						awaiting_cwcid = 2.5 * FRAMES_PER_SECOND; /* We're expecting a CWCID FSK spill soon, within this number of frames, max. */
+						awaiting_cwcid = 2.4 * FRAMES_PER_SECOND; /* We're expecting a CWCID FSK spill soon, within this number of frames, max. */
 						if (cwcid) {
 							callerid_free(cwcid);
 							cwcid = NULL;
@@ -667,20 +668,28 @@ static int run_tad(struct ast_channel *chan, int callwait, int receive_cwcid, in
 					char *name, *num;
 					int flags;
 					callerid_get(cwcid, &name, &num, &flags);
-#define ANALOG_MAX_CID 300 /* from sig_analog.h */
-					ast_copy_string(namebuf, name, ANALOG_MAX_CID);
-					ast_copy_string(numbuf, num, ANALOG_MAX_CID);
+					ast_copy_string(namebuf, S_OR(name, ""), 16); /* Max CNAM length is 15 anyways... */
+					ast_copy_string(numbuf, S_OR(num, ""), 16);
 					ast_debug(1, "Number: %s, Name: %s\n", numbuf, namebuf);
+					if (ast_strlen_zero(num)) {
+						ast_log(LOG_WARNING, "Empty Caller ID decoded?\n"); /* Possible checksum failure */
+					}
+					awaiting_cwcid = 0; /* Done decoding, whether we succeeded or not. */
 				}
 				if (!awaiting_cwcid) {
-					ast_log(LOG_WARNING, "No CWCID received in time\n");
+					if (!cres) {
+						ast_log(LOG_WARNING, "No CWCID received in time\n");
+					}
 					callerid_free(cwcid);
 					cwcid = NULL;
 				}
-			} else if (awaiting_cwcid == (int) (2 * FRAMES_PER_SECOND)) {
-				/* Wait a moment, assume CAS was sent, then send ACK */
+			} else if (awaiting_cwcid <= (2 * FRAMES_PER_SECOND)) {
+				/* Wait a moment (~400ms from SAS), assume CAS was sent, then send ACK */
 				ack_cw(chan);
 				cwcid = callerid_new(CID_SIG_BELL); /* Listen for Bell 202 FSK spill. */
+				/* XXX Ugly hack (but it works). For some reason, callerid_feed never gets the 'U', so manually advance to get it started and then it'll proceed. */
+				/* BUGBUG callerid_feed will get to the end with this modification, but the checksum always fails, so it's still not right... */
+				cwcid->sawflag = 2;
 			}
 		}
 
@@ -822,7 +831,7 @@ static int run_tad(struct ast_channel *chan, int callwait, int receive_cwcid, in
 						do_cwprompt(chan, &cinfo);
 						sas_asked_about = 1;
 					} else {
-						/* Sesilent_too_long, regardless of the actual reaction, switch calls. */
+						/* Second, regardless of the actual reaction, switch calls. */
 						ast_verb(4, "Switching to call waiting\n");
 						cinfo.sas_pending = 0;
 						sas_asked_about = 0;
