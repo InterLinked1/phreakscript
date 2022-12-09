@@ -266,7 +266,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -313,6 +313,7 @@ Commands:
    update             Update PhreakScript
    patch              Patch PhreakNet Asterisk configuration
    genpatch           Generate a PhreakPatch
+   alembic            Generate an Asterisk Alembic revision
    freedisk           Free up disk space
    topdir             Show largest directories in current directory
    topdisk            Show top files taking up disk space
@@ -826,6 +827,34 @@ gerrit_patch() {
 	git apply $1.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			sleep 2
+		else
+			exit 2
+		fi
+	fi
+	rm $1.patch.base64 $1.patch
+}
+
+gerrit_fuzzy_patch() {
+	printf "%s\n" "Downloading and applying Gerrit patch $1"
+	wget -q $2 -O $1.patch.base64
+	if [ $? -ne 0 ]; then
+		echoerr "Patch download failed"
+		exit 2
+	fi
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		b64decode -r $1.patch.base64 > $1.patch
+		if [ $? -ne 0 ]; then
+			exit 2
+		fi
+	else
+		base64 --decode $1.patch.base64 > $1.patch
+	fi
+	# Apply the patch file
+	patch -p1 < $1.patch
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply fuzzy Gerrit patch $1 ($2)... this should be reported..."
 		if [ "$FORCE_INSTALL" = "1" ]; then
 			sleep 2
 		else
@@ -1402,9 +1431,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "res/res_pjsip_presence.c"
 
 	## Third Party Modules
-	printf "Adding new module: %s\n" "apps/app_tdd.c"
-	wget -q https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_tdd.c --no-cache
-	wget -q https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c -O $AST_SOURCE_PARENT_DIR/$2/apps/app_fsk.c --no-cache
+	custom_module "apps/app_tdd.c" "https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c"
+	custom_module "apps/app_fsk.c" "https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c"
 	sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
 
 	## Add patches to existing modules
@@ -1496,7 +1524,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
 		# gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # chan_pjsip: add overlap_context option
+		# this does not apply even with gerrit_fuzzy_patch:
 		# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/3/patch?download" # chan_dahdi: add dialmode
+		# this does not apply even with gerrit_fuzzy_patch:
 		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
 		# gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # res_pjsip_session: add overlap_context option
 		:
@@ -1518,6 +1548,19 @@ phreak_gerrit_off() {
 		exit 2
 	fi
 	gerrit_patch "$gerritid" "$1"
+}
+
+phreak_fuzzy_gerrit_off() {
+	if [ ${#1} -le 10 ]; then
+		echoerr "Provide the full Gerrit patch link, not just the review number"
+		exit 2
+	fi
+	gerritid=`echo "$1" | cut -d'~' -f2 | cut -d'/' -f1`
+	if [ "${#gerritid}" -ne 5 ]; then
+		echoerr "Invalid Gerrit review (id $gerritid)"
+		exit 2
+	fi
+	gerrit_fuzzy_patch "$gerritid" "$1"
 }
 
 freebsd_port_patch() {
@@ -2596,6 +2639,9 @@ elif [ "$cmd" = "fullpatch" ]; then
 elif [ "$cmd" = "gerrit" ]; then
 	read -r -p "Gerrit Patchset: " gurl
 	phreak_gerrit_off "$gurl"
+elif [ "$cmd" = "fuzzygerrit" ]; then
+	read -r -p "Gerrit Patchset: " gurl
+	phreak_fuzzy_gerrit_off "$gurl"
 elif [ "$cmd" = "runtest" ]; then
 	if [ ${#2} -eq 0 ]; then
 		echoerr "Missing argument."
@@ -2909,6 +2955,24 @@ elif [ "$cmd" = "genpatch" ]; then
 	else
 		printf "%s\n" "Patch file is empty. Aborting."
 	fi
+elif [ "$cmd" = "alembic" ]; then
+	# This should only be done in a Git repository (developer usage only)
+	git status
+	if [ $? -ne 0 ]; then
+		echoerr "Not currently in a Git directory?"
+		exit 1
+	fi
+	# Go into the alembic directory
+	cd contrib/ast-db-manage
+	if [ $? -ne 0 ]; then
+		echoerr "Directory not found: contrib/ast-db-manage"
+		exit 1
+	fi
+	read -r -p "Alembic title: " title
+	alembic -c config.ini.sample revision -m "$title"
+	# https://alembic.sqlalchemy.org/en/latest/tutorial.html#create-a-migration-script
+	printf "%s\n" "You will now need to manually edit the created file."
+	printf "%s\n" "If your branch is not up to date, be sure to also update the head revision number!"
 elif [ "$cmd" = "kill" ]; then
 	ast_kill
 elif [ "$cmd" = "forcerestart" ]; then

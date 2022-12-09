@@ -124,6 +124,9 @@ the best Asterisk and DAHDI experience.
 **genpatch**
 : DEPRECATED. Generate a PhreakPatch (patch to be used with the phreaknet patch command)
 
+**alembic**
+: Generate an Asterisk Alembic revision. (Developer use only)
+
 **freedisk**
 : Free up disk space, useful if disk space is running low. This command will rotate and remove old logs, remove unused swap files, remove old package files, and remove core dump files.
 
