@@ -27,6 +27,7 @@
 
 /*** MODULEINFO
 	<depend>res_crypto</depend>
+	<depend>curl</depend>
 	<support_level>extended</support_level>
  ***/
 

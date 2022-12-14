@@ -30,6 +30,7 @@
  */
 
 /*** MODULEINFO
+	<depend>curl</depend>
 	<support_level>extended</support_level>
  ***/
 
