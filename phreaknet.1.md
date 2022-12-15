@@ -223,6 +223,9 @@ the best Asterisk and DAHDI experience.
 **gerrit**
 : Manually install a custom patch set from the Asterisk Gerrit repository
 
+**fuzzygerrit**
+: Manually install a custom patch set from the Asterisk Gerrit repository, using patch (not recommended)
+
 **fullpatch**
 : Redownload an entire PhreakNet source file from the PhreakScript repository.
 

@@ -266,7 +266,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit fuzzygerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -350,6 +350,7 @@ Commands:
    runtest            Run any specified test (argument to command)
    stresstest         Run any specified test multiple times in a row
    gerrit             Manually install a custom patch set from Gerrit
+   fuzzygerrit        Manually install a custom patch set from Gerrit, using patch (not recommended)
    fullpatch          Redownload an entire PhreakNet source file
    ccache             Globally install ccache to speed up recompilation
 
@@ -902,9 +903,9 @@ install_testsuite_itself() {
 configure_devmode() {
 	./configure --enable-dev-mode --with-jansson-bundled
 	make menuselect.makeopts
-	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable TEST_FRAMEWORK --enable DO_CRASH menuselect.makeopts
-	menuselect/menuselect --enable COMPILE_DOUBLE --enable DEBUG_THREADS --enable MALLOC_DEBUG menuselect.makeopts
-	menuselect/menuselect --enable-category MENUSELECT_TESTS menuselect.makeopts
+	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable COMPILE_DOUBLE --enable DO_CRASH menuselect.makeopts
+	menuselect/menuselect --enable DEBUG_THREADS --enable MALLOC_DEBUG --enable DEBUG_FD_LEAKS menuselect.makeopts
+	menuselect/menuselect --enable TEST_FRAMEWORK --enable-category MENUSELECT_TESTS menuselect.makeopts
 }
 
 install_testsuite() { # $1 = $FORCE_INSTALL
@@ -1486,6 +1487,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 19474 "https://gerrit.asterisk.org/changes/asterisk~19474/revisions/2/patch?download" # xmldoc: Allow documentation to be reloaded
 	gerrit_patch 19576 "https://gerrit.asterisk.org/changes/asterisk~19576/revisions/4/patch?download" # res_adsi: Fix major regression.
 	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
+	gerrit_patch 19712 "https://gerrit.asterisk.org/changes/asterisk~19712/revisions/2/patch?download" # chan_iax2: Fix stalled jitterbuffer
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
@@ -1685,6 +1687,8 @@ quell_mysql() {
 
 coredump_prep() {
 	ensure_installed "gdb" # for astcoredumper
+	# XXX If running ast_coredumper complains about a lack of python support, full gdb was not installed,
+	# and the above check will succeed but we may need to run apt-get install gdb to get the full version.
 	quell_mysql # we need all the CPU and memory we can get
 	swap=`swapon --show | wc -l | tr -d '\n'`
 	if [ "$swap" = "0" ]; then
