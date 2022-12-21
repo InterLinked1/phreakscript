@@ -949,8 +949,6 @@ static int george_exec(struct ast_channel *chan, const char *data)
 	if (ast_pbx_exec_application(chan, "MixMonitor", mixmonargs)) {
 		return -1;
 	}
-	/* Note that if someone runs "core show channels", while this application is executing, having called MixMonitor, it will now say that instead.
-	 * Possibly could be fixed by calling ast_channel_appl_set here (and ditto for data), but that seems like kind of a hack anyways. */
 
 	res = run_tad(chan, callwait, cwcid, jump); /* Run the TAD (telephone answering device) state machine */
 
