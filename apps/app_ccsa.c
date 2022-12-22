@@ -33,6 +33,7 @@
  */
 
 /*** MODULEINFO
+	<use type="module">app_dtmfstore</use>
 	<support_level>extended</support_level>
  ***/
 

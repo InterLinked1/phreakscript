@@ -32,6 +32,7 @@
  */
 
 /*** MODULEINFO
+	<use type="module">app_mixmonitor</use>
 	<support_level>extended</support_level>
  ***/
 

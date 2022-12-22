@@ -26,6 +26,7 @@
  */
 
 /*** MODULEINFO
+	<use type="module">app_saytelnumber</use>
 	<support_level>extended</support_level>
  ***/
 

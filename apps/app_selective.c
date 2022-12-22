@@ -29,10 +29,10 @@
  */
 
 /*** MODULEINFO
-	<depend>app_saytelnumber</depend>
 	<depend>app_stack</depend>
 	<depend>app_db</depend>
 	<depend>func_db</depend>
+	<use type="module">app_saytelnumber</use>
 	<support_level>extended</support_level>
  ***/
 
