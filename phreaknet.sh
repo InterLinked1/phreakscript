@@ -1113,7 +1113,8 @@ install_dahdi() {
 		DAHDI_CFLAGS="KVERS=$hdrver" # overwrite from exact match with uname -r to whatever we happen to have
 		printf "We do NOT have an exact kernel match: %s\n" "$hdrver"
 	else
-		printf "We have an exact kernel match\n"
+		printf "We have an exact kernel match: "
+		uname -r
 	fi
 
 	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
@@ -1429,6 +1430,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "res/res_dialpulse.c"
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
+	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
 
 	## Third Party Modules
@@ -1488,6 +1490,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 19576 "https://gerrit.asterisk.org/changes/asterisk~19576/revisions/4/patch?download" # res_adsi: Fix major regression.
 	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
 	gerrit_patch 19712 "https://gerrit.asterisk.org/changes/asterisk~19712/revisions/2/patch?download" # chan_iax2: Fix stalled jitterbuffer
+	gerrit_patch 19744 "https://gerrit.asterisk.org/changes/asterisk~19744/revisions/1/patch?download" # config.c: fix template inheritance/overrides
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
