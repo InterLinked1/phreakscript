@@ -19,7 +19,6 @@ PhreakScript installs:
    - Adds the following applications:
       - ``Assert``
       - ``ReturnIf``
-      - ``If``, ``Else``, ``ElseIf``, ``EndIf``, ``ExitIf``
       - ``SendMail``
       - ``MallocTrim``
       - ``LoopPlayback``
@@ -54,6 +53,7 @@ PhreakScript installs:
       - ``Verify``
       - ``OutVerify``
       - ``KeyPrefetch``
+      - ``PhreakNetDial``
       - ``SIPAddParameter``
       - ``IRCSendMessage``
       - ``Softmodem`` (third-party, with compiler fixes)
@@ -65,7 +65,7 @@ PhreakScript installs:
       - ``TEXT_QUERY``
       - ``COIN_DETECT``
       - ``COIN_EIS``
-      - ``EXPORT``
+      - ``PHREAKNET``
       - ``NOTCH_FILTER``
       - ``DB_CHANNEL``
       - ``DB_CHANNEL_PRUNE``
