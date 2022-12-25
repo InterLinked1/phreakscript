@@ -673,16 +673,6 @@ static int file_equals_string(const char *path, const char *str)
 	return equal;
 }
 
-static void str_replace(char *s, char find, char replace)
-{
-	while (*s) {
-		if (*s == find) {
-			*s = replace;
-		}
-		s++;
-	}
-}
-
 static int save_system_output(char *buf, size_t len, const char *data)
 {
 	FILE *ptr;
@@ -1018,6 +1008,7 @@ static int gen_keypair(int rotate)
 	char postdata[892]; /* More than 2*256, since the fqdn and key pair itself are each about 256-280 */
 	char privkeyfile[256];
 	char pubkeyfile[256];
+	char uploadkey[512];
 	char *pubkey;
 	struct ast_str *str;
 	const char *clli;
@@ -1089,17 +1080,21 @@ static int gen_keypair(int rotate)
 	}
 
 	rtrim(pubkey); /* Trim any trailing whitespace */
-	str_replace(pubkey, ' ', '+'); /* Replace spaces with +, or it's not a valid key. */
+	ast_debug(6, "Trimmed public key: %s\n", pubkey);
+	if (ast_uri_encode(pubkey, uploadkey, sizeof(uploadkey), ast_uri_http) == NULL) {
+		ast_log(LOG_WARNING, "Failed to encode public key %s\n", pubkeyfile);
+		return -1;
+	}
 
-	ast_debug(3, "New public key: %s\n", pubkey);
+	ast_free(pubkey);
+	ast_debug(3, "New public key: %s\n", uploadkey);
 
 	/* Upload the key. */
 
 	/* XXX What if this doesn't exist? (Answer: central keypair server now supports just using FQDN to update, so clli is optional) */
 	clli = pbx_builtin_getvar_helper(NULL, "phreaknetclli");
 
-	snprintf(postdata, sizeof(postdata), "key=%s&hostname=%s&clli=%s&rsakey=%s", interlinked_api_key, fqdn, S_OR(clli, ""), pubkey);
-	ast_free(pubkey);
+	snprintf(postdata, sizeof(postdata), "key=%s&hostname=%s&clli=%s&rsakey=%s", interlinked_api_key, fqdn, S_OR(clli, ""), uploadkey);
 	str = curl_post("https://api.phreaknet.org/v1/rsa", postdata);
 	if (!str) {
 		ast_log(LOG_WARNING, "Failed to upload RSA public key to server\n");
