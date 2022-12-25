@@ -18,7 +18,7 @@
 
 /*! \file
  *
- * \brief PhreakNet enhancement module
+ * \brief PhreakNet resource module
  *
  * \author Naveen Albert <asterisk@phreaknet.org>
  */
@@ -26,6 +26,7 @@
 /*** MODULEINFO
 	<depend>res_crypto</depend>
 	<depend>curl</depend>
+	<depend>pbx_config</depend>
 	<depend>app_verify</depend>
 	<support_level>extended</support_level>
  ***/
@@ -1770,13 +1771,13 @@ static int lookup_number_token(struct ast_channel *chan, const char *number, con
 		result = tilde;
 	}
 
-	if (doptbuf && doptlen) {
+	if (doptbuf) {
 		dialopts = strchr(result, '^');
 		if (dialopts) {
 			*dialopts++ = '\0';
-			if (doptbuf) {
-				ast_copy_string(doptbuf, dialopts, doptlen);
-			}
+			ast_copy_string(doptbuf, dialopts, doptlen);
+		} else {
+			*doptbuf = '\0'; /* initialize, in case there aren't any */
 		}
 	} /* else, if no separate buffer for dialopts, put it all in the same buffer. */
 
@@ -1978,7 +1979,7 @@ static int dial_exec(struct ast_channel *chan, const char *data)
 		return 0;
 	}
 
-	ast_debug(3, "Lookup(%s) = %s\n", S_OR(args.number, ""), lookup);
+	ast_debug(3, "Lookup(%s) = %s, dialopts: %s\n", S_OR(args.number, ""), lookup, dialopts);
 
 	if (outverify(chan, lookup)) {
 		return -1;
@@ -2029,6 +2030,7 @@ static int dial_exec(struct ast_channel *chan, const char *data)
 				module_flags.autovonsupport ? autovonchan : "",
 				S_OR(dialopts, "")
 			);
+			ast_debug(1, "%s: RSA Dial(%s)\n", ast_channel_name(chan), dialargs);
 			if (ast_pbx_exec_application(chan, "Dial", dialargs)) {
 				return -1;
 			}
@@ -2074,6 +2076,7 @@ static int dial_exec(struct ast_channel *chan, const char *data)
 		module_flags.autovonsupport ? autovonchan : "",
 		S_OR(dialopts, "")
 	);
+	ast_debug(1, "%s: %s Dial(%s)\n", ast_channel_name(chan), secret ? "MD5" : "Unauthenticated", dialargs);
 	if (ast_pbx_exec_application(chan, "Dial", dialargs)) {
 		return -1;
 	}
