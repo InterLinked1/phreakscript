@@ -33,12 +33,6 @@
 
 #include "asterisk.h"
 
-/* XXX BUGBUG Temporary hack for me */
-#if 1
-#undef AST_BUILDOPT_SUM
-#define AST_BUILDOPT_SUM ""
-#endif
-
 #include <sys/stat.h>   /* stat(2) */
 #include <curl/curl.h>
 
@@ -583,7 +577,8 @@ static int cdr_handler(struct ast_cdr *cdr)
 		ast_verb(3, "PhreakNet Call not answered (%s => %s), skipping ticket %s => %s\n", cdr_channel->caller, cdr_channel->callee, startstr, endstr);
 		goto cleanup;
 	}
-	if (!billsec) {
+
+	if (!billsec && answer->tv_sec) {
 		int oldduration = duration;
 		/* XXX May or may not be necessary anymore. Edge case where called party hangs up first... */
 		/* Manually fix the duration. Unfortunately, this sets billsec=duration, which is wrong. */
@@ -1877,9 +1872,14 @@ static int outverify(struct ast_channel *chan, const char *lookup)
 	const char *varval;
 	char *cnam = ast_channel_caller(chan)->id.name.str;
 
-	if (!ast_strlen_zero(cnam) && *cnam == '"') {
-		ast_log(LOG_WARNING, "Caller ID Name '%s' is malformed (nested in quotes)\n", cnam);
-		return -1;
+	if (!ast_strlen_zero(cnam)) {
+		if (*cnam == '"') {
+			ast_log(LOG_WARNING, "Caller ID Name '%s' is malformed (nested in quotes)\n", cnam);
+			return -1;
+		} else if (strchr(cnam, '<')) {
+			ast_log(LOG_WARNING, "Caller ID Name '%s' is malformed (contains '<')\n", cnam);
+			return -1;
+		}
 	}
 
 	snprintf(buf, sizeof(buf), "phreaknet,%s", lookup);
