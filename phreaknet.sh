@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # PhreakScript
-# (C) 2021-2022 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.1.99 (2022-11-27)
+# (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
+# v0.2.0 (2023-01-07)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-01-07 0.2.0 Asterisk: readd chan_sip support for master
 # 2022-11-27 0.1.99 Asterisk/DAHDI: add app_loopdisconnect
 # 2022-11-25 0.1.98 Asterisk: add unmerged patches
 # 2022-11-20 0.1.97 Asterisk: update usecallmanager target
@@ -189,6 +190,7 @@ AST_USER=""
 EXTRA_FEATURES=1
 WEAK_TLS=0
 CHAN_SIP=0
+ENHANCED_CHAN_SIP=0
 SIP_CISCO=0
 CHAN_SCCP=0
 CHAN_DAHDI=0
@@ -527,6 +529,7 @@ install_prereq() {
 		if [ "$DEVMODE" = "1" ]; then
 			apt-get install -y xmlstarlet # only needed in developer mode for doc validation.
 		fi
+		apt-get install -y libedit-dev # Ubuntu also needs this package
 		# apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
 		# used to feed the country code non-interactively
 		apt-get install -y debconf-utils
@@ -1441,11 +1444,14 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Add patches to existing modules
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
 	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # app_dial: Bug fix to prevent infinite loop on progress-sent DTMF
-	phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # chan_sip: Add fax timing controls
+	if [ "$ENHANCED_CHAN_SIP" != "1" ]; then
+		phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # chan_sip: Add fax timing controls
+	fi
 	phreak_tree_patch "main/loader.c" "loader_deprecated.patch" # Don't throw alarmist warnings for deprecated ADSI modules that aren't being removed
 	phreak_tree_patch "main/manager_channels.c" "disablenewexten.diff" # Disable Newexten event, which significantly degrades dialplan performance
 	phreak_tree_patch "main/dsp.c" "coindsp.patch" # DSP additions
-	if [ "$SIP_CISCO" != "1" ]; then # XXX this patch has a merge conflict with SIP usecallmanager patches
+	# Enhanced chan_sip already has this included
+	if [ "$ENHANCED_CHAN_SIP" != "1" ] && [ "$SIP_CISCO" != "1" ]; then # XXX this patch has a merge conflict with SIP usecallmanager patches
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
@@ -2241,6 +2247,10 @@ elif [ "$cmd" = "install" ]; then
 		AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
 	done
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	if [ ! -f channels/chan_sip.c ]; then
+		printf "chan_sip was not natively present in this version of Asterisk\n"
+		ENHANCED_CHAN_SIP=1 # chan_sip isn't present anymore, we need to readd it ourselves (if we're going to build chan_sip at all)
+	fi
 	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
 		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
 		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/$CISCO_CM_SIP.patch" -O /tmp/$CISCO_CM_SIP.patch
@@ -2288,7 +2298,15 @@ elif [ "$cmd" = "install" ]; then
 		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
 	fi
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
-		echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Please migrate to chan_pjsip at your convenience."
+		if [ "$ENHANCED_CHAN_SIP" != "1" ]; then
+			echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Consider migrating to chan_pjsip at your convenience."
+		else
+			echoerr "chan_sip was deprecated and removed in Asterisk 21. It is still present for your usage, but consider migrating to chan_pjsip at your convenience."
+			printf "Fetching chan_sip to readd to source tree\n"
+			wget https://raw.githubusercontent.com/InterLinked1/chan_sip/master/chan_sip_reinclude.sh
+			chmod +x chan_sip_reinclude.sh
+			./chan_sip_reinclude.sh
+		fi
 		menuselect/menuselect --enable chan_sip menuselect.makeopts
 	else
 		menuselect/menuselect --disable chan_sip menuselect.makeopts # remove this in version 21
