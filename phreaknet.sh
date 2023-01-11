@@ -597,6 +597,7 @@ install_boilerplate() {
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/verification.conf -O verification.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet.conf -O phreaknet.conf --no-cache
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
+	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-coin.conf -O phreaknet-coin.conf --no-cache
 	cd $AST_CONFIG_DIR
 	pwd
 	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
