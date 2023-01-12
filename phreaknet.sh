@@ -757,6 +757,8 @@ run_testsuite_tests() {
 		# Try to see where it might be?
 		ls -la /sbin/asterisk
 		ls -la /usr/sbin/asterisk
+		which asterisk
+		which rasterisk
 		exit 1
 	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
@@ -2430,7 +2432,17 @@ elif [ "$cmd" = "install" ]; then
 	elif [ -d /usr/local/lib/asterisk/modules ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
-	$AST_MAKE install # actually install modules
+	$AST_MAKE install # actually install modules and binary
+
+	# Debugging: see where Asterisk got installed
+	which asterisk
+	which rasterisk
+	ls -la /usr/sbin/asterisk
+	ls -la /sbin/asterisk
+	if [ ! -d /usr/sbin/asterisk ] && [ ! -d /sbin/asterisk ]; then
+		echoerr "Could not find asterisk in either /usr/sbin or /sbin?"
+	fi
+
 	if [ "$DEVMODE" = "1" ]; then
 		$AST_MAKE install-headers # install development headers
 	fi
