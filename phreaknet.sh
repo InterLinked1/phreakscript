@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.0 (2023-01-07)
+# v0.2.1 (2023-01-12)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-01-12 0.2.1 Asterisk: target 20.1.0
 # 2023-01-07 0.2.0 Asterisk: readd chan_sip support for master
 # 2022-11-27 0.1.99 Asterisk/DAHDI: add app_loopdisconnect
 # 2022-11-25 0.1.98 Asterisk: add unmerged patches
@@ -752,11 +753,12 @@ run_testsuite_tests() {
 		exit 1
 	fi
 	ls -la /usr/sbin/asterisk
-	if [ ! -d /usr/sbin/asterisk ]; then
-		echoerr "/usr/sbin/asterisk not found?"
+	if [ ! -d /usr/sbin/asterisk ] && [ ! -d /sbin/asterisk ] && [ ! -d /usr/local/sbin/asterisk ]; then
+		echoerr "asterisk not found?"
 		# Try to see where it might be?
 		ls -la /sbin/asterisk
 		ls -la /usr/sbin/asterisk
+		ls -la /usr/local/sbin/asterisk
 		which asterisk
 		which rasterisk
 		exit 1
@@ -1479,32 +1481,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
 
-	## Gerrit patches: merged, remove in next release
-	if [ "$AST_ALT_VER" != "" ] && [ "$AST_ALT_VER" != "master" ] && [ "$AST_ALT_VER" != "20.0.0" ] && [ "$AST_SRC_DIR" != "18.15.0" ]; then # apply specified merged patches, unless we just cloned master
-		gerrit_patch 18974 "https://gerrit.asterisk.org/changes/asterisk~18974/revisions/4/patch?download" # app_amd: Add option to play audio during AMD
-		gerrit_patch 19055 "https://gerrit.asterisk.org/changes/asterisk~19055/revisions/2/patch?download" # pbx variables: use const char if possible
-		gerrit_patch 19205 "https://gerrit.asterisk.org/changes/asterisk~19205/revisions/1/patch?download" # func_strings: Add trim functions
-		gerrit_patch 19156 "https://gerrit.asterisk.org/changes/asterisk~19156/revisions/1/patch?download" # app_bridgewait: add noanswer option
-		gerrit_patch 15893 "https://gerrit.asterisk.org/changes/asterisk~15893/revisions/11/patch?download" # func_export
-	fi
-	if [ "$AST_ALT_VER" != "" ] && [ "$AST_ALT_VER" != "master" ]; then
-		gerrit_patch 19203 "https://gerrit.asterisk.org/changes/asterisk~19203/revisions/2/patch?download" # func_scramble: fix segfault
-	fi
-
 	## Gerrit patches: remove once merged
-	gerrit_patch 19403 "https://gerrit.asterisk.org/changes/asterisk~19403/revisions/2/patch?download" # chan_dahdi: fix compiler warnings
-	gerrit_patch 19319 "https://gerrit.asterisk.org/changes/asterisk~19319/revisions/2/patch?download" # res_tonedetect: Add ringback support to TONE_DETECT
-	gerrit_patch 19419 "https://gerrit.asterisk.org/changes/asterisk~19419/revisions/2/patch?download" # chan_dahdi: request bug fix
-	gerrit_patch 18603 "https://gerrit.asterisk.org/changes/asterisk~18603/revisions/5/patch?download" # cdr: Allow bridging and dial state changes to be ignored
-	gerrit_patch 19418 "https://gerrit.asterisk.org/changes/asterisk~19418/revisions/5/patch?download" # 32-bit compilation fixes
-	gerrit_patch 19461 "https://gerrit.asterisk.org/changes/asterisk~19461/revisions/5/patch?download" # fix crash due to wrong free function being used
-
-	gerrit_patch 19308 "https://gerrit.asterisk.org/changes/asterisk~19308/revisions/2/patch?download" # app_meetme: Fix deadlock and crash with SLA
-	gerrit_patch 18830 "https://gerrit.asterisk.org/changes/asterisk~18830/revisions/9/patch?download" # res_pjsip_parameters: Add parameter support
-	gerrit_patch 19468 "https://gerrit.asterisk.org/changes/asterisk~19468/revisions/1/patch?download" # app_voicemail: send email for file copies
-	gerrit_patch 19469 "https://gerrit.asterisk.org/changes/asterisk~19469/revisions/1/patch?download" # app_mixmonitor: add d option
-	gerrit_patch 19474 "https://gerrit.asterisk.org/changes/asterisk~19474/revisions/2/patch?download" # xmldoc: Allow documentation to be reloaded
-	gerrit_patch 19576 "https://gerrit.asterisk.org/changes/asterisk~19576/revisions/4/patch?download" # res_adsi: Fix major regression.
 	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
 	gerrit_patch 19712 "https://gerrit.asterisk.org/changes/asterisk~19712/revisions/2/patch?download" # chan_iax2: Fix stalled jitterbuffer
 	gerrit_patch 19744 "https://gerrit.asterisk.org/changes/asterisk~19744/revisions/1/patch?download" # config.c: fix template inheritance/overrides
@@ -1517,14 +1494,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		gerrit_patch 15953 "https://gerrit.asterisk.org/changes/asterisk~15953/revisions/7/patch?download" # translate.c: Prefer better codecs on ties.
 	fi
 
-	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/8/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 	#gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/9/patch?download" # func_json: enhance parsing. Does not apply cleanly.
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
 
-	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/6/patch?download" # app_broadcast
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
-	gerrit_patch 19410 "https://gerrit.asterisk.org/changes/asterisk~19410/revisions/1/patch?download" # res_pjsip_logger: Add method-based logging option
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
@@ -2439,8 +2413,9 @@ elif [ "$cmd" = "install" ]; then
 	which rasterisk
 	ls -la /usr/sbin/asterisk
 	ls -la /sbin/asterisk
-	if [ ! -d /usr/sbin/asterisk ] && [ ! -d /sbin/asterisk ]; then
-		echoerr "Could not find asterisk in either /usr/sbin or /sbin?"
+	ls -la /usr/local/sbin/asterisk
+	if [ ! -d /usr/sbin/asterisk ] && [ ! -d /sbin/asterisk ] && [ ! -d /usr/local/sbin/asterisk ]; then
+		echoerr "Could not find asterisk in either /usr/sbin or /sbin or /usr/local/sbin?"
 	fi
 
 	if [ "$DEVMODE" = "1" ]; then
