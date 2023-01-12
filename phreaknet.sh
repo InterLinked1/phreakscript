@@ -2252,6 +2252,9 @@ elif [ "$cmd" = "install" ]; then
 		apt-get install -y libvpb1
 	fi
 	./contrib/scripts/install_prereq install
+	# XXX run this manually and trust the cert since the SVN server seems to have cert validation issues occasionally
+	# Do this BEFORE running the script so that the script will see the files present and just patch and exit.
+	svn --non-interactive --trust-server-cert export https://svn.digium.com/svn/thirdparty/mp3/trunk addons/mp3
 	./contrib/scripts/get_mp3_source.sh
 	if [ "$DEVMODE" = "1" ]; then
 		configure_devmode
@@ -2406,7 +2409,6 @@ elif [ "$cmd" = "install" ]; then
 	elif [ -d /usr/local/lib/asterisk/modules ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
-	./contrib/scripts/get_mp3_source.sh # run this again in case it didn't work the first time
 	$AST_MAKE install # actually install modules and binary
 
 	# Debugging: see where Asterisk got installed
