@@ -920,6 +920,8 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	AST_SRC_DIR=`ls -d */ | grep "^asterisk-" | tail -1`
 	if [ "$AST_SRC_DIR" = "" ]; then
 		echoerr "Asterisk source not found. Aborting..."
+		pwd
+		ls -la
 		return 1
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
