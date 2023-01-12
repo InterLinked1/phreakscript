@@ -2406,6 +2406,7 @@ elif [ "$cmd" = "install" ]; then
 	elif [ -d /usr/local/lib/asterisk/modules ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
+	./contrib/scripts/get_mp3_source.sh # run this again in case it didn't work the first time
 	$AST_MAKE install # actually install modules and binary
 
 	# Debugging: see where Asterisk got installed
