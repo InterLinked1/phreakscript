@@ -853,11 +853,20 @@ static int update_rsa_pubkeys(void)
 			}
 		}
 
-		if (rename(tmp_filename, key_file)) {
-			ast_log(LOG_WARNING, "Failed to rename new public key file to %s: %s\n", key_file, strerror(errno));
+		/* Create file using public key material */
+		if ((fd = open(key_file, O_WRONLY | O_TRUNC | O_CREAT, AST_FILE_MODE)) < 0) {
+	        	ast_log(LOG_WARNING, "Unable to open %s in write-only mode\n", key_file);
 			unlink(tmp_filename);
 			goto cleanup;
 		}
+		fp = fdopen(fd, "wb");
+		if (!fp) {
+		       	ast_log(LOG_WARNING, "Failed to create key file %s\n", key_file);
+			unlink(tmp_filename);
+			goto cleanup;
+		}
+		fprintf(fp, "%s", key);
+		fclose(fp);
 
 		/* XXX Future improvement would be to delete public keys that no longer exist (and remove from chan_iax2 config) */
 
