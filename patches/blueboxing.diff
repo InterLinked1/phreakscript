@@ -21,8 +21,8 @@ index 8b4e3ee60f..9ddaf68bec 100644
  		}
  
 -		if (s->hit_count) {
-+		/* Sometimes we may get a lot of hits but not get 2 in succession, leading to a false negative, so always increment */
-+		if (hit) {
++		/* Sometimes we may get a lot of hits but not get 2 in succession, leading to a false negative, so always increment XXX Never mind. */
++		if (s->hit_count) { /* XXX Was 'hit', but reverted because this broke the SF receiver, so reverting this part may make blue boxing slightly harder again */
  			s->hit_count++;
  		}
  
