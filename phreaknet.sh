@@ -751,6 +751,14 @@ run_testsuite_tests() {
 		echoerr "$AST_CONFIG_DIR/asterisk.conf not found"
 		exit 1
 	fi
+	ls -la /usr/sbin/asterisk
+	if [ ! -d /usr/sbin/asterisk ]; then
+		echoerr "/usr/sbin/asterisk not found?"
+		# Try to see where it might be?
+		ls -la /sbin/asterisk
+		ls -la /usr/sbin/asterisk
+		exit 1
+	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
 	# run manually for good measure, and so we get the full output
@@ -1509,7 +1517,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	gerrit_patch 16121 "https://gerrit.asterisk.org/changes/asterisk~16121/revisions/8/patch?download" # app_if (newer version)
 	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
-	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/2/patch?download" # func_json: enhance parsing
+	gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/9/patch?download" # func_json: enhance parsing
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
 
 	gerrit_patch 18975 "https://gerrit.asterisk.org/changes/asterisk~18975/revisions/6/patch?download" # app_broadcast
