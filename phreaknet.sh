@@ -753,16 +753,6 @@ run_testsuite_tests() {
 		exit 1
 	fi
 	ls -la /usr/sbin/asterisk
-	if [ ! -d /usr/sbin/asterisk ] && [ ! -d /sbin/asterisk ] && [ ! -d /usr/local/sbin/asterisk ]; then
-		echoerr "asterisk not found?"
-		# Try to see where it might be?
-		ls -la /sbin/asterisk
-		ls -la /usr/sbin/asterisk
-		ls -la /usr/local/sbin/asterisk
-		which asterisk
-		which rasterisk
-		exit 1
-	fi
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
 	# run manually for good measure, and so we get the full output
@@ -911,7 +901,7 @@ install_testsuite_itself() {
 	cd testsuite
 	./setupVenv.sh
 	# ./runInVenv.sh python3 ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
-	./runInVenv.sh python3 ./runtests.py -l # list all tests
+	#./runInVenv.sh python3 ./runtests.py -l # list all tests
 	add_phreak_testsuite
 	printf "%s\n" "Asterisk Test Suite installation complete"
 }
@@ -2414,11 +2404,12 @@ elif [ "$cmd" = "install" ]; then
 	# Debugging: see where Asterisk got installed
 	which asterisk
 	which rasterisk
-	ls -la /usr/sbin/asterisk
-	ls -la /sbin/asterisk
-	ls -la /usr/local/sbin/asterisk
-	if [ ! -d /usr/sbin/asterisk ] && [ ! -d /sbin/asterisk ] && [ ! -d /usr/local/sbin/asterisk ]; then
+	if [ ! -f /usr/sbin/asterisk ] && [ ! -f /sbin/asterisk ] && [ ! -f /usr/local/sbin/asterisk ]; then
 		echoerr "Could not find asterisk in either /usr/sbin or /sbin or /usr/local/sbin?"
+		ls -la /usr/sbin/asterisk
+		ls -la /sbin/asterisk
+		ls -la /usr/local/sbin/asterisk
+		exit 1
 	fi
 
 	if [ "$DEVMODE" = "1" ]; then
