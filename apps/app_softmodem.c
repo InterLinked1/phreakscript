@@ -40,6 +40,7 @@
 #include <spandsp/expose.h>
 #endif
 #include <spandsp/v22bis.h>
+#include <spandsp/v18.h>
 
 #include "asterisk/file.h"
 #include "asterisk/module.h"
@@ -123,13 +124,19 @@
 							<enum name="V22bis">
 								<para>2400/2400 baud</para>
 							</enum>
+							<enum name="baudot45">
+								<para>45.45bps TDD (US TTY) Baudot code</para>
+							</enum>
+							<enum name="baudot50">
+								<para>50bps TDD (international) Baudot code</para>
+							</enum>
 						</enumlist>
 					</option>
 				</optionlist>
 			</parameter>
 		</syntax>
 		<description>
-			<para>Simulates a FSK(V.23) or V.22bis modem. The modem on the other end is connected to the specified server using a simple TCP connection (like Telnet).</para>
+			<para>Simulates a FSK(V.23), V.22bis, or Baudot modem. The modem on the other end is connected to the specified server using a simple TCP connection (like Telnet).</para>
 		</description>
 	</application>
  ***/
@@ -184,6 +191,8 @@ enum {
 	VERSION_BELL103,
 	VERSION_V22,
 	VERSION_V22BIS,
+	VERSION_V18_45, /* V18_MODE_5BIT_45 */
+	VERSION_V18_50, /* V18_MODE_5BIT_50 */
 };
 
 typedef struct {
@@ -235,12 +244,10 @@ static void modem_put_bit(void *user_data, int bit) {
 	if (rx->state->answertone<=0) {
 		if (bit==SIG_STATUS_CARRIER_UP) {
 			rx->state->answertone=0;
-		}
-		else if (bit==1 && rx->state->answertone==0) {
+		} else if (bit==1 && rx->state->answertone==0) {
 			rx->state->answertone=1;
 		}
-	}
-	else {
+	} else {
 		// ignore other spandsp-stuff
 		if (bit==1 || bit==0) {
 
@@ -263,11 +270,7 @@ static void modem_put_bit(void *user_data, int bit) {
 				if (rx->bitbuffer[rx->readpos]==0) {	// check for startbit
 					stop=(rx->readpos+1+paritybits+databits)%MODEM_BITBUFFER_SIZE;
 					stop2=(rx->readpos+2+paritybits+databits)%MODEM_BITBUFFER_SIZE;
-					if ( (rx->bitbuffer[stop]==1) &&
-						(stopbits==1 || (stopbits==2 && rx->bitbuffer[stop2]==1)) )
-					{	// check for stopbit -> valid framing
-
-
+					if ( (rx->bitbuffer[stop]==1) && (stopbits==1 || (stopbits==2 && rx->bitbuffer[stop2]==1)) ) {	// check for stopbit -> valid framing
 						char byte=0;
 
 						for(i=0; i<databits; i++) {	// generate byte
@@ -283,7 +286,7 @@ static void modem_put_bit(void *user_data, int bit) {
 						if ( !paritybits || ( paritybits &&
 									( rx->bitbuffer[(rx->readpos + databits + 1)%MODEM_BITBUFFER_SIZE] ==
 										( (rx->session->paritytype == 2) ^ __builtin_parity(byte) ) ) ) ) {
-
+							ast_debug(7, "send: %d, %c\n", rx->sock, byte);
 							send(rx->sock, &byte, 1, 0);
 						} // else invalid parity, ignore byte
 						// TODO - why does this increment by 10?
@@ -300,12 +303,84 @@ static void modem_put_bit(void *user_data, int bit) {
 					rx->readpos %= MODEM_BITBUFFER_SIZE;
 				}
 			}
+		} else {
+			ast_debug(1, "Bit is %d? Ignoring!\n", bit);
 		}
 	}
 
-
-
 	return;
+}
+
+static void tdd_put_msg(void *user_data, const unsigned char *msg, int len)
+{
+	modem_data *rx = (modem_data*) user_data;
+	/* In practice this function is called for every single byte, so len should be 1 */
+	if (len != 1) {
+		ast_log(LOG_WARNING, "Expected len 1 but have %d?\n", len);
+		return;
+	}
+	ast_debug(1, "put msg: %d (%c)\n", *msg, isprint(*msg) ? *msg : ' ');
+	//return modem_put_bit(user_data, msg[0]); /* We don't need this, the other TDD functions already encapsulate this functionality, we can write to the socket directly */
+	send(rx->sock, msg, len, 0);
+}
+
+#define SPANDSP_EXPOSE_INTERNAL_STRUCTURES
+#include <spandsp.h>
+#include <spandsp/version.h>
+#include <spandsp/logging.h>
+#include <spandsp/fsk.h>
+#include <spandsp/async.h>
+#include <spandsp/v18.h>
+
+/*! \brief Same as v18_tdd_put_async_byte in spandsp's v18.c, except flush every byte immediately, not after 256.
+ * This way we force any TDD input to be sent immediately onto the socket as soon as we get it, not buffered or when carrier pauses. */
+static void my_v18_tdd_put_async_byte(void *user_data, int byte)
+{
+    v18_state_t *s;
+    uint8_t octet;
+  
+    s = (v18_state_t *) user_data;
+    //printf("Rx byte %x\n", byte);
+    if (byte < 0)
+    {
+        /* Special conditions */
+        span_log(&s->logging, SPAN_LOG_FLOW, "V.18 signal status is %s (%d)\n", signal_status_to_str(byte), byte);
+        switch (byte)
+        {
+        case SIG_STATUS_CARRIER_UP:
+            s->consecutive_ones = 0;
+            s->bit_pos = 0;
+            s->in_progress = 0;
+            s->rx_msg_len = 0;
+            break;
+        case SIG_STATUS_CARRIER_DOWN:
+            if (s->rx_msg_len > 0)
+            {
+                /* Whatever we have to date constitutes the message */
+                s->rx_msg[s->rx_msg_len] = '\0';
+                s->put_msg(s->user_data, s->rx_msg, s->rx_msg_len);
+                s->rx_msg_len = 0;
+            }
+            break;
+        default:
+            span_log(&s->logging, SPAN_LOG_WARNING, "Unexpected special put byte value - %d!\n", byte);
+            break;
+        }
+        return;
+    }
+    if ((octet = v18_decode_baudot(s, (uint8_t) (byte & 0x1F))))
+        s->rx_msg[s->rx_msg_len++] = octet;
+#if 0
+    if (s->rx_msg_len >= 256)
+#else
+	if (s->rx_msg_len >= 1) /* Send data as soon as we have any */
+#endif
+    {
+		ast_assert(s->put_msg != NULL);
+        s->rx_msg[s->rx_msg_len] = '\0';
+        s->put_msg(s->user_data, s->rx_msg, s->rx_msg_len);
+        s->rx_msg_len = 0;
+    }
 }
 
 // spandsp asks us for a bit to send onto the line
@@ -320,8 +395,6 @@ static int modem_get_bit(void *user_data) {
 
 	if (tx->session->paritytype)
 		paritybits = 1;
-
-
 
 	// no new data in send (bit)buffer,
 	// either we just picked up the line, the terminal started to respond,
@@ -350,13 +423,11 @@ static int modem_get_bit(void *user_data) {
 					if (tx->writepos>=MODEM_BITBUFFER_SIZE) tx->writepos=0;
 				}
 				return 0; // return startbit immediately
-			}
-			else if (rc==0) {
+			} else if (rc==0) {
 				ast_log(LOG_WARNING,"Socket seems closed. Will hangup.\n");
 				tx->session->finished=1;
 			}
-		}
-		else {
+		} else {
 			// check if socket was closed before connection was terminated
 			if ( recv(tx->sock,&byte, 1, MSG_PEEK) == 0 ) {
 				tx->session->finished=1;
@@ -450,7 +521,6 @@ static int fsk_generator_generate(struct ast_channel *chan, void *data, int len,
 		samples = MAX_SAMPLES;
 	}
 
-
 	if ((len = fsk_tx(tx, buf, samples)) > 0) {
 		outf.samples = len;
 		AST_FRAME_SET_BUFFER(&outf, buffer, AST_FRIENDLY_OFFSET, len * sizeof(int16_t));
@@ -463,7 +533,6 @@ static int fsk_generator_generate(struct ast_channel *chan, void *data, int len,
 
 	return 0;
 }
-
 
 static int v22_generator_generate(struct ast_channel *chan, void *data, int len, int samples)
 {
@@ -482,8 +551,38 @@ static int v22_generator_generate(struct ast_channel *chan, void *data, int len,
 		samples = MAX_SAMPLES;
 	}
 
-
 	if ((len = v22bis_tx(tx, buf, samples)) > 0) {
+		outf.samples = len;
+		AST_FRAME_SET_BUFFER(&outf, buffer, AST_FRIENDLY_OFFSET, len * sizeof(int16_t));
+
+		if (ast_write(chan, &outf) < 0) {
+			ast_log(LOG_WARNING, "Failed to write frame to %s: %s\n", ast_channel_name(chan), strerror(errno));
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int v18_generator_generate(struct ast_channel *chan, void *data, int len, int samples)
+{
+	v18_state_t  *tx = (v18_state_t *) data;
+	uint8_t buffer[AST_FRIENDLY_OFFSET + MAX_SAMPLES * sizeof(uint16_t)];
+	int16_t *buf = (int16_t *) (buffer + AST_FRIENDLY_OFFSET);
+
+	struct ast_frame outf = {
+		.frametype = AST_FRAME_VOICE,
+		.subclass.format = ast_format_slin,
+		.src = __FUNCTION__,
+	};
+
+	if (samples > MAX_SAMPLES) {
+		ast_log(LOG_WARNING, "Only generating %d samples, where %d requested\n", MAX_SAMPLES, samples);
+		samples = MAX_SAMPLES;
+	}
+
+	len = v18_tx(tx, buf, samples);
+	if (len > 0) {
 		outf.samples = len;
 		AST_FRAME_SET_BUFFER(&outf, buffer, AST_FRIENDLY_OFFSET, len * sizeof(int16_t));
 
@@ -504,6 +603,10 @@ struct ast_generator v22_generator = {
 	alloc:		modem_generator_alloc,
 	generate: 	v22_generator_generate,
 };
+struct ast_generator v18_generator = {
+	alloc:		modem_generator_alloc,
+	generate: 	v18_generator_generate,
+};
 
 static int softmodem_communicate(modem_session *s) {
 	int res = -1;
@@ -518,12 +621,16 @@ static int softmodem_communicate(modem_session *s) {
 	fsk_rx_state_t *modem_rx = NULL;
 
 	v22bis_state_t *v22_modem = NULL;
+	v18_state_t  *v18_modem = NULL;
 
 	int sock;
 	struct sockaddr_in server;
 	struct hostent *hp;
 	struct ast_hostent ahp;
 	connection_state state;
+
+	struct pollfd pfd;
+	int pres;
 
 	original_read_fmt = ast_channel_readformat(s->chan);
 	if (original_read_fmt != ast_format_slin) {
@@ -583,22 +690,26 @@ static int softmodem_communicate(modem_session *s) {
 	if (s->version==VERSION_V21) {
 		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V21CH2], modem_get_bit, &txdata);
 		modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V21CH1], TRUE, modem_put_bit, &rxdata);
-	}
-	else if (s->version==VERSION_V23) {
+	} else if (s->version==VERSION_V23) {
 		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V23CH1], modem_get_bit, &txdata);
 		modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V23CH2], TRUE, modem_put_bit, &rxdata);
-	}
-	else if (s->version==VERSION_BELL103) {
+	} else if (s->version==VERSION_BELL103) {
 		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_BELL103CH1], modem_get_bit, &txdata);
 		modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_BELL103CH2], TRUE, modem_put_bit, &rxdata);
-	}
-	else if (s->version==VERSION_V22) {
+	} else if (s->version==VERSION_V22) {
 		v22_modem = v22bis_init(NULL, 1200, 0, FALSE, modem_get_bit, &txdata, modem_put_bit, &rxdata);
-	}
-	else if (s->version==VERSION_V22BIS) {
+	} else if (s->version==VERSION_V22BIS) {
 		v22_modem = v22bis_init(NULL, 2400, 0, FALSE, modem_get_bit, &txdata, modem_put_bit, &rxdata);
-	}
-	else {
+	} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
+		fsk_rx_state_t *fs = NULL;
+		/* This softmodem is the called side, so answerer mode */
+		v18_modem = v18_init(NULL, 0, s->version == VERSION_V18_45 ? V18_MODE_5BIT_45 : V18_MODE_5BIT_50, tdd_put_msg, &rxdata);
+		fs = &v18_modem->fskrx;
+		fsk_rx_set_put_bit(fs, my_v18_tdd_put_async_byte, v18_modem); /* override v18_tdd_put_async_byte to my_v18_tdd_put_async_byte */
+		pfd.fd = sock;
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+	} else {
 		ast_log(LOG_ERROR,"Unsupported modem type. Sorry.\n");
 		return res;
 	}
@@ -606,17 +717,19 @@ static int softmodem_communicate(modem_session *s) {
 	if (s->version==VERSION_V21 || s->version==VERSION_V23 || s->version==VERSION_BELL103) {
 		fsk_tx_power (modem_tx, s->txpower);
 		fsk_rx_signal_cutoff(modem_rx, s->rxcutoff);
-	}
-	else if (s->version==VERSION_V22 || s->version==VERSION_V22BIS) {
+	} else if (s->version==VERSION_V22 || s->version==VERSION_V22BIS) {
 		v22bis_tx_power(v22_modem, s->txpower);
 		v22bis_rx_signal_cutoff(v22_modem, s->rxcutoff);
 	}
 
 	//printf("comm: baud %i\n",btx_tx->baud_rate);
-	if (s->version==VERSION_V21 || s->version==VERSION_V23 || s->version==VERSION_BELL103)
+	if (s->version==VERSION_V21 || s->version==VERSION_V23 || s->version==VERSION_BELL103) {
 		ast_activate_generator(s->chan, &fsk_generator, modem_tx);
-	else if (s->version==VERSION_V22 || s->version==VERSION_V22BIS)
+	} else if (s->version==VERSION_V22 || s->version==VERSION_V22BIS) {
 		ast_activate_generator(s->chan, &v22_generator, v22_modem);
+	} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
+		ast_activate_generator(s->chan, &v18_generator, v18_modem);
+	}
 
 	while (!s->finished) {
 		res = ast_waitfor(s->chan, 20);
@@ -626,7 +739,7 @@ static int softmodem_communicate(modem_session *s) {
 			res = 0;
 
 		inf = ast_read(s->chan);
-		if (inf == NULL) {
+		if (!inf) {
 			ast_debug(1, "Channel hangup\n");
 			res = -1;
 			break;
@@ -636,20 +749,44 @@ static int softmodem_communicate(modem_session *s) {
 		   that a frame in old format was already queued before we set chanel format
 		   to slinear so it will still be received by ast_read */
 		if (inf->frametype == AST_FRAME_VOICE && inf->subclass.format == ast_format_slin) {
-			if (s->version==VERSION_V21 || s->version==VERSION_V23 || s->version==VERSION_BELL103) {
+			if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version == VERSION_BELL103) {
 				if (fsk_rx(modem_rx, inf->data.ptr, inf->samples) < 0) {
 					/* I know fax_rx never returns errors. The check here is for good style only */
 					ast_log(LOG_WARNING, "softmodem returned error\n");
 					res = -1;
 					break;
 				}
-			}
-			else if (s->version==VERSION_V22 || s->version==VERSION_V22BIS) {
+			} else if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
 				if (v22bis_rx(v22_modem, inf->data.ptr, inf->samples) < 0) {
 					ast_log(LOG_WARNING, "softmodem returned error\n");
 					res = -1;
 					break;
 				}
+			} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
+				/* Data from channel to send to socket? */
+				if (v18_rx(v18_modem, inf->data.ptr, inf->samples) < 0) {
+					ast_log(LOG_WARNING, "softmodem returned error\n");
+					res = -1;
+					break;
+				}
+				/* Data from socket to send to channel? */
+				pres = poll(&pfd, 1, 0);
+				if (pres < 0) {
+					ast_debug(1, "Socket disconnected\n");
+					res = -1;
+					break;
+				} else if (pres > 0) {
+					char buf[256];
+					pres = read(sock, buf, sizeof(buf) - 1);
+					if (pres <= 0) {
+						ast_debug(1, "read returned %d, socket must have disconnected on us\n", pres); /* Socket hangup, read will return 0 */
+						res = -1;
+						break;
+					}
+					buf[pres] = '\0'; /* Safe */
+					ast_debug(3, "Put %d bytes from socket onto modem\n", pres);
+					v18_put(v18_modem, buf, pres); /* v18_generator_generate will actually write the frames onto the channel towards the TDD */
+				} /* else, no new data */
 			}
 		}
 
@@ -662,6 +799,9 @@ static int softmodem_communicate(modem_session *s) {
 	if (s->version==VERSION_V22 || s->version==VERSION_V22BIS) {
 		v22bis_release(v22_modem);
 		v22bis_free(v22_modem);
+	} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
+		v18_release(v18_modem);
+		v18_free(v18_modem);
 	}
 
 	if (original_write_fmt != ast_format_slin) {
@@ -675,7 +815,6 @@ static int softmodem_communicate(modem_session *s) {
 	}
 
 	return res;
-
 }
 
 static int softmodem_exec(struct ast_channel *chan, const char *data) {
@@ -753,16 +892,21 @@ static int softmodem_exec(struct ast_channel *chan, const char *data) {
 
 		if (ast_test_flag(&options, OPT_MODEM_VERSION)) {
 			if (!ast_strlen_zero(option_args[OPT_ARG_MODEM_VERSION])) {
-				if (strcmp(option_args[OPT_ARG_MODEM_VERSION],"V21")==0)
-					session.version=VERSION_V21;
-				else if (strcmp(option_args[OPT_ARG_MODEM_VERSION],"V23")==0)
-					session.version=VERSION_V23;
-				else if (strcmp(option_args[OPT_ARG_MODEM_VERSION],"Bell103")==0)
-					session.version=VERSION_BELL103;
-				else if (strcmp(option_args[OPT_ARG_MODEM_VERSION],"V22")==0)
-					session.version=VERSION_V22;
-				else if (strcmp(option_args[OPT_ARG_MODEM_VERSION],"V22bis")==0)
-					session.version=VERSION_V22BIS;
+				if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V21")) {
+					session.version = VERSION_V21;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V23")) {
+					session.version = VERSION_V23;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "Bell103")) {
+					session.version = VERSION_BELL103;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V22")) {
+					session.version = VERSION_V22;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V22bis")) {
+					session.version = VERSION_V22BIS;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "baudot45")) {
+					session.version = VERSION_V18_45;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "baudot50")) {
+					session.version = VERSION_V18_50;
+				}
 			}
 		}
 

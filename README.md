@@ -56,7 +56,7 @@ PhreakScript installs:
       - ``PhreakNetDial``
       - ``SIPAddParameter``
       - ``IRCSendMessage``
-      - ``Softmodem`` (third-party, with compiler fixes)
+      - ``Softmodem`` (third-party, with compiler fixes and enhancements, including TDD modem)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
       - ``TECH_EXISTS``
