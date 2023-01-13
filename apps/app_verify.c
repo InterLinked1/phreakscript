@@ -658,22 +658,12 @@ static int url_is_vulnerable(const char *url)
 }
 
 /* from test_res_prometheus.c */
-static size_t curl_write_string_callback(void *contents, size_t size, size_t nmemb, void *userdata)
+static size_t curl_write_string_callback(char *rawdata, size_t size, size_t nmemb, void *userdata)
 {
 	struct ast_str **buffer = userdata;
-	size_t realsize = size * nmemb;
-	char *rawdata;
 
-	rawdata = ast_malloc(realsize + 1);
-	if (!rawdata) {
-		return 0;
-	}
-	memcpy(rawdata, contents, realsize);
-	rawdata[realsize] = 0;
-	ast_str_append(buffer, 0, "%s", rawdata);
-	ast_free(rawdata);
-
-	return realsize;
+	/* ast_str_append will return number of bytes written this round */
+	return ast_str_append(buffer, 0, "%.*s", (int) (size * nmemb), rawdata);
 }
 
 /* from app_verbose.c */
@@ -751,6 +741,7 @@ static int verify_curl(struct ast_channel *chan, struct ast_str *buf, char *url)
 		return -1;
 	}
 
+	curl_easy_cleanup(curl);
 	ast_autoservice_stop(chan);
 
 	if (!ast_str_buffer(buf)) {
