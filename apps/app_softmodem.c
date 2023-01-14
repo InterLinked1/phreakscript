@@ -8,8 +8,9 @@
  *
  * Parity options added 2018 Rob O'Donnell
  *
- * Compiler fixes for Asterisk 18, XML documentation, bug fixes
- * by InterLinked (Naveen Albert) <asterisk@phreaknet.org>, 2021.
+ * Compiler fixes for Asterisk 18, XML documentation, bug fixes,
+ * and TDD (45.45 bps and 50 bps Baudot code) capabilities
+ * by InterLinked (Naveen Albert) <asterisk@phreaknet.org>, 2021, 2023.
  * Note that default behavior has been changed from LSB to MSB.
  *
  * This program is free software, distributed under the terms of
@@ -225,7 +226,6 @@ typedef struct {
 	connection_state *state;
 	modem_session *session;
 } modem_data;
-
 
 // this is called by spandsp whenever it filtered a new bit from the line
 static void modem_put_bit(void *user_data, int bit) {
@@ -631,6 +631,7 @@ static int softmodem_communicate(modem_session *s) {
 
 	struct pollfd pfd;
 	int pres;
+	int lastoutput = 0;
 
 	original_read_fmt = ast_channel_readformat(s->chan);
 	if (original_read_fmt != ast_format_slin) {
@@ -763,6 +764,13 @@ static int softmodem_communicate(modem_session *s) {
 					break;
 				}
 			} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
+				/* You might think it's sloppy to do it this way, since
+				 * we'll only be able to send or receive at any one time.
+				 * This is fine, since TDDs by nature are not full duplex devices.
+				 * If the TDD is receiving output from the server, then it will
+				 * itself buffer any input until the output has stopped,
+				 * so we won't get anything back from the TDD until output has
+				 * finished being sent. */
 				/* Data from channel to send to socket? */
 				if (v18_rx(v18_modem, inf->data.ptr, inf->samples) < 0) {
 					ast_log(LOG_WARNING, "softmodem returned error\n");
@@ -776,16 +784,22 @@ static int softmodem_communicate(modem_session *s) {
 					res = -1;
 					break;
 				} else if (pres > 0) {
-					char buf[256];
-					pres = read(sock, buf, sizeof(buf) - 1);
+					char buf[256] = "  ";
+					int now = time(NULL);
+					int needspaces = lastoutput < now - 2;
+					pres = read(sock, buf + 2, sizeof(buf) - 3);
 					if (pres <= 0) {
 						ast_debug(1, "read returned %d, socket must have disconnected on us\n", pres); /* Socket hangup, read will return 0 */
 						res = -1;
 						break;
 					}
 					buf[pres] = '\0'; /* Safe */
-					ast_debug(3, "Put %d bytes from socket onto modem\n", pres);
-					v18_put(v18_modem, buf, pres); /* v18_generator_generate will actually write the frames onto the channel towards the TDD */
+					/* This is probably completely the wrong way to do this.
+					 * If carrier has paused and we get something again,
+					 * the first 2 characters can get clipped off by the time carrier has stabilized again.
+					 * Send 2 spaces to get things moving and then send the real output, if that's the case. */
+					ast_debug(3, "Put %d+%d bytes from socket onto modem\n", needspaces ? 2 : 0, pres);
+					v18_put(v18_modem, needspaces ? buf : buf + 2, needspaces ? pres + 2 : pres); /* v18_generator_generate will actually write the frames onto the channel towards the TDD */
 				} /* else, no new data */
 			}
 		}
