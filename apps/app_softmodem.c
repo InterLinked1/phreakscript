@@ -629,9 +629,11 @@ static int softmodem_communicate(modem_session *s) {
 	struct ast_hostent ahp;
 	connection_state state;
 
+	/* Used for TDD only */
 	struct pollfd pfd;
 	int pres;
 	int lastoutput = 0;
+	char buf[256] = "  ";
 
 	original_read_fmt = ast_channel_readformat(s->chan);
 	if (original_read_fmt != ast_format_slin) {
@@ -784,8 +786,8 @@ static int softmodem_communicate(modem_session *s) {
 					res = -1;
 					break;
 				} else if (pres > 0) {
-					char buf[256] = "  ";
-					int now = time(NULL);
+					char *writebuf;
+					int written, writelen, now = time(NULL);
 					int needspaces = lastoutput < now - 2;
 					pres = read(sock, buf + 2, sizeof(buf) - 3);
 					if (pres <= 0) {
@@ -798,8 +800,31 @@ static int softmodem_communicate(modem_session *s) {
 					 * If carrier has paused and we get something again,
 					 * the first 2 characters can get clipped off by the time carrier has stabilized again.
 					 * Send 2 spaces to get things moving and then send the real output, if that's the case. */
-					ast_debug(3, "Put %d+%d bytes from socket onto modem\n", needspaces ? 2 : 0, pres);
-					v18_put(v18_modem, needspaces ? buf : buf + 2, needspaces ? pres + 2 : pres); /* v18_generator_generate will actually write the frames onto the channel towards the TDD */
+					writelen = needspaces ? pres + 2 : pres;
+					writebuf = needspaces ? buf : buf + 2;
+					written = v18_put(v18_modem, writebuf, writelen); /* v18_generator_generate will actually write the frames onto the channel towards the TDD */
+					ast_debug(3, "v18 put: %d+%d bytes from socket onto modem, written: %d\n", needspaces ? 2 : 0, pres, written);
+					writebuf += written;
+					writelen -= written;
+					while (written < writelen) {
+						/* v18_put couldn't accept all the data available for the modem,
+						 * because the SpanDSP buffer was full.
+						 * We need to retry and make sure all data gets sent. */
+						/* It will take time for the SpanDSP buffer to empty itself... we're in no hurry here. */
+						if (ast_safe_sleep(s->chan, 1000)) { /* Check if channel hung up while we were waiting */
+							res = -1;
+							break;
+						}
+						written = v18_put(v18_modem, writebuf, writelen);
+						ast_debug(3, "v18 put RETRY: %d bytes from socket onto modem, written: %d\n", writelen, written);
+						writebuf += written;
+						writelen -= written;
+					}
+					if (written <= 0) {
+						ast_debug(1, "v18_put returned %d?\n", written);
+						res = -1;
+						break;
+					}
 				} /* else, no new data */
 			}
 		}
