@@ -266,16 +266,16 @@ static void modem_put_bit(void *user_data, int bit)
 		rx->bitbuffer[rx->writepos] = bit;
 		rx->writepos++;
 		if (rx->writepos >= MODEM_BITBUFFER_SIZE) {
-			rx->writepos=0;
+			rx->writepos = 0;
 		}
-		if (rx->fill<MODEM_BITBUFFER_SIZE) {
+		if (rx->fill < MODEM_BITBUFFER_SIZE) {
 			rx->fill++;
 		} else {
 			/* our bitbuffer is full, this probably won't happen */
 			ast_debug(3, "full buffer!\n");
 			rx->readpos++;
 			if (rx->readpos >= MODEM_BITBUFFER_SIZE) {
-				rx->readpos=0;
+				rx->readpos = 0;
 			}
 		}
 
@@ -285,7 +285,7 @@ static void modem_put_bit(void *user_data, int bit)
 				stop = (rx->readpos + 1 + paritybits + databits) % MODEM_BITBUFFER_SIZE;
 				stop2 = (rx->readpos + 2 + paritybits + databits) % MODEM_BITBUFFER_SIZE;
 				if ((rx->bitbuffer[stop] == 1) && (stopbits == 1 || (stopbits == 2 && rx->bitbuffer[stop2] == 1))) { /* check for stopbit -> valid framing */
-					char byte=0;
+					char byte = 0;
 					for (i = 0; i < databits; i++) {	/* generate byte */
 						if (rx->session->lsb) { /* LSB first */
 							if (rx->bitbuffer[(rx->readpos + 1 + i) % MODEM_BITBUFFER_SIZE]) {
@@ -350,8 +350,7 @@ static void my_v18_tdd_put_async_byte(void *user_data, int byte)
             s->rx_msg_len = 0;
             break;
         case SIG_STATUS_CARRIER_DOWN:
-            if (s->rx_msg_len > 0)
-            {
+            if (s->rx_msg_len > 0) {
                 /* Whatever we have to date constitutes the message */
                 s->rx_msg[s->rx_msg_len] = '\0';
                 s->put_msg(s->user_data, s->rx_msg, s->rx_msg_len);
@@ -383,11 +382,11 @@ static void my_v18_tdd_put_async_byte(void *user_data, int byte)
 static int modem_get_bit(void *user_data)
 {
 	modem_data *tx = (modem_data*) user_data;
-	char byte=0;
+	char byte = 0;
 	int i, rc;
 
-	int databits=tx->session->databits;
-	int stopbits=tx->session->stopbits;
+	int databits = tx->session->databits;
+	int stopbits = tx->session->stopbits;
 	int paritybits = 0;
 
 	if (tx->session->paritytype) {
@@ -407,7 +406,7 @@ static int modem_get_bit(void *user_data)
 					if (paritybits && (i == databits) ) {
 						tx->bitbuffer[tx->writepos] = (tx->session->paritytype == 2) ^ __builtin_parity( byte);
 					} else if (i >= databits) {
-						tx->bitbuffer[tx->writepos]=1;	/* stopbits */
+						tx->bitbuffer[tx->writepos] = 1;	/* stopbits */
 					} else { /* databits */
 						if (tx->session->lsb) {
 							if (byte & (1 << i)) {
@@ -424,8 +423,8 @@ static int modem_get_bit(void *user_data)
 						}
 					}
 					tx->writepos++;
-					if (tx->writepos>=MODEM_BITBUFFER_SIZE) {
-						tx->writepos=0;
+					if (tx->writepos >= MODEM_BITBUFFER_SIZE) {
+						tx->writepos = 0;
 					}
 				}
 				return 0; /* return startbit immediately */
@@ -456,12 +455,12 @@ static int modem_get_bit(void *user_data)
 						}
 					}
 				}
-				tx->state->nulsent=1;
+				tx->state->nulsent = 1;
 
 				if (tx->session->ulmheader) {
 					char header[60];
 					int headerlength;
-					float tx_baud,rx_baud;
+					float tx_baud, rx_baud;
 					/* send ULM relay protocol header, include connection speed */
 					if (tx->session->version == VERSION_V21) {
 						tx_baud = 300;
@@ -501,8 +500,8 @@ static int modem_get_bit(void *user_data)
 		/* there still is data in the bitbuffer, so we just send that out */
 		i = tx->bitbuffer[tx->readpos];
 		tx->readpos++;
-		if (tx->readpos>=MODEM_BITBUFFER_SIZE) {
-			tx->readpos=0;
+		if (tx->readpos >= MODEM_BITBUFFER_SIZE) {
+			tx->readpos = 0;
 		}
 		return i;
 	}
@@ -671,10 +670,10 @@ static int softmodem_communicate(modem_session *s)
 		return res;
 	}
 
-	server.sin_family=AF_INET;
-	hp=ast_gethostbyname(s->host, &ahp);
-	memcpy( (char *)&server.sin_addr, hp->h_addr, hp->h_length);
-	server.sin_port=htons(s->port);
+	server.sin_family = AF_INET;
+	hp = ast_gethostbyname(s->host, &ahp);
+	memcpy((char *) &server.sin_addr, hp->h_addr, hp->h_length);
+	server.sin_port = htons(s->port);
 
 	if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
 		ast_log(LOG_WARNING, "Cannot connect to remote host: '%s': %s\n", s->host, strerror(errno));
@@ -912,7 +911,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 	AST_STANDARD_APP_ARGS(args, parse);
 
 	if (args.host) {
-		session.host = ast_strip(args.host); /* if there are spaces in the hostname, we crash at the memcpy after hp=ast_gethostbyname(s->host, &ahp); */
+		session.host = ast_strip(args.host); /* if there are spaces in the hostname, we crash at the memcpy after hp = ast_gethostbyname(s->host, &ahp); */
 		if (strcmp(session.host, args.host)) {
 			ast_log(LOG_WARNING, "Please avoid spaces in the hostname: '%s'\n", args.host);
 		}
@@ -927,7 +926,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 			return -1;
 		}
 	} else {
-		session.port=23;
+		session.port = 23;
 	}
 
 	if (args.options) {
