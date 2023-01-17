@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.2 (2023-01-17)
+# v0.2.3 (2023-01-17)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-01-17 0.2.3 DAHDI: Correct for DAHDI no longer including CONFIG_PCI and patch cdd6ddd0fd08cb8b7313b16074882439fbb58045 failing
 # 2023-01-17 0.2.2 DAHDI: Correct for DAHDI no longer including CONFIG_PCI and patch 45ac6a30f922f4eef54c0120c2a537794b20cf5c failing
 # 2023-01-12 0.2.1 Asterisk: target 20.1.0
 # 2023-01-07 0.2.0 Asterisk: readd chan_sip support for master
@@ -963,7 +964,7 @@ dahdi_undo() {
 dahdi_custom_undo() {
         printf "Applying custom reverse DAHDI patch: %s\n" "$3"
         wget -q "$4" -O /tmp/$2.patch --no-cache
-        patch -u -p 0 --reverse -i /tmp/$2.patch
+        patch -u -p 1 --reverse -i /tmp/$2.patch
         if [ $? -ne 0 ]; then
                 echoerr "Failed to reverse custom DAHDI patch... this should be reported..."
                 exit 2
@@ -1037,7 +1038,7 @@ git_custom_patch() {
 dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Reverting patches that removed driver support in DAHDI..."
 	dahdi_custom_undo $1 "dahdi_pci_module" "Remove unnecessary dahdi_pci_module macro" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_pci_module.diff"
-	dahdi_undo $1 "dahdi_irq_handler" "Remove unnecessary DAHDI_IRQ_HANDLER macro" "cdd6ddd0fd08cb8b7313b16074882439fbb58045"
+	dahdi_custom_undo $1 "dahdi_irq_handler" "Remove unnecessary DAHDI_IRQ_HANDLER macro" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_irq_handler.diff"
 	dahdi_undo $1 "devtype" "Remove struct devtype for unsupported drivers" "75620dd9ef6ac746745a1ecab4ef925a5b9e2988"
 	dahdi_undo $1 "wcb" "Remove support for all but wcb41xp wcb43xp and wcb23xp." "29cb229cd3f1d252872b7f1924b6e3be941f7ad3"
 	dahdi_undo $1 "wctdm" "Remove support for wctdm800, wcaex800, wctdm410, wcaex410." "a66e88e666229092a96d54e5873d4b3ae79b1ce3"
