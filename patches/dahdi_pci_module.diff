@@ -18,10 +18,10 @@ Signed-off-by: Shaun Ruffell <sruffell@sruffell.net>
  include/dahdi/kernel.h          |    2 --
  8 files changed, 7 insertions(+), 9 deletions(-)
 
-diff --git drivers/dahdi/wcaxx-base.c drivers/dahdi/wcaxx-base.c
+diff --git a/drivers/dahdi/wcaxx-base.c b/drivers/dahdi/wcaxx-base.c
 index ed7207a..b934960 100644
---- drivers/dahdi/wcaxx-base.c
-+++ drivers/dahdi/wcaxx-base.c
+--- a/drivers/dahdi/wcaxx-base.c
++++ b/drivers/dahdi/wcaxx-base.c
 @@ -4474,7 +4474,7 @@ static int __init wcaxx_init(void)
  	if (!battthresh)
  		battthresh = fxo_modes[_opermode].battthresh;
@@ -31,10 +31,10 @@ index ed7207a..b934960 100644
  	if (res)
  		return -ENODEV;
  
-diff --git drivers/dahdi/wcb4xxp/base.c drivers/dahdi/wcb4xxp/base.c
+diff --git a/drivers/dahdi/wcb4xxp/base.c b/drivers/dahdi/wcb4xxp/base.c
 index 1f72f14..784929f 100644
---- drivers/dahdi/wcb4xxp/base.c
-+++ drivers/dahdi/wcb4xxp/base.c
+--- a/drivers/dahdi/wcb4xxp/base.c
++++ b/drivers/dahdi/wcb4xxp/base.c
 @@ -3672,7 +3672,7 @@ static int __init b4xx_init(void)
  		printk(KERN_ERR "%s: ERROR: Could not initialize /proc/%s\n",THIS_MODULE->name, PROCFS_NAME);
  	}
@@ -44,10 +44,10 @@ index 1f72f14..784929f 100644
  		return -ENODEV;
  
  	return 0;
-diff --git drivers/dahdi/wct4xxp/base.c drivers/dahdi/wct4xxp/base.c
+diff --git a/drivers/dahdi/wct4xxp/base.c b/drivers/dahdi/wct4xxp/base.c
 index c1d9612..4d0c769 100644
---- drivers/dahdi/wct4xxp/base.c
-+++ drivers/dahdi/wct4xxp/base.c
+--- a/drivers/dahdi/wct4xxp/base.c
++++ b/drivers/dahdi/wct4xxp/base.c
 @@ -5543,7 +5543,7 @@ static int __init t4_init(void)
  			"Please use 'default_linemode' instead.\n");
  	}
@@ -57,10 +57,10 @@ index c1d9612..4d0c769 100644
  	if (res)
  		return -ENODEV;
  
-diff --git drivers/dahdi/wctc4xxp/base.c drivers/dahdi/wctc4xxp/base.c
+diff --git a/drivers/dahdi/wctc4xxp/base.c b/drivers/dahdi/wctc4xxp/base.c
 index 54e28d3..3bd56d1 100644
---- drivers/dahdi/wctc4xxp/base.c
-+++ drivers/dahdi/wctc4xxp/base.c
+--- a/drivers/dahdi/wctc4xxp/base.c
++++ b/drivers/dahdi/wctc4xxp/base.c
 @@ -4236,7 +4236,7 @@ static int __init wctc4xxp_init(void)
  		return -ENOMEM;
  	spin_lock_init(&wctc4xxp_list_lock);
@@ -70,10 +70,10 @@ index 54e28d3..3bd56d1 100644
  	if (res) {
  		kmem_cache_destroy(cmd_cache);
  		return -ENODEV;
-diff --git drivers/dahdi/wctdm24xxp/base.c drivers/dahdi/wctdm24xxp/base.c
+diff --git a/drivers/dahdi/wctdm24xxp/base.c b/drivers/dahdi/wctdm24xxp/base.c
 index d2e481a..16bf384 100644
---- drivers/dahdi/wctdm24xxp/base.c
-+++ drivers/dahdi/wctdm24xxp/base.c
+--- a/drivers/dahdi/wctdm24xxp/base.c
++++ b/drivers/dahdi/wctdm24xxp/base.c
 @@ -6102,7 +6102,7 @@ static int __init wctdm_init(void)
  
  	b400m_module_init();
@@ -83,10 +83,10 @@ index d2e481a..16bf384 100644
  	if (res)
  		return -ENODEV;
  
-diff --git drivers/dahdi/wcte13xp-base.c drivers/dahdi/wcte13xp-base.c
+diff --git a/drivers/dahdi/wcte13xp-base.c b/drivers/dahdi/wcte13xp-base.c
 index 25d4e31..b5f8043 100644
---- drivers/dahdi/wcte13xp-base.c
-+++ drivers/dahdi/wcte13xp-base.c
+--- a/drivers/dahdi/wcte13xp-base.c
++++ b/drivers/dahdi/wcte13xp-base.c
 @@ -2788,7 +2788,7 @@ static int __init te13xp_init(void)
  		return -EINVAL;
  	}
@@ -96,10 +96,10 @@ index 25d4e31..b5f8043 100644
  	if (res)
  		return -ENODEV;
  
-diff --git drivers/dahdi/wcte43x-base.c drivers/dahdi/wcte43x-base.c
+diff --git a/drivers/dahdi/wcte43x-base.c b/drivers/dahdi/wcte43x-base.c
 index 722d18d..45b0f6c 100644
---- drivers/dahdi/wcte43x-base.c
-+++ drivers/dahdi/wcte43x-base.c
+--- a/drivers/dahdi/wcte43x-base.c
++++ b/drivers/dahdi/wcte43x-base.c
 @@ -3612,7 +3612,7 @@ static int __init t43x_init(void)
  		return -EINVAL;
  	}
@@ -109,10 +109,10 @@ index 722d18d..45b0f6c 100644
  	if (res)
  		return -ENODEV;
  
-diff --git include/dahdi/kernel.h include/dahdi/kernel.h
+diff --git a/include/dahdi/kernel.h b/include/dahdi/kernel.h
 index eb3f691..1b4ba10 100644
---- include/dahdi/kernel.h
-+++ include/dahdi/kernel.h
+--- a/include/dahdi/kernel.h
++++ b/include/dahdi/kernel.h
 @@ -58,8 +58,6 @@
 
  #include <linux/poll.h>
