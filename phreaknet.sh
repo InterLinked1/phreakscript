@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.1 (2023-01-12)
+# v0.2.2 (2023-01-17)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-01-17 0.2.2 DAHDI: Correct for DAHDI no longer including CONFIG_PCI and patch 45ac6a30f922f4eef54c0120c2a537794b20cf5c failing
 # 2023-01-12 0.2.1 Asterisk: target 20.1.0
 # 2023-01-07 0.2.0 Asterisk: readd chan_sip support for master
 # 2022-11-27 0.1.99 Asterisk/DAHDI: add app_loopdisconnect
@@ -959,6 +960,17 @@ dahdi_undo() {
 	rm /tmp/$2.patch
 }
 
+dahdi_custom_undo() {
+        printf "Applying custom reverse DAHDI patch: %s\n" "$3"
+        wget -q "$4" -O /tmp/$2.patch --no-cache
+        patch -u -p 0 --reverse -i /tmp/$2.patch
+        if [ $? -ne 0 ]; then
+                echoerr "Failed to reverse custom DAHDI patch... this should be reported..."
+                exit 2
+        fi
+        rm /tmp/$2.patch
+}
+
 dahdi_custom_patch() {
 	printf "Applying custom DAHDI patch: %s\n" "$1"
 	if [ ! -f "$AST_SOURCE_PARENT_DIR/$2" ]; then
@@ -1024,7 +1036,7 @@ git_custom_patch() {
 
 dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Reverting patches that removed driver support in DAHDI..."
-	dahdi_undo $1 "dahdi_pci_module" "Remove unnecessary dahdi_pci_module macro" "4af6f69fff19ea3cfb9ab0ff86a681be86045215"
+	dahdi_custom_undo $1 "dahdi_pci_module" "Remove unnecessary dahdi_pci_module macro" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_pci_module.diff"
 	dahdi_undo $1 "dahdi_irq_handler" "Remove unnecessary DAHDI_IRQ_HANDLER macro" "cdd6ddd0fd08cb8b7313b16074882439fbb58045"
 	dahdi_undo $1 "devtype" "Remove struct devtype for unsupported drivers" "75620dd9ef6ac746745a1ecab4ef925a5b9e2988"
 	dahdi_undo $1 "wcb" "Remove support for all but wcb41xp wcb43xp and wcb23xp." "29cb229cd3f1d252872b7f1924b6e3be941f7ad3"
