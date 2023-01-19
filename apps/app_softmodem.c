@@ -814,9 +814,9 @@ static int softmodem_communicate(modem_session *s)
 					writebuf = needspaces ? buf : buf + 2;
 					written = v18_put(v18_modem, writebuf, writelen); /* v18_generator_generate will actually write the frames onto the channel towards the TDD */
 					ast_debug(3, "v18 put: %d+%d bytes from socket onto modem, written: %d\n", needspaces ? 2 : 0, pres, written);
-					writebuf += written;
-					writelen -= written;
 					while (written < writelen) {
+						writebuf += written;
+						writelen -= written;
 						/* v18_put couldn't accept all the data available for the modem,
 						 * because the SpanDSP buffer was full.
 						 * We need to retry and make sure all data gets sent. */
@@ -827,8 +827,6 @@ static int softmodem_communicate(modem_session *s)
 						}
 						written = v18_put(v18_modem, writebuf, writelen);
 						ast_debug(3, "v18 put RETRY: %d bytes from socket onto modem, written: %d\n", writelen, written);
-						writebuf += written;
-						writelen -= written;
 					}
 					if (written <= 0) {
 						ast_debug(1, "v18_put returned %d?\n", written);
