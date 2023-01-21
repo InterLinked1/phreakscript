@@ -284,6 +284,7 @@ static size_t curl_write_string_callback(char *rawdata, size_t size, size_t nmem
 static struct ast_str *curl_get(const char *url, const char *data)
 {
 	CURL **curl;
+	CURLcode res;
 	struct ast_str *str;
 	long int http_code;
 	char curl_errbuf[CURL_ERROR_SIZE + 1] = "";
@@ -307,11 +308,13 @@ static struct ast_str *curl_get(const char *url, const char *data)
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errbuf);
 
-	if (curl_easy_perform(curl) != CURLE_OK) {
+	ast_debug(6, "cURL URL: %s\n", url);
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
 		if (*curl_errbuf) {
 			ast_log(LOG_WARNING, "%s\n", curl_errbuf);
 		}
-		ast_log(LOG_WARNING, "Failed to curl URL '%s'\n", url);
+		ast_log(LOG_WARNING, "Failed to curl URL '%s': %s\n", url, curl_easy_strerror(res));
 		curl_easy_cleanup(curl);
 		ast_free(str);
 		return NULL;
@@ -333,6 +336,7 @@ static struct ast_str *curl_get(const char *url, const char *data)
 static struct ast_str *curl_post(const char *url, const char *data)
 {
 	CURL **curl;
+	CURLcode res;
 	struct ast_str *str;
 	long int http_code;
 	char curl_errbuf[CURL_ERROR_SIZE + 1] = "";
@@ -353,11 +357,13 @@ static struct ast_str *curl_post(const char *url, const char *data)
 	curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, -1L);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, AST_CURL_USER_AGENT);
 
-	if (curl_easy_perform(curl) != CURLE_OK) {
+	ast_debug(6, "cURL URL: %s\n", url);
+	res = curl_easy_perform(curl);
+	if (res != CURLE_OK) {
 		if (*curl_errbuf) {
 			ast_log(LOG_WARNING, "%s\n", curl_errbuf);
 		}
-		ast_log(LOG_WARNING, "Failed to curl URL '%s'\n", url);
+		ast_log(LOG_WARNING, "Failed to curl URL '%s': %s\n", url, curl_easy_strerror(res));
 		curl_easy_cleanup(curl);
 		ast_free(str);
 		return NULL;
@@ -592,8 +598,13 @@ static int cdr_handler(struct ast_cdr *cdr)
 	type = S_OR(cdr_channel->type, "direct");
 
 	if (!ast_strlen_zero(interlinked_api_key)) {
+		char start_encoded[48];
+		if (ast_uri_encode(startstr, start_encoded, sizeof(start_encoded), ast_uri_http) == NULL) {
+			ast_log(LOG_WARNING, "Failed to encode timestamp %s\n", startstr);
+			goto cleanup;
+		}
 		snprintf(url, sizeof(url), "https://api.phreaknet.org/v1/billing?key=%s&ani=%s&caller=%s&callee=%s&duration=%d&type=%s&start=%s",
-			interlinked_api_key, cdr_channel->ani, cdr_channel->caller, cdr_channel->callee, duration, type, startstr);
+			interlinked_api_key, cdr_channel->ani, cdr_channel->caller, cdr_channel->callee, duration, type, start_encoded);
 		str = curl_get(url, NULL);
 		if (str) {
 			ast_free(str);
