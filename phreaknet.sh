@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.3 (2023-01-17)
+# v0.2.4 (2023-01-17)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -266,7 +266,7 @@ phreakscript_info() {
 	printf "%s" "PhreakScript "
 	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
 	echo "https://github.com/InterLinked1/phreakscript"
-	echo "(C) 2021-2022 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
+	echo "(C) 2021-2023 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
 	echo "To report bugs or request feature additions, please report at https://issues.interlinked.us (also see https://docs.phreaknet.org/#contributions) and/or post to the PhreakNet mailing list: https://groups.io/g/phreaknet" | fold -s -w 120
 }
 
@@ -962,14 +962,14 @@ dahdi_undo() {
 }
 
 dahdi_custom_undo() {
-        printf "Applying custom reverse DAHDI patch: %s\n" "$3"
-        wget -q "$4" -O /tmp/$2.patch --no-cache
-        patch -u -p 1 --reverse -i /tmp/$2.patch
-        if [ $? -ne 0 ]; then
-                echoerr "Failed to reverse custom DAHDI patch... this should be reported..."
-                exit 2
-        fi
-        rm /tmp/$2.patch
+	printf "Applying custom reverse DAHDI patch: %s\n" "$3"
+	wget -q "$4" -O /tmp/$2.patch --no-cache
+	patch -u -p 1 --reverse -i /tmp/$2.patch
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to reverse custom DAHDI patch... this should be reported..."
+		exit 2
+	fi
+	rm /tmp/$2.patch
 }
 
 dahdi_custom_patch() {
@@ -1504,7 +1504,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
 
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
-	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/14/patch?download" # func_groupcount: GROUP VARs
+	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/25/patch?download" # func_groupcount: GROUP VARs
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
@@ -1686,6 +1686,18 @@ quell_mysql() {
 
 coredump_prep() {
 	ensure_installed "gdb" # for astcoredumper
+	# For some reason, the above is not sufficient and will lead to things like: /usr/bin/gdb does not support python
+	# That's because gdb isn't really installed.
+	# Use a technique aside from which/path/binary detection to see if we find something we expect:
+	helplines=`gdb --help | grep "GDB manual" | wc -l`
+	if [ "$helplines" != "1" ]; then
+		echoerr "GDB does not appear to be currently installed."
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install -y gdb
+		fi
+	else
+		printf "We think GDB is already installed... good!\n"
+	fi
 	# XXX If running ast_coredumper complains about a lack of python support, full gdb was not installed,
 	# and the above check will succeed but we may need to run apt-get install gdb to get the full version.
 	quell_mysql # we need all the CPU and memory we can get
