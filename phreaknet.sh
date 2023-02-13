@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.4 (2023-01-17)
+# v0.2.5 (2023-02-13)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,8 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-02-13 0.2.5 Asterisk: remove merged patches
+# 2023-01-28 0.2.4 PhreakScript: fix GDB installation detection
 # 2023-01-17 0.2.3 DAHDI: Correct for DAHDI no longer including CONFIG_PCI and patch cdd6ddd0fd08cb8b7313b16074882439fbb58045 failing
 # 2023-01-17 0.2.2 DAHDI: Correct for DAHDI no longer including CONFIG_PCI and patch 45ac6a30f922f4eef54c0120c2a537794b20cf5c failing
 # 2023-01-12 0.2.1 Asterisk: target 20.1.0
@@ -1486,21 +1488,25 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
 
+	## merged into master, not yet in a release version
+	if [ "$AST_ALT_VER" != "master" ]; then
+		gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
+		#gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/9/patch?download" # func_json: enhance parsing. Does not apply cleanly.
+	fi
+
 	## Gerrit patches: remove once merged
 	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
-	gerrit_patch 19712 "https://gerrit.asterisk.org/changes/asterisk~19712/revisions/2/patch?download" # chan_iax2: Fix stalled jitterbuffer
+	gerrit_patch 19712 "https://gerrit.asterisk.org/changes/asterisk~19712/revisions/7/patch?download" # chan_iax2: Fix stalled jitterbuffer
 	gerrit_patch 19744 "https://gerrit.asterisk.org/changes/asterisk~19744/revisions/1/patch?download" # config.c: fix template inheritance/overrides
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
 	else
-		# WARNING: This will cause a crash due to ABI compatibility if any external codecs are used. Use the older translate.diff patch in that case.
+		# WARNING: This will cause a crash due to ABI incompatibility if any external codecs are used. Use the older translate.diff patch in that case.
 		# This has been merged into master, but for the above reason will not appear in Asterisk until v21 when new binary codec modules are created for external codecs.
 		gerrit_patch 15953 "https://gerrit.asterisk.org/changes/asterisk~15953/revisions/7/patch?download" # translate.c: Prefer better codecs on ties.
 	fi
 
-	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
-	#gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/9/patch?download" # func_json: enhance parsing. Does not apply cleanly.
 	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
 
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
@@ -1524,12 +1530,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
-		# gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # chan_pjsip: add overlap_context option
 		# this does not apply even with gerrit_fuzzy_patch:
 		# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/3/patch?download" # chan_dahdi: add dialmode
 		# this does not apply even with gerrit_fuzzy_patch:
 		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
-		# gerrit_patch 19412 "https://gerrit.asterisk.org/changes/asterisk~19412/revisions/1/patch?download" # res_pjsip_session: add overlap_context option
 		:
 	fi
 
