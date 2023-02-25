@@ -1516,6 +1516,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
+	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI
 
 	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"
 

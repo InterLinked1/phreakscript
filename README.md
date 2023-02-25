@@ -13,6 +13,7 @@ PhreakScript installs:
    - Real time dial pulsing support
    - Automatic dialplan context to digit map generation
    - Presence publishing (PJSIP)
+   - AGI `RECORD FILE` option to require noise before silence detection
    - Optional restored and enhanced [`chan_sip`](https://github.com/InterLinked1/chan_sip) for master / versions 21+ (removed by Sangoma)
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver)
