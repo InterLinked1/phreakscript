@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.5 (2023-02-13)
+# v0.2.6 (2023-02-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-02-25 0.2.6 PhreakScript: fix install user
 # 2023-02-13 0.2.5 Asterisk: remove merged patches
 # 2023-01-28 0.2.4 PhreakScript: fix GDB installation detection
 # 2023-01-17 0.2.3 DAHDI: Correct for DAHDI no longer including CONFIG_PCI and patch cdd6ddd0fd08cb8b7313b16074882439fbb58045 failing
@@ -388,7 +389,7 @@ Options:
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --boilerplate  sounds: Also install boilerplate sounds
        --audit        install: Audit package installation
-	   --experimental install: Install experimental features that may not be production ready
+       --experimental install: Install experimental features that may not be production ready
        --fast         install: Compile as fast as possible
        --lightweight  install: Only install basic, required modules for basic Asterisk functionality
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
@@ -2471,17 +2472,24 @@ elif [ "$cmd" = "install" ]; then
 		if [ $? -ne 0 ]; then
 			adduser -c "Asterisk" $AST_USER --disabled-password --gecos "" # don't allow any password logins, e.g. su - asterisk. Use passwd asterisk to manually set.
 		fi
-		sed -i 's/ASTARGS=""/ASTARGS="-U $AST_USER"/g' /sbin/safe_asterisk
-		sed -i 's/#AST_USER="asterisk"/AST_USER="$AST_USER"/g' /etc/default/asterisk
-		sed -i 's/#AST_GROUP="asterisk"/AST_GROUP="$AST_USER"/g' /etc/default/asterisk
+		sed -i "s/ASTARGS=\"\"/ASTARGS=\"-U $AST_USER\"/g" /sbin/safe_asterisk
+		sed -i "s/#AST_USER=\"asterisk\"/AST_USER=\"$AST_USER\"/g" /etc/default/asterisk
+		sed -i "s/#AST_GROUP=\"asterisk\"/AST_GROUP=\"$AST_USER\"/g" /etc/default/asterisk
 		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /var/cache/asterisk /usr/sbin/asterisk
 		sed -i "s/create 640 root root/create 640 $AST_USER $AST_USER/g" /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
 		# by default, it has the asterisk user, so simply uncomment it:
 		sed -i 's/;runuser =/runuser =/' $AST_CONFIG_DIR/asterisk.conf
 		sed -i 's/;rungroup =/rungroup =/' $AST_CONFIG_DIR/asterisk.conf
 		if [ "${AST_USER}" != "asterisk" ]; then # but if we're not actually running as "asterisk", change that:
-			sed -i "s/runuser = asterisk/runuser = $AST_USER/g"
-			sed -i "s/rungroup = asterisk/runuser = $AST_USER/g"
+			sed -i "s/runuser = asterisk/runuser = $AST_USER/gw tmpuserchanges.txt" $AST_CONFIG_DIR/asterisk.conf
+			if [ ! -s changelog.txt ]; then
+				echoerr "runuser option not detected in asterisk.conf"
+			fi
+			sed -i "s/rungroup = asterisk/rungroup = $AST_USER/gw tmpuserchanges.txt" $AST_CONFIG_DIR/asterisk.conf
+			if [ ! -s changelog.txt ]; then
+				echoerr "rungroup option not detected in asterisk.conf"
+			fi
+			rm tmpuserchanges.txt
 		fi
 		chgrp $AST_USER $AST_VARLIB_DIR/astdb.sqlite3
 		# If we're using Let's Encrypt for our cert, then Asterisk needs to be able to read it. Otherwise, SIP/PJSIP will be very unhappy when they start.
