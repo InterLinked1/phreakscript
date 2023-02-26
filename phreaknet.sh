@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.6 (2023-02-25)
+# v0.2.7 (2023-02-26)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-02-26 0.2.7 PhreakScript: fix install user (again)
 # 2023-02-25 0.2.6 PhreakScript: fix install user
 # 2023-02-13 0.2.5 Asterisk: remove merged patches
 # 2023-01-28 0.2.4 PhreakScript: fix GDB installation detection
@@ -2483,11 +2484,11 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/;rungroup =/rungroup =/' $AST_CONFIG_DIR/asterisk.conf
 		if [ "${AST_USER}" != "asterisk" ]; then # but if we're not actually running as "asterisk", change that:
 			sed -i "s/runuser = asterisk/runuser = $AST_USER/gw tmpuserchanges.txt" $AST_CONFIG_DIR/asterisk.conf
-			if [ ! -s changelog.txt ]; then
+			if [ ! -s tmpuserchanges.txt ]; then
 				echoerr "runuser option not detected in asterisk.conf"
 			fi
 			sed -i "s/rungroup = asterisk/rungroup = $AST_USER/gw tmpuserchanges.txt" $AST_CONFIG_DIR/asterisk.conf
-			if [ ! -s changelog.txt ]; then
+			if [ ! -s tmpuserchanges.txt ]; then
 				echoerr "rungroup option not detected in asterisk.conf"
 			fi
 			rm tmpuserchanges.txt
