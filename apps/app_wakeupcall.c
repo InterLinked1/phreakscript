@@ -304,6 +304,8 @@ static int scheduler(struct ast_channel *chan, int hr, int min, enum wuc_type ty
 	int res;
 	const char *timezone = wuc->timezone;
 
+	when = ast_tvnow();
+
 	/* First, fetch the time using the system time zone instead of the user's time zone.
 	 * Note that in this function, by system time, we mean the system's local time, not necessarily UTC. */
 	ast_localtime(&when, &tm, NULL);

@@ -1298,18 +1298,19 @@ install_wanpipe() {
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	cd ${WANPIPE_SOURCE_NAME}
-	phreak_fuzzy_patch "af_wanpipe.diff"
+	#phreak_fuzzy_patch "af_wanpipe.diff"
 
-	if [ "$MYSOURCEDIRORIG" != "$MYSOURCEDIR" ]; then
-		echoerr "Your system uses recursive Makefile includes, which wanpipe doesn't yet support... specifying the proper directory explicitly for you"
+	#if [ "$MYSOURCEDIRORIG" != "$MYSOURCEDIR" ]; then
+	#	echoerr "Your system uses recursive Makefile includes, which wanpipe doesn't yet support... specifying the proper directory explicitly for you"
 		### XXX Currently an issue on Debian (see issue #3 on GitHub). Sangoma is supposedly working on this currently as well.
 		### BUGBUG This makes it get further than before, but doesn't fully work yet.
-		./Setup dahdi --silent --with-linux=$MYSOURCEDIR
-	else
+	#	./Setup dahdi --silent --with-linux=$MYSOURCEDIR
+	#else
 		./Setup dahdi --silent
-	fi
+	#fi
 
 	if [ $? -ne 0 ]; then
+		# XXX Should have an option to fail here forcibly, for testing.
 		echoerr "wanpipe install failed: unsupported kernel?"
 		sleep 1
 		#exit 2
@@ -1500,6 +1501,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
 	gerrit_patch 19712 "https://gerrit.asterisk.org/changes/asterisk~19712/revisions/7/patch?download" # chan_iax2: Fix stalled jitterbuffer
 	gerrit_patch 19744 "https://gerrit.asterisk.org/changes/asterisk~19744/revisions/1/patch?download" # config.c: fix template inheritance/overrides
+	gerrit_patch 19927 "https://gerrit.asterisk.org/changes/asterisk~19927/revisions/1/patch?download" # app_senddtmf: Add SendFlash AMI action
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
