@@ -708,6 +708,11 @@ run_testsuite_test() {
 		printf "Exit code was %d\n" $?
 		ls
 		lastrun=`get_newest_astdir` # get the directory containing the logs from the most recently run test
+		if [ "$lastrun" = "" ]; then
+			echoerr "No test executions found in $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/"
+			ls -la $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/
+			exit 1
+		fi
 		ls "$lastrun/ast1/var/log/asterisk/full.txt"
 		if [ -f "$lastrun/ast1/var/log/asterisk/full.txt" ]; then
 			grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
@@ -736,6 +741,11 @@ run_testsuite_test_only() { # $2 = stress test
 		if [ $? -ne 0 ]; then # test failed
 			echo "ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1"
 			lastrun=`ls -d -v $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/* | tail -1` # get the directory containing the logs from the most recently run test ############# this is not FreeBSD compatible.
+			if [ "$lastrun" = "" ]; then
+				echoerr "No test executions found in $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/"
+				ls -la $AST_SOURCE_PARENT_DIR/testsuite/logs/$1/
+				exit 1
+			fi
 			ls "$lastrun/ast1/var/log/asterisk/full.txt"
 			grep -B 12 "UserEvent(" $lastrun/ast1/var/log/asterisk/full.txt | grep -v "pbx.c: Launching" | grep -v "stasis.c: Topic" # this should provide a good idea of what failed (or at least, what didn't succeed)
 			exit 1
@@ -2548,6 +2558,10 @@ elif [ "$cmd" = "install" ]; then
 	/etc/init.d/asterisk status
 	/etc/init.d/asterisk start # service asterisk start
 	/etc/init.d/asterisk status
+
+	asterisk -V
+	rasterisk -x "core show version"
+	echo $?
 
 	printf "%s\n" "Asterisk installation has completed. You may now connect to the Asterisk CLI: asterisk -r"
 	printf "%s\n" "If you upgraded Asterisk, you will need to run 'core restart now' for the new version to load."
