@@ -2496,6 +2496,14 @@ elif [ "$cmd" = "install" ]; then
 			rm tmpuserchanges.txt
 		fi
 		chgrp $AST_USER $AST_VARLIB_DIR/astdb.sqlite3
+		if [ -d /etc/dahdi ]; then
+			# DAHDI related permissions: https://support.digium.com/s/article/Automatically-setting-dev-dahdi-file-permissions-when-running-Asterisk-as-non-root-user
+			chown -R $AST_USER:$AST_USER /dev/dahdi
+			if [ "${AST_USER}" != "asterisk" ]; then # if we're not actually running as "asterisk"
+				sed -i "s/OWNER=\"asterisk\"/OWNER=\"$AST_USER\"/g" /etc/udev/rules.d/dahdi.rules
+				sed -i "s/GROUP=\"asterisk\"/GROUP=\"$AST_USER\"/g" /etc/udev/rules.d/dahdi.rules
+			fi
+		fi
 		# If we're using Let's Encrypt for our cert, then Asterisk needs to be able to read it. Otherwise, SIP/PJSIP will be very unhappy when they start.
 		if [ -d /etc/letsencrypt/live/ ]; then
 			chmod -R 740 /etc/letsencrypt/live/
