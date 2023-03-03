@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # PhreakScript
-# (C) 2021-2023 PhreakNet - https://portal.phreaknet.org and https://docs.phreaknet.org
-# v0.2.7 (2023-02-26)
+# (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
+# v0.3.1 (2023-03-03)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-03-03 0.3.1 DAHDI: disable XPP drivers on all 32-bit architectures to fix build failures
 # 2023-02-26 0.2.7 PhreakScript: fix install user (again)
 # 2023-02-25 0.2.6 PhreakScript: fix install user
 # 2023-02-13 0.2.5 Asterisk: remove merged patches
@@ -1180,9 +1181,9 @@ install_dahdi() {
 		echoerr "Skipping DAHDI Linux feature patches..."
 	fi
 
-	# Don't compile the XPP driver for 32-bit ARM
-	if [ "`uname -m`" = "armv7l" ]; then
-		printf "Not compiling XPP driver for 32-bit ARM.\n"
+	# Don't compile the XPP driver for 32-bit
+	if [ "`uname -m`" = "armv7l" ] || [ "`uname -m`" = "i386" ] || [ "`uname -m`" = "i686" ]; then
+		echoerr "Not compiling XPP driver for 32-bit"
 		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
 	fi
 
@@ -1267,7 +1268,7 @@ install_dahdi() {
 	rm ${LIBPRI_SOURCE_NAME}.tar.gz
 	cd ${LIBPRI_SOURCE_NAME}
 	# Unmerged compiler fix patch for q921/q931 in libpri:
-	gerrit_patch 19311 "https://gerrit.asterisk.org/changes/libpri~19311/revisions/2/patch?download"
+	gerrit_patch 19311 "https://gerrit.asterisk.org/changes/libpri~19311/revisions/8/patch?download"
 	make && make install
 
 	# Wanpipe
