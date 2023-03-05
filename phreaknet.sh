@@ -1453,6 +1453,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_dtmf_flash.c"
+	phreak_tree_module "funcs/func_dtmf_trace.c"
 	phreak_tree_module "funcs/func_nanpa.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_numpeer.c"

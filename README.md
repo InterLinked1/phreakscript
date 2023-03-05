@@ -62,6 +62,7 @@ PhreakScript installs:
    - Adds the following functions:
       - ``TECH_EXISTS``
       - ``DTMF_FLASH``
+      - ``DTMF_TRACE``
       - ``NUM2DEVICE``
       - ``TEXT_QUERY``
       - ``COIN_DETECT``
