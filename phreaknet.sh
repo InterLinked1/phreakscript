@@ -919,6 +919,15 @@ install_testsuite_itself() {
 	./setupVenv.sh
 	# ./runInVenv.sh python3 ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
 	#./runInVenv.sh python3 ./runtests.py -l # list all tests
+
+	if [ ! -f "$AST_SOURCE_PARENT_DIR/testsuite/tests/apps/tests.yaml" ]; then
+		echoerr "tests/apps/tests.yaml doesn't exist?"
+		exit 1
+	else
+		# fix testsuite regression caused by c930bfec37118e37ff271bf381825408d2409fec (missing newline at EOF)
+		echo "" >> "$AST_SOURCE_PARENT_DIR/testsuite/tests/apps/tests.yaml"
+	fi
+
 	add_phreak_testsuite
 	printf "%s\n" "Asterisk Test Suite installation complete"
 }
@@ -1527,6 +1536,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/25/patch?download" # func_groupcount: GROUP VARs
+	gerrit_patch 19897 "https://gerrit.asterisk.org/changes/asterisk~19897/revisions/6/patch?download" # res_pjsip_stir_shaken: Fix JSON field ordering
 	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
 
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
