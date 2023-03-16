@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v0.3.1 (2023-03-03)
+# v0.3.2 (2023-03-16)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-03-16 0.3.2 Asterisk: target 20.2.0
 # 2023-03-03 0.3.1 DAHDI: disable XPP drivers on all 32-bit architectures to fix build failures
 # 2023-02-26 0.2.7 PhreakScript: fix install user (again)
 # 2023-02-25 0.2.6 PhreakScript: fix install user
@@ -1499,10 +1500,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
-	if [ "$EXTRA_FEATURES" = "1" ]; then
-		# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
-		git_patch "hearpulsing-ast.diff"
-	fi
+	# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
+	git_patch "hearpulsing-ast.diff"
 
 	if [ "$WEAK_TLS" = "1" ]; then
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only beneficial for older ATAs that require older TLS protocols.
@@ -1514,15 +1513,15 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## merged into master, not yet in a release version
 	if [ "$AST_ALT_VER" != "master" ]; then
-		gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
+		:
 		#gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/9/patch?download" # func_json: enhance parsing. Does not apply cleanly.
+		#gerrit_patch 19927 "https://gerrit.asterisk.org/changes/asterisk~19927/revisions/1/patch?download" # app_senddtmf: Add SendFlash AMI action. Does not apply cleanly.
 	fi
 
 	## Gerrit patches: remove once merged
 	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
-	gerrit_patch 19712 "https://gerrit.asterisk.org/changes/asterisk~19712/revisions/7/patch?download" # chan_iax2: Fix stalled jitterbuffer
 	gerrit_patch 19744 "https://gerrit.asterisk.org/changes/asterisk~19744/revisions/1/patch?download" # config.c: fix template inheritance/overrides
-	gerrit_patch 19927 "https://gerrit.asterisk.org/changes/asterisk~19927/revisions/1/patch?download" # app_senddtmf: Add SendFlash AMI action
+	gerrit_patch 19968 "https://gerrit.asterisk.org/changes/asterisk~19968/revisions/1/patch?download" # res_musiconhold: Add looplast option
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
