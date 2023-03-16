@@ -1513,10 +1513,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
 
 	## merged into master, not yet in a release version
-	if [ "$AST_ALT_VER" != "master" ]; then
-		gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
+	#if [ "$AST_ALT_VER" != "master" ]; then
+	#	gerrit_patch 17786 "https://gerrit.asterisk.org/changes/asterisk~17786/revisions/2/patch?download" # app_signal
 		#gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/9/patch?download" # func_json: enhance parsing. Does not apply cleanly.
-	fi
+	#fi
 
 	## Gerrit patches: remove once merged
 	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
