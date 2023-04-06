@@ -367,11 +367,11 @@ static char *app2 = "OutVerify";
 struct call_verify {
 	ast_mutex_t lock;
 	char name[AST_MAX_CONTEXT];				/*!< Name - Verify section */
-	int in;									/*!< Total number of incoming calls attempted to verify under this profile */
-	int insuccess;							/*!< Total number of incoming calls successfully passed verification */
-	int out;								/*!< Total number of outgoing calls attempted to out verify under this profile */
-	int outsuccess;							/*!< Total number of outgoing calls out-verified under this profile */
-	int total_blacklisted;					/*!< Total number of incoming calls that have been rejected due to blacklisting */
+	unsigned int in;						/*!< Total number of incoming calls attempted to verify under this profile */
+	unsigned int insuccess;					/*!< Total number of incoming calls successfully passed verification */
+	unsigned int out;						/*!< Total number of outgoing calls attempted to out verify under this profile */
+	unsigned int outsuccess;				/*!< Total number of outgoing calls out-verified under this profile */
+	unsigned int total_blacklisted;			/*!< Total number of incoming calls that have been rejected due to blacklisting */
 	char verifymethod[PATH_MAX];			/*!< Algorithm to use for verification: direct or reverse */
 	char requestmethod[PATH_MAX];			/*!< Request method: curl or enum */
 	char verifyrequest[PATH_MAX];			/*!< Request URL or ENUM lookup */
@@ -387,16 +387,9 @@ struct call_verify {
 	char token_remote_var[AST_MAX_CONTEXT];	/*!< Variable in which token may arrive */
 	char setinvars[PATH_MAX];				/*!< Variables to set on incoming call */
 	char setoutvars[PATH_MAX];				/*!< Variables to set on outgoing call */
-	int sanitychecks;						/*!< Whether or not to do sanity checks on the alleged calling number */
-	int extendtrust;						/*!< Whether to verify through/via calls */
-	int allowdisathru;						/*!< Whether to allow DISA thru calls */
-	int allowpstnthru;						/*!< Whether to allow PSTN thru calls */
-	int allowtoken;							/*!< Whether to allow verification tokens */
-	int flagprivateip;						/*!< Whether to flag private IP addresses as malicious */
 	char successregex[PATH_MAX];			/*!< Regex to use for direct verification to determine success */
 	char blacklist_endpoint[PATH_MAX];		/*!< Blacklist endpoint */
 	float blacklist_threshold;				/*!< Blacklist threshold */
-	int blacklist_failopen;					/*!< Allow blacklist to fail open */
 	char outregex[PATH_MAX];				/*!< Regex to use to verify outgoing URIs */
 	char exceptioncontext[PATH_MAX];		/*!< Action to take upon failure */
 	char failureaction[PATH_MAX];			/*!< Action to take upon failure */
@@ -413,6 +406,14 @@ struct call_verify {
 	char loglevel[AST_MAX_CONTEXT];			/*!< Log level */
 	char logmsg[PATH_MAX];					/*!< Log message */
 	AST_LIST_ENTRY(call_verify) entry;		/*!< Next Verify record */
+	/* Flags */
+	unsigned int sanitychecks:1;			/*!< Whether or not to do sanity checks on the alleged calling number */
+	unsigned int extendtrust:1;				/*!< Whether to verify through/via calls */
+	unsigned int allowdisathru:1;			/*!< Whether to allow DISA thru calls */
+	unsigned int allowpstnthru:1;			/*!< Whether to allow PSTN thru calls */
+	unsigned int allowtoken:1;				/*!< Whether to allow verification tokens */
+	unsigned int flagprivateip:1;			/*!< Whether to flag private IP addresses as malicious */
+	unsigned int blacklist_failopen:1;		/*!< Allow blacklist to fail open */
 };
 
 #define DEFAULT_CURL_TIMEOUT 5
@@ -422,7 +423,7 @@ static int curltimeout = DEFAULT_CURL_TIMEOUT;		/*!< Curl Timeout */
 
 static AST_RWLIST_HEAD_STATIC(verifys, call_verify);
 
-char stir_shaken_stats[2][6];
+unsigned int stir_shaken_stats[2][6];
 ast_mutex_t ss_lock;
 
 /*! \brief Allocate and initialize verify profile */
@@ -1845,7 +1846,7 @@ static const char *stir_shaken_name(char c)
 
 static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
-	int total[2];
+	unsigned int total[2];
 	char c;
 
 	total[0] = total[1] = 0;
@@ -1863,13 +1864,13 @@ static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast
 
 	ast_cli(a->fd, "%-30s %14s %14s\n", "STIR/SHAKEN Rating", "# Direct Calls", "Passthru Calls");
 	for (c = 'A'; c <= 'F'; c++) {
-		ast_cli(a->fd, "%-30s %14d %14d\n", stir_shaken_name(c), stir_shaken_stats[0][c - 'A'], stir_shaken_stats[1][c - 'A']);
+		ast_cli(a->fd, "%-30s %14u %14u\n", stir_shaken_name(c), stir_shaken_stats[0][c - 'A'], stir_shaken_stats[1][c - 'A']);
 		total[0] += stir_shaken_stats[0][c - 'A'];
 		total[1] += stir_shaken_stats[1][c - 'A'];
 	}
 	ast_cli(a->fd, "------------------------------ ----------\n");
-	ast_cli(a->fd, "%-30s %14d %14d\n", "Total # STIR/SHAKEN Calls", total[0], total[1]);
-	ast_cli(a->fd, "%-30s %14s %14d\n", "", "=", total[0] + total[1]);
+	ast_cli(a->fd, "%-30s %14u %14u\n", "Total # STIR/SHAKEN Calls", total[0], total[1]);
+	ast_cli(a->fd, "%-30s %14s %14u\n", "", "=", total[0] + total[1]);
 
 	return CLI_SUCCESS;
 }
@@ -1878,7 +1879,7 @@ static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast
 static char *handle_show_profiles(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 #define FORMAT  "%-20s %-7s %-8s %-10s %-13s %-11s %-9s %-11s %-14s\n"
-#define FORMAT2 "%-20s %7s %8d %10d %13d %11d %9d %11d %14d\n"
+#define FORMAT2 "%-20s %7s %8u %10u %13u %11u %9u %11u %14u\n"
 	struct call_verify *v;
 
 	switch(cmd) {
@@ -1982,10 +1983,10 @@ static char *handle_show_profile(struct ast_cli_entry *e, int cmd, struct ast_cl
 			ast_cli(a->fd, FORMAT, "code_spoof", v->code_spoof);
 			ast_cli(a->fd, FORMAT, "Log Level", v->loglevel);
 			ast_cli(a->fd, FORMAT, "Log Msg Fmt", v->logmsg);
-			ast_cli(a->fd, "%s%d of %d%s incoming calls in profile '%s' have successfully passed verification\n",
+			ast_cli(a->fd, "%s%u of %u%s incoming calls in profile '%s' have successfully passed verification\n",
 				ast_term_color(v->insuccess == 0 ? COLOR_RED : COLOR_GREEN, COLOR_BLACK),
 				v->insuccess, v->in, ast_term_reset(), v->name);
-			ast_cli(a->fd, "%s%d of %d%s outgoing calls in profile '%s' have successfully been out-verified\n",
+			ast_cli(a->fd, "%s%u of %u%s outgoing calls in profile '%s' have successfully been out-verified\n",
 				ast_term_color(v->outsuccess == 0 ? COLOR_RED : COLOR_GREEN, COLOR_BLACK),
 				v->outsuccess, v->out, ast_term_reset(), v->name);
 			break;
