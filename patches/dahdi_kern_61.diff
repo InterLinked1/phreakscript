@@ -1,0 +1,13 @@
+--- a/include/dahdi/kernel.h.orig	2023-04-28 19:00:29.585881156 -0400
++++ b/include/dahdi/kernel.h	2023-04-28 19:00:58.733511284 -0400
+@@ -60,6 +60,10 @@
+ 
+ #include <linux/pci.h>
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
++#define netif_napi_add netif_napi_add_weight
++#endif
++
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
+ #define PDE_DATA(i)	pde_data(i)
+ #endif

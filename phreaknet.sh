@@ -1173,6 +1173,9 @@ install_dahdi() {
 	custom_fuzzy_patch "b6d9b417e1992868549d443efad11e4f1513c9d7.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/b6d9b417e1992868549d443efad11e4f1513c9d7.diff"
 	custom_fuzzy_patch "09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
 
+	# Compiler fixes for 6.1+ 
+	phreak_fuzzy_patch "dahdi_kern_61.diff"
+
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		# Real time dial pulsing (DAHDI to Asterisk)
