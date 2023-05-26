@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v0.3.2 (2023-03-16)
+# v0.3.3 (2023-05-25)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-05-25 0.3.3 Asterisk: target 20.3.0
 # 2023-03-16 0.3.2 Asterisk: target 20.2.0
 # 2023-03-03 0.3.1 DAHDI: disable XPP drivers on all 32-bit architectures to fix build failures
 # 2023-02-26 0.2.7 PhreakScript: fix install user (again)
@@ -224,6 +225,8 @@ DEBUG_LEVEL=0
 FREEPBX_GUI=0
 GENERIC_HEADERS=0
 EXTERNAL_CODECS=0
+RTPULSING=0 # XXX: Change to 1 as soon as we can
+HAVE_COMPATIBLE_SPANDSP=0 # XXX: Change to 1 as soon as we can
 
 handler() {
 	kill $BGPID
@@ -1280,8 +1283,9 @@ install_dahdi() {
 	tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
 	rm ${LIBPRI_SOURCE_NAME}.tar.gz
 	cd ${LIBPRI_SOURCE_NAME}
-	# Unmerged compiler fix patch for q921/q931 in libpri:
-	gerrit_patch 19311 "https://gerrit.asterisk.org/changes/libpri~19311/revisions/8/patch?download"
+	# Unreleased compiler fix patch for q921/q931 in libpri:
+	gerrit_patch 19967 "https://gerrit.asterisk.org/changes/libpri~19967/revisions/1/patch?download"
+	git_custom_patch "https://github.com/asterisk/libpri/commit/a7a2245b12288fc0657e0a8f8071bdf8ed840f4b.diff"
 	make && make install
 
 	# Wanpipe
@@ -1455,7 +1459,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_remoteaccess.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
 	phreak_tree_module "apps/app_selective.c"
-	phreak_tree_module "apps/app_softmodem.c"
+	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
+		phreak_tree_module "apps/app_softmodem.c"
+	fi
 	phreak_tree_module "apps/app_streamsilence.c"
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
@@ -1478,14 +1484,18 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	if [ "$DEVMODE" = "1" ]; then
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
 	fi
-	phreak_tree_module "res/res_dialpulse.c"
+	if [ "$RTPULSING" = "1" ]; then
+		phreak_tree_module "res/res_dialpulse.c"
+	fi
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
 	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
 
 	## Third Party Modules
-	custom_module "apps/app_tdd.c" "https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c"
+	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
+		custom_module "apps/app_tdd.c" "https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c"
+	fi
 	custom_module "apps/app_fsk.c" "https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c"
 	sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
 
@@ -1538,8 +1548,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
 	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/25/patch?download" # func_groupcount: GROUP VARs
-	gerrit_patch 19897 "https://gerrit.asterisk.org/changes/asterisk~19897/revisions/6/patch?download" # res_pjsip_stir_shaken: Fix JSON field ordering
-	git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
+	if [ "$RTPULSING" = "1" ]; then
+		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
+		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
+	fi
 
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
@@ -1549,7 +1561,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ]; then
 		printf "Installing patches for experimental features\n"
-		git_custom_patch "https://code.phreaknet.org/asterisk/pubsub.diff"
+		git_custom_patch "https://code.phreaknet.org/asterisk/pubsub.diff" # NOTE: Already merged into master.
 		custom_module "include/asterisk/res_pjsip_body_generator_types.h" "https://code.phreaknet.org/asterisk/res_pjsip_body_generator_types.h"
 		custom_module "res/res_pjsip_device_features.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features.c"
 		custom_module "res/res_pjsip_device_features_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features_body_generator.c"
@@ -1559,8 +1571,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
 		# does not cleanly patch, do not uncomment:
-		# this does not apply even with gerrit_fuzzy_patch:
-		# gerrit_patch 18304 "https://gerrit.asterisk.org/changes/asterisk~18304/revisions/3/patch?download" # chan_dahdi: add dialmode
 		# this does not apply even with gerrit_fuzzy_patch:
 		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
 		:
@@ -2126,6 +2136,17 @@ elif [ "$cmd" = "mancached" ]; then
 	mandb
 elif [ "$cmd" = "install" ]; then
 	preinstall_warn=0
+
+	# XXX: Warnings so we don't forget to fix these:
+	if [ "$RTPULSING" != "1" ]; then
+		echoerr "Real time pusling is not compatible or has been disabled for this build."
+		sleep 1
+	fi
+	if [ "$HAVE_COMPATIBLE_SPANDSP" != "1" ]; then
+		echoerr "SpanDSP is not compatible or has been disabled for this build."
+		sleep 1
+	fi
+
 	if [ ${#AST_USER} -eq 0 ]; then
 		echoerr "WARNING: You are installing Asterisk to run as root. This is not recommended."
 		echoerr "Specify -u or --user to specify a run user"

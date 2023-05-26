@@ -3,7 +3,7 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 20.2.1 (latest LTS release of Asterisk)
+- Asterisk 20.3.0 (latest LTS release of Asterisk)
 - DAHDI Linux 3.2.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.2.0 (with optional DAHDI install flag)
 - many additional features and stability improvements
@@ -122,6 +122,14 @@ For a guided, interactive installation, you can also run `phreaknet wizard`. The
 PhreakScript must be run as root, even if Asterisk does not run as root.
 
 PhreakScript is primarily supported on Debian-based Linux systems. Support has also been added for FreeBSD. Pull requests to add support for other Linux distros or BSD are welcome.
+
+### License
+
+PhreakScript itself is licensed under the Apache 2.0 License. This includes any scripts in this repository.
+
+However, any Asterisk modules ("C" code) in this repository (such as those that may be installed by PhreakScript) are licensed under the GNU General Public License Version 2 (GPLv2), per the Asterisk licensing terms.
+
+If you have copyright or licensing doubts, please refer to any copyrights and licensing terms in individual source files.
 
 ### Documentation
 
