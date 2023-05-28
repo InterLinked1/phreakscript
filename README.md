@@ -23,6 +23,7 @@ PhreakScript installs:
       - ``ReturnIf``
       - ``SendMail``
       - ``MallocTrim``
+      - ``PartialPlayback``
       - ``LoopPlayback``
       - ``RandomPlayback``
       - ``SayTelephoneNumber``

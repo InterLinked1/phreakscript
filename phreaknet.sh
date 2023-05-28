@@ -1452,6 +1452,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
 	phreak_tree_module "apps/app_mwi.c"
+	phreak_tree_module "apps/app_partialplayback.c"
 	phreak_tree_module "apps/app_playdigits.c"
 	phreak_tree_module "apps/app_predial.c"
 	phreak_tree_module "apps/app_pulsar.c"
