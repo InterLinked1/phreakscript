@@ -335,47 +335,47 @@ static void tdd_put_msg(void *user_data, const unsigned char *msg, int len)
  * This way we force any TDD input to be sent immediately onto the socket as soon as we get it, not buffered or when carrier pauses. */
 static void my_v18_tdd_put_async_byte(void *user_data, int byte)
 {
-    v18_state_t *s;
-    uint8_t octet;
+	v18_state_t *s;
+	uint8_t octet;
   
-    s = (v18_state_t *) user_data;
-    if (byte < 0) {
-        /* Special conditions */
-        span_log(&s->logging, SPAN_LOG_FLOW, "V.18 signal status is %s (%d)\n", signal_status_to_str(byte), byte);
-        switch (byte) {
-        case SIG_STATUS_CARRIER_UP:
-            s->consecutive_ones = 0;
-            s->bit_pos = 0;
-            s->in_progress = 0;
-            s->rx_msg_len = 0;
-            break;
-        case SIG_STATUS_CARRIER_DOWN:
-            if (s->rx_msg_len > 0) {
-                /* Whatever we have to date constitutes the message */
-                s->rx_msg[s->rx_msg_len] = '\0';
-                s->put_msg(s->user_data, s->rx_msg, s->rx_msg_len);
-                s->rx_msg_len = 0;
-            }
-            break;
-        default:
-            span_log(&s->logging, SPAN_LOG_WARNING, "Unexpected special put byte value - %d!\n", byte);
-            break;
-        }
-        return;
-    }
-    if ((octet = v18_decode_baudot(s, (uint8_t) (byte & 0x1F))))
-        s->rx_msg[s->rx_msg_len++] = octet;
+	s = (v18_state_t *) user_data;
+	if (byte < 0) {
+		/* Special conditions */
+		span_log(&s->logging, SPAN_LOG_FLOW, "V.18 signal status is %s (%d)\n", signal_status_to_str(byte), byte);
+		switch (byte) {
+		case SIG_STATUS_CARRIER_UP:
+			s->consecutive_ones = 0;
+			s->bit_pos = 0;
+			s->in_progress = 0;
+			s->rx_msg_len = 0;
+			break;
+		case SIG_STATUS_CARRIER_DOWN:
+			if (s->rx_msg_len > 0) {
+				/* Whatever we have to date constitutes the message */
+				s->rx_msg[s->rx_msg_len] = '\0';
+				s->put_msg(s->user_data, s->rx_msg, s->rx_msg_len);
+				s->rx_msg_len = 0;
+			}
+			break;
+		default:
+			span_log(&s->logging, SPAN_LOG_WARNING, "Unexpected special put byte value - %d!\n", byte);
+			break;
+		}
+		return;
+	}
+	if ((octet = v18_decode_baudot(s, (uint8_t) (byte & 0x1F))))
+		s->rx_msg[s->rx_msg_len++] = octet;
 #if 0
-    if (s->rx_msg_len >= 256)
+	if (s->rx_msg_len >= 256)
 #else
 	if (s->rx_msg_len >= 1) /* Send data as soon as we have any */
 #endif
-    {
+	{
 		ast_assert(s->put_msg != NULL);
-        s->rx_msg[s->rx_msg_len] = '\0';
-        s->put_msg(s->user_data, s->rx_msg, s->rx_msg_len);
-        s->rx_msg_len = 0;
-    }
+		s->rx_msg[s->rx_msg_len] = '\0';
+		s->put_msg(s->user_data, s->rx_msg, s->rx_msg_len);
+		s->rx_msg_len = 0;
+	}
 }
 
 /*! \brief spandsp asks us for a bit to send onto the line */
@@ -398,7 +398,7 @@ static int modem_get_bit(void *user_data)
 	 * than we check for new data on the socket
 	 * or there's no new data, so we send 1s (mark) */
 	if (tx->writepos == tx->readpos) {
-		if(tx->state->nulsent > 0) {	/* connection is established, look for data on socket */
+		if (tx->state->nulsent > 0) {	/* connection is established, look for data on socket */
 			rc = recv(tx->sock, &byte, 1, 0);
 			if (rc > 0) {
 				/* new data on socket, we put that byte into our bitbuffer */
@@ -665,7 +665,7 @@ static int softmodem_communicate(modem_session *s)
 	}
 
 	sock = socket(AF_INET, SOCK_STREAM, 0);
-	if(sock < 0) {
+	if (sock < 0) {
 		ast_log(LOG_WARNING, "Could not create socket.\n");
 		return res;
 	}
