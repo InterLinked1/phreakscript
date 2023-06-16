@@ -9,9 +9,9 @@
  * Parity options added 2018 Rob O'Donnell
  *
  * Compiler fixes for Asterisk 18, XML documentation, bug fixes,
- * TDD (45.45 bps and 50 bps Baudot code) capabilities,
+ * TDD (45.45 bps and 50 bps Baudot code) capabilities, TLS support
  * and coding guidelines fixes and updates,
- * by InterLinked (Naveen Albert) <asterisk@phreaknet.org>, 2021, 2023.
+ * by Naveen Albert <asterisk@phreaknet.org>, 2021, 2023.
  * Note that default behavior has been changed from LSB to MSB.
  *
  * This program is free software, distributed under the terms of
@@ -36,6 +36,11 @@
 #include <errno.h>
 #include <tiffio.h>
 #include <time.h>
+
+#ifdef HAVE_OPENSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#endif
 
 /* For TDD stuff */
 #define SPANDSP_EXPOSE_INTERNAL_STRUCTURES
@@ -77,7 +82,7 @@
 /*** DOCUMENTATION
 	<application name="Softmodem" language="en_US">
 		<synopsis>
-			A Softmodem that connects the caller to a Telnet server.
+			A Softmodem that connects the caller to a Telnet server (TCP port).
 		</synopsis>
 		<syntax>
 			<parameter name="hostname" required="false">
@@ -144,6 +149,9 @@
 							</enum>
 						</enumlist>
 					</option>
+					<option name="x">
+						<para>Use TLS encryption for the data connection.</para>
+					</option>
 				</optionlist>
 			</parameter>
 		</syntax>
@@ -166,7 +174,8 @@ enum {
 	OPT_ULM_HEADER =     (1 << 7),
 	OPT_NULL =           (1 << 8),
 	OPT_EVEN_PARITY = 	 (1 << 9),
-	OPT_ODD_PARITY = 	 (1 << 10)
+	OPT_ODD_PARITY = 	 (1 << 10),
+	OPT_TLS =            (1 << 11),
 };
 
 enum {
@@ -191,6 +200,7 @@ AST_APP_OPTIONS(additional_options, BEGIN_OPTIONS
 	AST_APP_OPTION('o', OPT_ODD_PARITY),
 	AST_APP_OPTION('u', OPT_ULM_HEADER),
 	AST_APP_OPTION('n', OPT_NULL),
+	AST_APP_OPTION('x', OPT_TLS),
 END_OPTIONS );
 
 #define MAX_SAMPLES 240
@@ -229,6 +239,9 @@ typedef struct {
 
 typedef struct {
 	int sock;
+#ifdef HAVE_OPENSSL
+	SSL *ssl;
+#endif
 	int bitbuffer[MODEM_BITBUFFER_SIZE];
 	int writepos;
 	int readpos;
@@ -292,15 +305,22 @@ static void modem_put_bit(void *user_data, int bit)
 								byte |= (1 << i);
 							}
 						} else { /* MSB first */
-							if (rx->bitbuffer[(rx->readpos + databits - i) %MODEM_BITBUFFER_SIZE]) {
+							if (rx->bitbuffer[(rx->readpos + databits - i) % MODEM_BITBUFFER_SIZE]) {
 								byte |= (1 << i);
 							}
 						}
 					}
 
-					if (!paritybits || (paritybits && (rx->bitbuffer[(rx->readpos + databits + 1)%MODEM_BITBUFFER_SIZE] == ((rx->session->paritytype == 2) ^ __builtin_parity(byte))))) {
+					if (!paritybits || (paritybits && (rx->bitbuffer[(rx->readpos + databits + 1) % MODEM_BITBUFFER_SIZE] == ((rx->session->paritytype == 2) ^ __builtin_parity(byte))))) {
 						ast_debug(7, "send: %d, %c\n", rx->sock, byte);
-						send(rx->sock, &byte, 1, 0);
+#ifdef HAVE_OPENSSL
+						if (rx->ssl) {
+							SSL_write(rx->ssl, &byte, 1);
+						} else
+#endif
+						{
+							send(rx->sock, &byte, 1, 0);
+						}
 					} /* else invalid parity, ignore byte */
 					rx->readpos= (rx->readpos + 10) % MODEM_BITBUFFER_SIZE; /* XXX Why does this increment by 10? */
 					rx->fill -= 10;
@@ -328,7 +348,14 @@ static void tdd_put_msg(void *user_data, const unsigned char *msg, int len)
 	}
 	ast_debug(1, "put msg: %d (%c)\n", *msg, isprint(*msg) ? *msg : ' ');
 	/* We don't need modem_put_bit here, the other TDD functions already encapsulate this functionality, we can write to the socket directly */
-	send(rx->sock, msg, len, 0);
+#ifdef HAVE_OPENSSL
+	if (rx->ssl) {
+		SSL_write(rx->ssl, msg, len);
+	} else
+#endif
+	{
+		send(rx->sock, msg, len, 0);
+	}
 }
 
 /*! \brief Same as v18_tdd_put_async_byte in spandsp's v18.c, except flush every byte immediately, not after 256.
@@ -399,7 +426,14 @@ static int modem_get_bit(void *user_data)
 	 * or there's no new data, so we send 1s (mark) */
 	if (tx->writepos == tx->readpos) {
 		if (tx->state->nulsent > 0) {	/* connection is established, look for data on socket */
-			rc = recv(tx->sock, &byte, 1, 0);
+#ifdef HAVE_OPENSSL
+			if (tx->ssl) {
+				rc = SSL_read(tx->ssl, &byte, 1);
+			} else
+#endif
+			{
+				rc = recv(tx->sock, &byte, 1, 0);
+			}
 			if (rc > 0) {
 				/* new data on socket, we put that byte into our bitbuffer */
 				for (i = 0; i < (databits + paritybits + stopbits); i++) {
@@ -433,8 +467,17 @@ static int modem_get_bit(void *user_data)
 				tx->session->finished = 1;
 			}
 		} else {
+			int res;
 			/* check if socket was closed before connection was terminated */
-			if (recv(tx->sock, &byte, 1, MSG_PEEK) == 0 ) {
+#ifdef HAVE_OPENSSL
+			if (tx->ssl) {
+				res = SSL_peek(tx->ssl, &byte, 1);
+			} else
+#endif
+			{
+				res = recv(tx->sock, &byte, 1, MSG_PEEK);
+			}
+			if (res == 0) {
 				tx->session->finished = 1;
 				return 1;
 			}
@@ -483,7 +526,14 @@ static int modem_get_bit(void *user_data)
 					}
 
 					headerlength = sprintf(header, "Version: 1\r\nTXspeed: %.2f\r\nRXspeed: %.2f\r\n\r\n", tx_baud /(1 + databits + stopbits), rx_baud / (1 + databits + stopbits));
-					send(tx->sock, header, headerlength, 0);
+#ifdef HAVE_OPENSSL
+					if (tx->ssl) {
+						SSL_write(tx->ssl, header, headerlength);
+					} else
+#endif
+					{
+						send(tx->sock, header, headerlength, 0);
+					}
 				}
 
 				if (tx->session->sendnull) {
@@ -618,11 +668,15 @@ struct ast_generator v18_generator = {
 	generate: 	v18_generator_generate,
 };
 
-static int softmodem_communicate(modem_session *s)
+static int softmodem_communicate(modem_session *s, int tls)
 {
 	int res = -1;
 	struct ast_format *original_read_fmt;
 	struct ast_format *original_write_fmt;
+#ifdef HAVE_OPENSSL
+	SSL *ssl = NULL;
+	SSL_CTX *ctx = NULL;
+#endif
 
 	modem_data rxdata, txdata;
 
@@ -699,6 +753,50 @@ static int softmodem_communicate(modem_session *s)
 	txdata.state = &state;
 	txdata.session = s;
 
+	if (tls) {
+#ifdef HAVE_OPENSSL
+		int sres;
+		ctx = SSL_CTX_new(TLS_client_method());
+		if (!ctx) {
+			close(sock);
+			return -1;
+		}
+		ssl = SSL_new(ctx);
+		if (!ssl) {
+			SSL_CTX_free(ctx);
+			close(sock);
+			return -1;
+		}
+
+		/* Set hostname if needed for SNI */
+		SSL_set_tlsext_host_name(ssl, s->host);
+
+		if (SSL_set_fd(ssl, sock) != 1) {
+			ast_log(LOG_ERROR, "Failed to set SSL fd: %s\n", ERR_error_string(ERR_get_error(), NULL));
+			SSL_CTX_free(ctx);
+			close(sock);
+			return -1;
+		}
+		/* Since fd is nonblocking, retry as needed */
+		do {
+			sres = SSL_connect(ssl);
+		} while (sres == -1 && SSL_get_error(ssl, -1) == SSL_ERROR_WANT_READ);
+		if (sres == -1) {
+			ast_log(LOG_ERROR, "Failed to connect SSL: %s\n", ERR_error_string(ERR_get_error(), NULL));
+			SSL_CTX_free(ctx);
+			close(sock);
+			return -1;
+		}
+		/* XXX No certificate verification is done here currently
+		 * For that it would be good to reuse some of the logic in tcptls.c rather than recreating it here. */
+		rxdata.ssl = txdata.ssl = ssl;
+#else
+		ast_log(LOG_ERROR, "Asterisk was compiled without TLS support\n");
+		close(sock);
+		return -1;
+#endif
+	}
+
 	/* initialise spandsp-stuff, give it our callback functions */
 	if (s->version == VERSION_V21) {
 		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V21CH2], modem_get_bit, &txdata);
@@ -724,7 +822,7 @@ static int softmodem_communicate(modem_session *s)
 		pfd.revents = 0;
 	} else {
 		ast_log(LOG_ERROR,"Unsupported modem type\n");
-		return res;
+		goto cleanup;
 	}
 
 	if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version ==  VERSION_BELL103) {
@@ -799,7 +897,14 @@ static int softmodem_communicate(modem_session *s)
 					char *writebuf;
 					int written, writelen, now = time(NULL);
 					int needspaces = lastoutput < now - 2;
-					pres = read(sock, buf + 2, sizeof(buf) - 3);
+#ifdef HAVE_OPENSSL
+					if (ssl) {
+						pres = SSL_read(ssl, buf + 2, sizeof(buf) - 3);
+					} else
+#endif
+					{
+						pres = read(sock, buf + 2, sizeof(buf) - 3);
+					}
 					if (pres <= 0) {
 						ast_debug(1, "read returned %d, socket must have disconnected on us\n", pres); /* Socket hangup, read will return 0 */
 						res = -1;
@@ -841,7 +946,14 @@ static int softmodem_communicate(modem_session *s)
 		inf = NULL;
 	}
 
+cleanup:
 	close(sock);
+#ifdef HAVE_OPENSSL
+	if (ssl) {
+		SSL_free(ssl);
+		SSL_CTX_free(ctx);
+	}
+#endif
 
 	if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
 		v22bis_release(v22_modem);
@@ -1004,7 +1116,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 		}
 	}
 
-	res = softmodem_communicate(&session);
+	res = softmodem_communicate(&session, ast_test_flag(&options, OPT_TLS));
 	return res;
 }
 
