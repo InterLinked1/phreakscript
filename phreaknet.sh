@@ -534,7 +534,7 @@ install_prereq() {
 		if [ "$ENHANCED_INSTALL" = "1" ]; then
 			apt-get dist-upgrade -y
 		fi
-		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc git mpg123 # necessary for install and basic operation.
+		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc git subversion mpg123 # necessary for install and basic operation.
 		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
 			apt-get install -y ntp tcpdump festival
 		fi
