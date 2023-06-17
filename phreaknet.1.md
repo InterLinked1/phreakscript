@@ -57,6 +57,9 @@ the best Asterisk and DAHDI experience.
 **install**
 : Install or upgrade Asterisk. This is the primary command provided by PhreakScript.
 
+**source**
+: Download and patch source code only, without building or installing. This operates on the current working directory.
+
 **dahdi**
 : Install or upgrade DAHDI (only). Generally this command does not need to be used. To install Asterisk with DAHDI, use the install command and provide the -d or --dahdi option instead.
 
