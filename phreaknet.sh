@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v0.3.3 (2023-05-25)
+# v0.3.4 (2023-06-18)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-06-18 0.3.4 PhreakScript: add source command
 # 2023-05-25 0.3.3 Asterisk: target 20.3.0
 # 2023-03-16 0.3.2 Asterisk: target 20.2.0
 # 2023-03-03 0.3.1 DAHDI: disable XPP drivers on all 32-bit architectures to fix build failures
@@ -280,7 +281,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit fuzzygerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install source dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit fuzzygerrit ccache fullpatch docgen pubdocs edit"
 	exit 0
 fi
 
@@ -302,6 +303,7 @@ Commands:
    man                Compile and install PhreakScript man page
    mancached          Install cached man page (may be outdated)
    install            Install or upgrade PhreakNet-enhanced Asterisk
+   source             Prepare PhreakNet-enhanced Asterisk source code only
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    wanpipe            Install wanpipe
    odbc               Install ODBC (MariaDB)
@@ -1576,10 +1578,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
 		:
 	fi
-
-	## Menuselect updates
-	make menuselect.makeopts
-	menuselect/menuselect --enable app_memory --enable res_cliexec menuselect.makeopts # enable modules that are not built by default
 }
 
 phreak_gerrit_off() {
@@ -1922,6 +1920,131 @@ run_rules() {
 	printf "%s\n" "$warnings warning(s), $errors error(s)"
 }
 
+get_source() {
+	# Get latest Asterisk LTS version
+	if [ "$AST_ALT_VER" = "master" ]; then
+		AST_SOURCE_NAME="asterisk-master"
+		printf "%s\n" "Proceeding to clone master branch of Asterisk..."
+		sleep 1
+	elif [ "$AST_ALT_VER" != "" ]; then
+		AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
+		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER..."
+		echoerr "***************************** WARNING *****************************"
+		printf "%s\n" "PhreakScript IS NOT TESTED WITH OLDER VERSIONS OF ASTERISK!!!"
+		printf "%s\n" "Proceed at your own risk..."
+		sleep 1
+	fi
+	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
+	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
+		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+	elif [ "$AST_ALT_VER" = "master" ]; then # clone master branch
+		if [ -d "asterisk" ]; then
+			if [ "$FORCE_INSTALL" = "1" ]; then
+				rm -rf "asterisk"
+			else
+				echoerr "Directory asterisk already exists. Please rename or delete this directory and restart installation or specify the force flag."
+				exit 1
+			fi
+		fi
+		if [ -d "asterisk-master" ]; then
+			if [ "$FORCE_INSTALL" = "1" ]; then
+				rm -rf "asterisk-master"
+			else
+				echoerr "Directory asterisk-master already exists. Please rename or delete this directory and restart installation or specify the force flag."
+				exit 1
+			fi
+		fi
+		git clone "https://github.com/asterisk/asterisk"
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to clone asterisk master branch"
+			exit 1
+		fi
+		mv asterisk asterisk-master
+	else
+		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
+	fi
+	if [ $? -ne 0 ]; then
+		if [ "$AST_ALT_VER" != "master" ]; then
+			echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz"
+		fi
+		if [ "$AST_ALT_VER" != "" ]; then
+			printf "It seems Asterisk version %s does not exist...\n" "$AST_ALT_VER"
+		fi
+		exit 1
+	fi
+	if [ "$CHAN_SCCP" = "1" ]; then
+		git clone https://github.com/chan-sccp/chan-sccp.git chan-sccp
+	fi
+
+	if [ "$AST_ALT_VER" = "master" ]; then
+		AST_SRC_DIR="asterisk-master"
+	else
+		AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
+		if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
+			if [ "$FORCE_INSTALL" = "1" ]; then
+				rm -rf $AST_SRC_DIR
+			else
+				echoerr "Directory $AST_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
+				exit 1
+			fi
+		fi
+	fi
+	printf "%s\n" "Installing production version $AST_SRC_DIR..."
+	if [ "$AST_ALT_VER" != "master" ]; then
+		tar -zxvf $AST_SOURCE_NAME.tar.gz
+		rm $AST_SOURCE_NAME.tar.gz
+	fi
+	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
+		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
+		exit 2
+	fi
+	AST_SRC_DIR2=`get_newest_astdir`
+	AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
+	while [ "$AST_SRC_DIR" != "$AST_SRC_DIR2" ]; do
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			echoerr "Deleting $AST_SRC_DIR2 to prevent ordering conflict"
+			rm -rf $AST_SRC_DIR2
+		else
+			echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
+			exit 2
+		fi
+		sleep 1 # don't tight loop in case something goes wrong.
+		AST_SRC_DIR2=`get_newest_astdir`
+		AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
+	done
+	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	if [ ! -f channels/chan_sip.c ]; then
+		printf "chan_sip was not natively present in this version of Asterisk\n"
+		ENHANCED_CHAN_SIP=1 # chan_sip isn't present anymore, we need to readd it ourselves (if we're going to build chan_sip at all)
+	fi
+	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
+		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
+		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/$CISCO_CM_SIP.patch" -O /tmp/$CISCO_CM_SIP.patch
+		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
+		if [ $? -ne 0 ]; then
+			echoerr "WARNING: Call Manager patch may have failed to apply correctly"
+		fi
+		rm /tmp/$CISCO_CM_SIP.patch
+		CFLAGS="-DENABLE_SRTP_AES_GCM -DENABLE_SRTP_AES_256" ./configure
+	fi
+	# XXX run this manually and trust the cert since the SVN server seems to have cert validation issues occasionally
+	# Do this BEFORE running the script so that the script will see the files present and just patch and exit.
+	svn --non-interactive --trust-server-cert export https://svn.digium.com/svn/thirdparty/mp3/trunk addons/mp3
+	./contrib/scripts/get_mp3_source.sh
+
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		# Add PhreakNet patches
+		printf "%s\n" "Beginning custom patches..."
+		phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
+		printf "%s\n" "Custom patching completed..."
+	else
+		echoerr "Skipping feature patches..."
+	fi
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		freebsd_port_patches
+	fi
+}
+
 # Minimum argument check
 if [ $# -lt $MIN_ARGS ]; then
 	cmd="help"
@@ -2135,6 +2258,16 @@ elif [ "$cmd" = "mancached" ]; then
 	cp phreaknet.1 /usr/local/man/man1
 	gzip /usr/local/man/man1/phreaknet.1
 	mandb
+elif [ "$cmd" = "source" ]; then
+	if [ $(id -u) -ne 0 ]; then
+		#check for source prereqs: git and svn
+		{ git --version >/dev/null && svn help >/dev/null; } || { echoerr "Please install git and subversion packages and try again."; exit 2; }
+	else
+		#we are already root, so just install prereqs
+		install_prereq
+	fi
+	AST_SOURCE_PARENT_DIR=$PWD
+	get_source
 elif [ "$cmd" = "install" ]; then
 	preinstall_warn=0
 
@@ -2197,6 +2330,7 @@ elif [ "$cmd" = "install" ]; then
 			fi
 		fi
 	fi
+	cd $AST_SOURCE_PARENT_DIR
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
 	quell_mysql
@@ -2211,123 +2345,14 @@ elif [ "$cmd" = "install" ]; then
 			sleep 2
 		fi
 	fi
-	# Get latest Asterisk LTS version
 	cd $AST_SOURCE_PARENT_DIR
-	if [ "$AST_ALT_VER" = "master" ]; then
-		AST_SOURCE_NAME="asterisk-master"
-		printf "%s\n" "Proceeding to clone master branch of Asterisk..."
-		sleep 1
-	elif [ "$AST_ALT_VER" != "" ]; then
-		AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
-		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER..."
-		echoerr "***************************** WARNING *****************************"
-		printf "%s\n" "PhreakScript IS NOT TESTED WITH OLDER VERSIONS OF ASTERISK!!!"
-		printf "%s\n" "Proceed at your own risk..."
-		sleep 1
-	fi
-	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
-	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
-		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
-	elif [ "$AST_ALT_VER" = "master" ]; then # clone master branch
-		if [ -d "asterisk" ]; then
-			if [ "$FORCE_INSTALL" = "1" ]; then
-				rm -rf "asterisk"
-			else
-				echoerr "Directory asterisk already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
-			fi
-		fi
-		if [ -d "asterisk-master" ]; then
-			if [ "$FORCE_INSTALL" = "1" ]; then
-				rm -rf "asterisk-master"
-			else
-				echoerr "Directory asterisk-master already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
-			fi
-		fi
-		git clone "https://github.com/asterisk/asterisk"
-		if [ $? -ne 0 ]; then
-			echoerr "Failed to clone asterisk master branch"
-			exit 1
-		fi
-		mv asterisk asterisk-master
-	else
-		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
-	fi
-	if [ $? -ne 0 ]; then
-		if [ "$AST_ALT_VER" != "master" ]; then
-			echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz"
-		fi
-		if [ "$AST_ALT_VER" != "" ]; then
-			printf "It seems Asterisk version %s does not exist...\n" "$AST_ALT_VER"
-		fi
-		exit 1
-	fi
-	if [ "$CHAN_SCCP" = "1" ]; then
-		git clone https://github.com/chan-sccp/chan-sccp.git chan-sccp
-	fi
-
-	if [ "$AST_ALT_VER" = "master" ]; then
-		AST_SRC_DIR="asterisk-master"
-	else
-		AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
-		if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
-			if [ "$FORCE_INSTALL" = "1" ]; then
-				rm -rf $AST_SRC_DIR
-			else
-				echoerr "Directory $AST_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
-			fi
-		fi
-	fi
-	printf "%s\n" "Installing production version $AST_SRC_DIR..."
-	if [ "$AST_ALT_VER" != "master" ]; then
-		tar -zxvf $AST_SOURCE_NAME.tar.gz
-		rm $AST_SOURCE_NAME.tar.gz
-	fi
-	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
-		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
-		exit 2
-	fi
-	AST_SRC_DIR2=`get_newest_astdir`
-	AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
-	while [ "$AST_SRC_DIR" != "$AST_SRC_DIR2" ]; do
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			echoerr "Deleting $AST_SRC_DIR2 to prevent ordering conflict"
-			rm -rf $AST_SRC_DIR2
-		else
-			echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
-			exit 2
-		fi
-		sleep 1 # don't tight loop in case something goes wrong.
-		AST_SRC_DIR2=`get_newest_astdir`
-		AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
-	done
-	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
-	if [ ! -f channels/chan_sip.c ]; then
-		printf "chan_sip was not natively present in this version of Asterisk\n"
-		ENHANCED_CHAN_SIP=1 # chan_sip isn't present anymore, we need to readd it ourselves (if we're going to build chan_sip at all)
-	fi
-	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
-		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
-		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/$CISCO_CM_SIP.patch" -O /tmp/$CISCO_CM_SIP.patch
-		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
-		if [ $? -ne 0 ]; then
-			echoerr "WARNING: Call Manager patch may have failed to apply correctly"
-		fi
-		rm /tmp/$CISCO_CM_SIP.patch
-		CFLAGS="-DENABLE_SRTP_AES_GCM -DENABLE_SRTP_AES_256" ./configure
-	fi
+	get_source
 	# Install Pre-Reqs
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		printf "%s %d" "libvpb1 libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
 		apt-get install -y libvpb1
 	fi
 	./contrib/scripts/install_prereq install
-	# XXX run this manually and trust the cert since the SVN server seems to have cert validation issues occasionally
-	# Do this BEFORE running the script so that the script will see the files present and just patch and exit.
-	svn --non-interactive --trust-server-cert export https://svn.digium.com/svn/thirdparty/mp3/trunk addons/mp3
-	./contrib/scripts/get_mp3_source.sh
 	if [ "$DEVMODE" = "1" ]; then
 		configure_devmode
 	else
@@ -2341,6 +2366,10 @@ elif [ "$cmd" = "install" ]; then
 	# Change Compile Options: https://wiki.asterisk.org/wiki/display/AST/Using+Menuselect+to+Select+Asterisk+Options
 	$AST_MAKE menuselect.makeopts
 	menuselect/menuselect --enable format_mp3 menuselect.makeopts # add mp3 support
+	# Apply menuselects for patches
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		menuselect/menuselect --enable app_memory --enable res_cliexec menuselect.makeopts # enable modules that are not built by default
+	fi
 	# We want ulaw, not gsm (default)
 	menuselect/menuselect --disable-category MENUSELECT_MOH --disable-category MENUSELECT_CORE_SOUNDS --disable-category MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
 	# Only grab sounds if this is the first time
@@ -2383,17 +2412,6 @@ elif [ "$cmd" = "install" ]; then
 		sed -i 's/TLSv1.2/TLSv1.0/g' /etc/ssl/openssl.cnf
 		sed -i 's/DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=1/g' /etc/ssl/openssl.cnf
 		printf "%s\n" "Successfully patched OpenSSL to allow TLS 1.0..."
-	fi
-	if [ "$EXTRA_FEATURES" = "1" ]; then
-		# Add PhreakNet patches
-		printf "%s\n" "Beginning custom patches..."
-		phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
-		printf "%s\n" "Custom patching completed..."
-	else
-		echoerr "Skipping feature patches..."
-	fi
-	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		freebsd_port_patches
 	fi
 
 	if [ "$LIGHTWEIGHT" = "1" ]; then
