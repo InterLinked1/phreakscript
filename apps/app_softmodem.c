@@ -9,8 +9,8 @@
  * Parity options added 2018 Rob O'Donnell
  *
  * Compiler fixes for Asterisk 18, XML documentation, bug fixes,
- * TDD (45.45 bps and 50 bps Baudot code) capabilities, TLS support
- * and coding guidelines fixes and updates,
+ * TDD (45.45 bps and 50 bps Baudot code) capabilities, Bell 202,
+ * originate mode, TLS support, and coding guidelines fixes and updates,
  * by Naveen Albert <asterisk@phreaknet.org>, 2021, 2023.
  * Note that default behavior has been changed from LSB to MSB.
  *
@@ -72,13 +72,6 @@
 #include "asterisk/dsp.h"
 #include "asterisk/manager.h"
 
-#ifndef TRUE
-#define TRUE 1
-#endif
-#ifndef FALSE
-#define FALSE 0
-#endif
-
 /*** DOCUMENTATION
 	<application name="Softmodem" language="en_US">
 		<synopsis>
@@ -98,6 +91,10 @@
 					</option>
 					<option name="e">
 						<para>Even parity bit</para>
+					</option>
+					<option name="f">
+						<para>Flip the mode from answering to originating, for modes (e.g. Bell 103)
+						that use different settings for the originating and answering sides.</para>
 					</option>
 					<option name="l">
 						<para>Least significant bit first (default is most significant bit)</para>
@@ -134,6 +131,9 @@
 							</enum>
 							<enum name="Bell103">
 								<para>300/300 baud</para>
+							</enum>
+							<enum name="Bell202">
+								<para>1200/1200 baud</para>
 							</enum>
 							<enum name="V22">
 								<para>1200/1200 baud</para>
@@ -176,6 +176,7 @@ enum {
 	OPT_EVEN_PARITY = 	 (1 << 9),
 	OPT_ODD_PARITY = 	 (1 << 10),
 	OPT_TLS =            (1 << 11),
+	OPT_FLIP_MODE =      (1 << 12),
 };
 
 enum {
@@ -201,6 +202,7 @@ AST_APP_OPTIONS(additional_options, BEGIN_OPTIONS
 	AST_APP_OPTION('u', OPT_ULM_HEADER),
 	AST_APP_OPTION('n', OPT_NULL),
 	AST_APP_OPTION('x', OPT_TLS),
+	AST_APP_OPTION('f', OPT_FLIP_MODE),
 END_OPTIONS );
 
 #define MAX_SAMPLES 240
@@ -209,6 +211,7 @@ enum {
 	VERSION_V21,
 	VERSION_V23,
 	VERSION_BELL103,
+	VERSION_BELL202,
 	VERSION_V22,
 	VERSION_V22BIS,
 	VERSION_V18_45, /* V18_MODE_5BIT_45 */
@@ -229,6 +232,7 @@ typedef struct {
 	int sendnull;
 	volatile int finished;
 	int	paritytype;
+	unsigned int flipmode:1;
 } modem_session;
 
 #define MODEM_BITBUFFER_SIZE 16
@@ -514,6 +518,9 @@ static int modem_get_bit(void *user_data)
 					} else if (tx->session->version == VERSION_BELL103) {
 						tx_baud = 300;
 						rx_baud = 300;
+					} else if (tx->session->version == VERSION_BELL202) {
+						tx_baud = 1200;
+						rx_baud = 1200;
 					} else if (tx->session->version == VERSION_V22) {
 						tx_baud = 1200;
 						rx_baud = 1200;
@@ -799,18 +806,36 @@ static int softmodem_communicate(modem_session *s, int tls)
 
 	/* initialise spandsp-stuff, give it our callback functions */
 	if (s->version == VERSION_V21) {
-		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V21CH2], modem_get_bit, &txdata);
-		modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V21CH1], TRUE, modem_put_bit, &rxdata);
+		if (s->flipmode) {
+			modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V21CH1], modem_get_bit, &txdata);
+			modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V21CH2], FSK_FRAME_MODE_SYNC, modem_put_bit, &rxdata);
+		} else {
+			modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V21CH2], modem_get_bit, &txdata);
+			modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V21CH1], FSK_FRAME_MODE_SYNC, modem_put_bit, &rxdata);
+		}
 	} else if (s->version == VERSION_V23) {
-		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V23CH1], modem_get_bit, &txdata);
-		modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V23CH2], TRUE, modem_put_bit, &rxdata);
+		if (s->flipmode) {
+			modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V23CH2], modem_get_bit, &txdata);
+			modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V23CH1], FSK_FRAME_MODE_SYNC, modem_put_bit, &rxdata);
+		} else {
+			modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_V23CH1], modem_get_bit, &txdata);
+			modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_V23CH2], FSK_FRAME_MODE_SYNC, modem_put_bit, &rxdata);
+		}
 	} else if (s->version == VERSION_BELL103) {
-		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_BELL103CH1], modem_get_bit, &txdata);
-		modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_BELL103CH2], TRUE, modem_put_bit, &rxdata);
+		if (s->flipmode) {
+			modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_BELL103CH2], modem_get_bit, &txdata);
+			modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_BELL103CH1], FSK_FRAME_MODE_SYNC, modem_put_bit, &rxdata);
+		} else {
+			modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_BELL103CH1], modem_get_bit, &txdata);
+			modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_BELL103CH2], FSK_FRAME_MODE_SYNC, modem_put_bit, &rxdata);
+		}
+	} else if (s->version == VERSION_BELL202) {
+		modem_tx = fsk_tx_init(NULL, &preset_fsk_specs[FSK_BELL202], modem_get_bit, &txdata);
+		modem_rx = fsk_rx_init(NULL, &preset_fsk_specs[FSK_BELL202], FSK_FRAME_MODE_SYNC, modem_put_bit, &rxdata);
 	} else if (s->version == VERSION_V22) {
-		v22_modem = v22bis_init(NULL, 1200, 0, FALSE, modem_get_bit, &txdata, modem_put_bit, &rxdata);
+		v22_modem = v22bis_init(NULL, 1200, 0, s->flipmode, modem_get_bit, &txdata, modem_put_bit, &rxdata);
 	} else if (s->version == VERSION_V22BIS) {
-		v22_modem = v22bis_init(NULL, 2400, 0, FALSE, modem_get_bit, &txdata, modem_put_bit, &rxdata);
+		v22_modem = v22bis_init(NULL, 2400, 0, s->flipmode, modem_get_bit, &txdata, modem_put_bit, &rxdata);
 	} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
 		fsk_rx_state_t *fs = NULL;
 		/* This softmodem is the called side, so answerer mode */
@@ -825,7 +850,7 @@ static int softmodem_communicate(modem_session *s, int tls)
 		goto cleanup;
 	}
 
-	if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version ==  VERSION_BELL103) {
+	if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version ==  VERSION_BELL103 || s->version ==  VERSION_BELL202) {
 		fsk_tx_power (modem_tx, s->txpower);
 		fsk_rx_signal_cutoff(modem_rx, s->rxcutoff);
 	} else if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
@@ -833,7 +858,7 @@ static int softmodem_communicate(modem_session *s, int tls)
 		v22bis_rx_signal_cutoff(v22_modem, s->rxcutoff);
 	}
 
-	if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version == VERSION_BELL103) {
+	if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version == VERSION_BELL103 || s->version ==  VERSION_BELL202) {
 		ast_activate_generator(s->chan, &fsk_generator, modem_tx);
 	} else if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
 		ast_activate_generator(s->chan, &v22_generator, v22_modem);
@@ -860,7 +885,7 @@ static int softmodem_communicate(modem_session *s, int tls)
 		   that a frame in old format was already queued before we set chanel format
 		   to slinear so it will still be received by ast_read */
 		if (inf->frametype == AST_FRAME_VOICE && inf->subclass.format == ast_format_slin) {
-			if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version == VERSION_BELL103) {
+			if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version == VERSION_BELL103 || s->version ==  VERSION_BELL202) {
 				if (fsk_rx(modem_rx, inf->data.ptr, inf->samples) < 0) {
 					/* I know fsk_rx never returns errors. The check here is for good style only */
 					ast_log(LOG_WARNING, "softmodem returned error\n");
@@ -1058,6 +1083,8 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 					session.version = VERSION_V23;
 				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "Bell103")) {
 					session.version = VERSION_BELL103;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "Bell202")) {
+					session.version = VERSION_BELL202;
 				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V22")) {
 					session.version = VERSION_V22;
 				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V22bis")) {
@@ -1114,6 +1141,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 		if (ast_test_flag(&options, OPT_NULL)) {
 			session.sendnull = 1;
 		}
+		session.flipmode = ast_test_flag(&options, OPT_FLIP_MODE) ? 1 : 0;
 	}
 
 	res = softmodem_communicate(&session, ast_test_flag(&options, OPT_TLS));
