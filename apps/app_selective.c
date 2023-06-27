@@ -671,14 +671,14 @@ static void profile_set_param(struct selective_proc *f, const char *param, const
 }
 
 #define LOAD_GENERAL_STR(field, default) { \
-	const char *var = NULL; \
-	if (!ast_strlen_zero(var = ast_variable_retrieve(cfg, "general", #field))) { \
+	const char *var = ast_variable_retrieve(cfg, "general", #field); \
+	if (!ast_strlen_zero(var)) { \
 		ast_copy_string(field, var, sizeof(field)); \
-	} \
-	if (ast_strlen_zero(var)) { \
+	} else { \
 		ast_log(LOG_NOTICE, "%s was not specified: defaulting to %s\n", #field, default); \
 		ast_copy_string(field, default, sizeof(field)); \
-	} else if (!ast_fileexists((const char*) var, NULL, NULL)) { \
+	} \
+	if (!ast_fileexists((const char*) var, NULL, NULL)) { \
 		ast_log(LOG_WARNING, "%s file does not exist: %s\n", #field, var); \
 	} \
 }
