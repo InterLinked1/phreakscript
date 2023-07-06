@@ -1294,9 +1294,7 @@ install_dahdi() {
 	make && make install
 
 	# Wanpipe
-	if [ `uname -m` != "armv7l" ] && [ `uname -m` != "aarch64" ]; then
-		install_wanpipe
-	fi
+	install_wanpipe
 
 	service dahdi restart
 }
@@ -1347,8 +1345,8 @@ install_wanpipe() {
 	if [ $? -ne 0 ]; then
 		# XXX Should have an option to fail here forcibly, for testing.
 		echoerr "wanpipe install failed: unsupported kernel?"
+		echo "installation of other items will proceed without exiting following this error"
 		sleep 1
-		#exit 2
 	else
 		wanrouter stop
 		wanrouter start
