@@ -1226,6 +1226,9 @@ install_dahdi() {
 
 	# New Features
 
+	# fix static inline function get_ver (GitHub dahdi-tools #11)
+	phreak_fuzzy_patch "dahdi_tools_inline_get_ver.diff"	
+
 	# hearpulsing
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		git_patch "hearpulsing-dahtool.patch" # hearpulsing
@@ -1291,7 +1294,9 @@ install_dahdi() {
 	make && make install
 
 	# Wanpipe
-	install_wanpipe
+	if [ `uname -m` != "armv7l" ] && [ `uname -m` != "aarch64" ]; then
+		install_wanpipe
+	fi
 
 	service dahdi restart
 }
