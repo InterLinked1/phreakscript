@@ -1345,7 +1345,7 @@ install_wanpipe() {
 	if [ $? -ne 0 ]; then
 		# XXX Should have an option to fail here forcibly, for testing.
 		echoerr "wanpipe install failed: unsupported kernel?"
-		echo "installation of other items will proceed without exiting following this error"
+		printf "Installation of other items will proceed\n"
 		sleep 1
 	else
 		wanrouter stop
