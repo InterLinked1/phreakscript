@@ -1226,6 +1226,9 @@ install_dahdi() {
 
 	# New Features
 
+	# fix static inline function get_ver (GitHub dahdi-tools #11)
+	phreak_fuzzy_patch "dahdi_tools_inline_get_ver.diff"	
+
 	# hearpulsing
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		git_patch "hearpulsing-dahtool.patch" # hearpulsing
@@ -1342,8 +1345,8 @@ install_wanpipe() {
 	if [ $? -ne 0 ]; then
 		# XXX Should have an option to fail here forcibly, for testing.
 		echoerr "wanpipe install failed: unsupported kernel?"
+		printf "Installation of other items will proceed\n"
 		sleep 1
-		#exit 2
 	else
 		wanrouter stop
 		wanrouter start
