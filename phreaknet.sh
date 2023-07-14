@@ -1119,7 +1119,7 @@ linux_headers_install() {
 install_dahdi() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install -y build-essential binutils-dev autoconf dh-autoreconf libusb-dev
-		apt-get install -y pkg-config m4 libtool automake autoconf
+		apt-get install -y pkg-config m4 libtool automake autoconf git
 		linux_headers_install
 	else
 		echoerr "Unable to install potential DAHDI prerequisites"
