@@ -3,7 +3,7 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 20.3.0 (latest LTS release of Asterisk)
+- Asterisk 20.4.0 (latest LTS release of Asterisk)
 - DAHDI Linux 3.2.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.2.0 (with optional DAHDI install flag)
 - many additional features and stability improvements

@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v0.3.4 (2023-06-18)
+# v1.0.0 (2023-07-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-07-27 1.0.0 Asterisk: target 20.4.0
 # 2023-06-18 0.3.4 PhreakScript: add source command
 # 2023-05-25 0.3.3 Asterisk: target 20.3.0
 # 2023-03-16 0.3.2 Asterisk: target 20.2.0
@@ -1533,14 +1534,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## merged into master, not yet in a release version
 	if [ "$AST_ALT_VER" != "master" ]; then
 		:
-		#gerrit_patch 18012 "https://gerrit.asterisk.org/changes/asterisk~18012/revisions/9/patch?download" # func_json: enhance parsing. Does not apply cleanly.
-		#gerrit_patch 19927 "https://gerrit.asterisk.org/changes/asterisk~19927/revisions/1/patch?download" # app_senddtmf: Add SendFlash AMI action. Does not apply cleanly.
 	fi
 
 	## Gerrit patches: remove once merged
-	gerrit_patch 19600 "https://gerrit.asterisk.org/changes/asterisk~19600/revisions/1/patch?download" # callerid: Allow specifying timezone.
 	gerrit_patch 19744 "https://gerrit.asterisk.org/changes/asterisk~19744/revisions/1/patch?download" # config.c: fix template inheritance/overrides
-	gerrit_patch 19968 "https://gerrit.asterisk.org/changes/asterisk~19968/revisions/1/patch?download" # res_musiconhold: Add looplast option
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
