@@ -537,7 +537,7 @@ install_prereq() {
 		if [ "$ENHANCED_INSTALL" = "1" ]; then
 			apt-get dist-upgrade -y
 		fi
-		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc git subversion mpg123 # necessary for install and basic operation.
+		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc build-essential git subversion mpg123 # necessary for install and basic operation.
 		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
 			apt-get install -y ntp tcpdump festival
 		fi
@@ -1466,9 +1466,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_remoteaccess.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
 	phreak_tree_module "apps/app_selective.c"
-	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
-		phreak_tree_module "apps/app_softmodem.c"
-	fi
+	phreak_tree_module "apps/app_softmodem.c"
 	phreak_tree_module "apps/app_streamsilence.c"
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
@@ -2306,7 +2304,6 @@ elif [ "$cmd" = "install" ]; then
 		pkg_before=$( apt list --installed )
 	fi
 	if [ "$DEVMODE" = "1" ]; then
-		apt-get install -y build-essential
 		# Install the Linux headers if we can, but don't abort if we can't.
 		apt-get install -y linux-headers-`uname -r`
 		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.

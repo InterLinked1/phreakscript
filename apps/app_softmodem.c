@@ -753,6 +753,10 @@ static int softmodem_communicate(modem_session *s, int tls)
 	rxdata.state = &state;
 	rxdata.session = s;
 
+#ifdef HAVE_OPENSSL
+	rxdata.ssl = txdata.ssl = NULL;
+#endif
+
 	txdata.sock = sock;
 	txdata.writepos = 0;
 	txdata.readpos = 0;
