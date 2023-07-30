@@ -727,7 +727,7 @@ static int softmodem_communicate(modem_session *s, int tls)
 
 	sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock < 0) {
-		ast_log(LOG_WARNING, "Could not create socket.\n");
+		ast_log(LOG_ERROR, "Could not create socket: %s\n", strerror(errno));
 		return res;
 	}
 
@@ -736,10 +736,16 @@ static int softmodem_communicate(modem_session *s, int tls)
 	memcpy((char *) &server.sin_addr, hp->h_addr, hp->h_length);
 	server.sin_port = htons(s->port);
 
+	/* If the connect takes a while, we should autoservice the channel */
+	ast_autoservice_start(s->chan);
+
 	if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
-		ast_log(LOG_WARNING, "Cannot connect to remote host: '%s': %s\n", s->host, strerror(errno));
+		ast_log(LOG_ERROR, "Cannot connect to remote host: '%s': %s\n", s->host, strerror(errno));
+		ast_autoservice_stop(s->chan);
 		return res;
 	}
+
+	ast_autoservice_stop(s->chan);
 
 	fcntl(sock, F_SETFL, O_NONBLOCK);
 
