@@ -1,0 +1,97 @@
+From 0a4e149dd20e0ab2941a8cc3d42b2686197a4255 Mon Sep 17 00:00:00 2001
+From: Naveen Albert <asterisk@phreaknet.org>
+Date: Fri, 08 Apr 2022 23:17:22 +0000
+Subject: [PATCH] core_local: Fix local channel parsing with slashes
+
+Currently, trying to call a Local channel with a slash
+in the extension will fail due to the parsing of characters
+after such a slash as being dial modifiers. Additionally,
+core_local is inconsistent and incomplete with
+its parsing of Local dial strings in that sometimes it
+uses the first slash and at other times it uses the last.
+
+This creates inconsistent behavior for users, since using
+a slash in an extension is perfectly acceptable, and using
+a Goto to accomplish this works fine, but if specified
+through a Local channel, the parsing prevents this.
+
+This fixes this and improves the consistency of the dial
+string parsing to always check for options after the last
+slash in the dial string and only treat them as options if,
+in fact, they are actually options; otherwise, it will leave
+them alone.
+
+ASTERISK-30013 #close
+
+Change-Id: I8e85bc14072e452d0537a801aba17779569d0360
+---
+
+diff --git a/main/core_local.c b/main/core_local.c
+index 26b1ba1..0ada7dc 100644
+--- a/main/core_local.c
++++ b/main/core_local.c
+@@ -304,6 +304,25 @@
+ 	return peer;
+ }
+ 
++/*! \brief Determine if text after a '/' is really options or just part of the exten */
++static int really_local_options(char *data)
++{
++	/* The stuff after the slash might actually be part of the exten, not options. If so, don't lop them off. */
++	char *ptr = data;
++	if (strlen(ptr) > 4) {
++		return 0;
++	}
++	while (*ptr) {
++		/* b option no longer exists, but accept it for this purpose for compatibility */
++		if (*ptr != '/' && *ptr != 'n' && *ptr != 'j' && *ptr != 'm' && *ptr != 'b') {
++			return 0;
++		}
++		ptr++;
++	}
++	/* Okay, fine, these are definitely options... */
++	return 1;
++}
++
+ /*! \brief Adds devicestate to local channels */
+ static int local_devicestate(const char *data)
+ {
+@@ -316,8 +335,8 @@
+ 	struct ao2_iterator it;
+ 
+ 	/* Strip options if they exist */
+-	opts = strchr(exten, '/');
+-	if (opts) {
++	opts = strrchr(exten, '/');
++	if (opts && really_local_options(opts)) {
+ 		*opts = '\0';
+ 	}
+ 
+@@ -713,7 +732,7 @@
+ 	 * that off for our argument to setting up the CC_INTERFACES
+ 	 * variable.
+ 	 */
+-	if ((slash = strrchr(reduced_dest, '/'))) {
++	if ((slash = strrchr(reduced_dest, '/')) && really_local_options(slash)) {
+ 		*slash = '\0';
+ 	}
+ 	ast_set_cc_interfaces_chanvar(chan, reduced_dest);
+@@ -885,7 +904,7 @@
+ 	ast_set_flag(&pvt->base, AST_UNREAL_MOH_INTERCEPT);
+ 
+ 	/* Look for options */
+-	if ((opts = strchr(parse, '/'))) {
++	if ((opts = strrchr(parse, '/')) && really_local_options(opts)) {
+ 		*opts++ = '\0';
+ 		if (strchr(opts, 'n')) {
+ 			ast_set_flag(&pvt->base, AST_UNREAL_NO_OPTIMIZATION);
+@@ -900,6 +919,9 @@
+ 		if (strchr(opts, 'm')) {
+ 			ast_clear_flag(&pvt->base, AST_UNREAL_MOH_INTERCEPT);
+ 		}
++	} else if (opts) {
++		/* This isn't any kind of problem. Slashes are okay in the extension. */
++		ast_debug(3, "Local dial string '%s' contains slash, but no options detected\n", parse);
+ 	}
+ 
+ 	/* Look for a context */

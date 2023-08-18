@@ -1,0 +1,89 @@
+From ee084255826034bb84af0bfe6f8b5f75d9cc58af Mon Sep 17 00:00:00 2001
+From: Naveen Albert <asterisk@phreaknet.org>
+Date: Thu, 26 May 2022 01:37:53 +0000
+Subject: [PATCH] app_confbridge: Fix bridge shutdown race condition.
+
+A race condition exists where if a bridge is left vacant
+for a split instant, the bridge will shut down and go
+away at the same instant that somebody else could be trying
+to join it. The newcomer will find the conference still
+in conference_bridges and thus take it and run with it.
+At the same time, shutdown of the bridge completes and it
+is removed from conference_bridges. This would generally
+be rare since the timing must line up exactly right, but
+if the timing is right, it can happen very frequently.
+
+As a result, the newcomer will end up joining the bridge
+corresponding to the original conference that is now
+defunct. When the next party joins the same named bridge,
+it won't be found in conference_bridges and thus a new
+bridge gets created. This can happen right afterwards,
+but in theory it could happen at any point after the first.
+
+As a result, the newcomer that joined the bridge during
+the shutdown ends up stranded in a bridge that isn't
+known to app_confbridge anymore and will never get conferenced
+with anything, since it's been removed from the list of
+conferences already.
+
+To prevent this, we now check after we join the bridge
+if the same conference object is returned when searching
+for it. If it isn't, then we try to join the bridge again,
+which will succeed the second time since we won't find
+the shutting down conference anymore.
+
+ASTERISK-30081 #close
+
+Change-Id: I08a440eafbf83ec4b502d1e44c3f4d44c4a522f9
+---
+
+diff --git a/apps/app_confbridge.c b/apps/app_confbridge.c
+index ea206bf..410df78 100644
+--- a/apps/app_confbridge.c
++++ b/apps/app_confbridge.c
+@@ -1765,11 +1765,13 @@
+  */
+ static struct confbridge_conference *join_conference_bridge(const char *conference_name, struct confbridge_user *user)
+ {
+-	struct confbridge_conference *conference;
++	struct confbridge_conference *conference, *conference2;
+ 	struct post_join_action *action;
+ 	int max_members_reached = 0;
+ 
+ 	/* We explicitly lock the conference bridges container ourselves so that other callers can not create duplicate conferences at the same time */
++attempt:
++	/* We explicitly lock the conference bridges container ourselves so that other callers can not create duplicate conferences at the same */
+ 	ao2_lock(conference_bridges);
+ 
+ 	ast_debug(1, "Trying to find conference bridge '%s'\n", conference_name);
+@@ -1941,6 +1943,21 @@
+ 		return NULL;
+ 	}
+ 
++	/* Rare, but if threads interleave exactly right, the bridge could disappear
++	 * just AFTER we found it. At this point, it's not empty anymore, so if it's
++	 * still intact, it's safe to use. If not, then start over, or we'll end
++	 * up joining a ghost bridge that isn't registered anymore in the conf list. */
++	conference2 = ao2_find(conference_bridges, conference_name, OBJ_KEY);
++	if (conference != conference2) {
++		ao2_unlock(conference);
++		leave_conference(user);
++		ast_debug(1, "Conference (bridge %p) %s before we could join it\n",
++			conference->bridge, conference2 ? "changed" : "disappeared");
++		goto attempt;
++	}
++
++	ao2_ref(conference2, -1);
++
+ 	ao2_unlock(conference);
+ 
+ 	/* If an announcement is to be played play it */
+@@ -2884,6 +2901,8 @@
+ 		async_play_sound_ready(user.chan);
+ 	}
+ 
++	ast_debug(2, "Joining conference in bridge %p\n", conference->bridge);
++
+ 	ast_bridge_join(conference->bridge,
+ 		chan,
+ 		NULL,
