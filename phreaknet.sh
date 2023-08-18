@@ -176,7 +176,7 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 
 # Script environment variables
 AST_SOURCE_NAME="asterisk-20-current"
-LIBPRI_SOURCE_NAME="libpri-1.6.0"
+LIBPRI_SOURCE_NAME="libpri-1.6.1"
 WANPIPE_SOURCE_NAME="wanpipe-7.0.34" # wanpipe-latest
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
@@ -1289,9 +1289,6 @@ install_dahdi() {
 	tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
 	rm ${LIBPRI_SOURCE_NAME}.tar.gz
 	cd ${LIBPRI_SOURCE_NAME}
-	# Unreleased compiler fix patch for q921/q931 in libpri:
-	gerrit_patch 19967 "https://gerrit.asterisk.org/changes/libpri~19967/revisions/1/patch?download"
-	git_custom_patch "https://github.com/asterisk/libpri/commit/a7a2245b12288fc0657e0a8f8071bdf8ed840f4b.diff"
 	make && make install
 
 	# Wanpipe
