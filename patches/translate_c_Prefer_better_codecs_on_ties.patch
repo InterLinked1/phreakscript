@@ -1,0 +1,342 @@
+From a1e738b2e214f44dd3b0c0727aa44db45de3b10c Mon Sep 17 00:00:00 2001
+From: Naveen Albert <asterisk@phreaknet.org>
+Date: Thu, 27 May 2021 15:32:21 -0400
+Subject: [PATCH] translate.c: Prefer better codecs upon translate ties.
+
+If multiple codecs are available for the same
+resource and the translation costs between
+multiple codecs are the same, ties are
+currently broken arbitrarily, which means a
+lower quality codec would be used. This forces
+Asterisk to explicitly use the higher quality
+codec, ceteris paribus.
+
+ASTERISK-29455
+
+Change-Id: I4b7297e1baca7aac14fe4a3c7538e18e2dbe9fd6
+---
+
+diff --git a/doc/UPGRADE-staging/translate.txt b/doc/UPGRADE-staging/translate.txt
+new file mode 100644
+index 0000000..1657469
+--- /dev/null
++++ b/doc/UPGRADE-staging/translate.txt
+@@ -0,0 +1,5 @@
++Subject: translate.c
++
++When setting up translation between two codecs the quality was not taken into account,
++resulting in suboptimal translation. The quality is now taken into account,
++which can reduce the number of translation steps required, and improve the resulting quality.
+diff --git a/include/asterisk/codec.h b/include/asterisk/codec.h
+index 79798ac..b5861fa 100644
+--- a/include/asterisk/codec.h
++++ b/include/asterisk/codec.h
+@@ -78,6 +78,8 @@
+ 	unsigned int smooth;
+ 	/*! \brief Flags to be passed to the smoother */
+ 	unsigned int smoother_flags;
++	/*! \brief Format quality, on scale from 0 to 150 (100 is ulaw, the reference). This allows better format to be used, ceterus paribus. */
++	unsigned int quality;
+ 	/*! \brief The module that registered this codec */
+ 	struct ast_module *mod;
+ };
+diff --git a/main/codec.c b/main/codec.c
+index 32350f1..757f242 100644
+--- a/main/codec.c
++++ b/main/codec.c
+@@ -142,7 +142,7 @@
+ 				"\tIt does not indicate anything about your configuration.\n");
+ 	}
+ 
+-	ast_cli(a->fd, "%8s %-5s %-12s %-16s %s\n","ID","TYPE","NAME","FORMAT","DESCRIPTION");
++	ast_cli(a->fd, "%8s %-5s %-12s %-16s %7s %s\n","ID","TYPE","NAME","FORMAT","QUALITY", "DESCRIPTION");
+ 	ast_cli(a->fd, "------------------------------------------------------------------------------------------------\n");
+ 
+ 	ao2_rdlock(codecs);
+@@ -171,11 +171,12 @@
+ 			}
+ 		}
+ 
+-		ast_cli(a->fd, "%8u %-5s %-12s %-16s (%s)\n",
++		ast_cli(a->fd, "%8u %-5s %-12s %-16s %7d (%s)\n",
+ 			codec->external.id,
+ 			ast_codec_media_type2str(codec->external.type),
+ 			codec->external.name,
+ 			S_OR(codec->format_name, "no cached format"),
++			codec->external.quality,
+ 			codec->external.description);
+ 	}
+ 
+diff --git a/main/codec_builtin.c b/main/codec_builtin.c
+index bd69d46..80db1eb 100644
+--- a/main/codec_builtin.c
++++ b/main/codec_builtin.c
+@@ -105,6 +105,7 @@
+ 	.minimum_bytes = 20,
+ 	.samples_count = g723_samples,
+ 	.get_length = g723_length,
++	.quality = 20,
+ };
+ 
+ static int codec2_samples(struct ast_frame *frame)
+@@ -175,6 +176,7 @@
+ 	.samples_count = ulaw_samples,
+ 	.get_length = ulaw_length,
+ 	.smooth = 1,
++	.quality = 100, /* We are the gold standard. */
+ };
+ 
+ static struct ast_codec alaw = {
+@@ -189,6 +191,7 @@
+ 	.samples_count = ulaw_samples,
+ 	.get_length = ulaw_length,
+ 	.smooth = 1,
++	.quality = 100, /* Just as good as ulaw */
+ };
+ 
+ static int gsm_samples(struct ast_frame *frame)
+@@ -213,6 +216,7 @@
+ 	.samples_count = gsm_samples,
+ 	.get_length = gsm_length,
+ 	.smooth = 1,
++	.quality = 60,
+ };
+ 
+ static int g726_samples(struct ast_frame *frame)
+@@ -237,6 +241,7 @@
+ 	.samples_count = g726_samples,
+ 	.get_length = g726_length,
+ 	.smooth = 1,
++	.quality = 85,
+ };
+ 
+ static struct ast_codec g726aal2 = {
+@@ -251,6 +256,7 @@
+ 	.samples_count = g726_samples,
+ 	.get_length = g726_length,
+ 	.smooth = 1,
++	.quality = 85,
+ };
+ 
+ static struct ast_codec adpcm = {
+@@ -265,6 +271,7 @@
+ 	.samples_count = g726_samples,
+ 	.get_length = g726_length,
+ 	.smooth = 1,
++	.quality = 80,
+ };
+ 
+ static int slin_samples(struct ast_frame *frame)
+@@ -290,6 +297,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 115, /* Better than ulaw */
+ };
+ 
+ static struct ast_codec slin12 = {
+@@ -305,6 +313,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 116,
+ };
+ 
+ static struct ast_codec slin16 = {
+@@ -320,6 +329,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 117,
+ };
+ 
+ static struct ast_codec slin24 = {
+@@ -335,6 +345,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 118,
+ };
+ 
+ static struct ast_codec slin32 = {
+@@ -350,6 +361,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 119,
+ };
+ 
+ static struct ast_codec slin44 = {
+@@ -365,6 +377,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 120,
+ };
+ 
+ static struct ast_codec slin48 = {
+@@ -380,6 +393,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 121,
+ };
+ 
+ static struct ast_codec slin96 = {
+@@ -395,6 +409,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 122,
+ };
+ 
+ static struct ast_codec slin192 = {
+@@ -410,6 +425,7 @@
+ 	.get_length = slin_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_BE | AST_SMOOTHER_FLAG_FORCED,
++	.quality = 123,
+ };
+ 
+ static int lpc10_samples(struct ast_frame *frame)
+@@ -433,6 +449,7 @@
+ 	.minimum_bytes = 7,
+ 	.samples_count = lpc10_samples,
+ 	.smooth = 1,
++	.quality = 25,
+ };
+ 
+ static int g729_samples(struct ast_frame *frame)
+@@ -458,6 +475,7 @@
+ 	.get_length = g729_length,
+ 	.smooth = 1,
+ 	.smoother_flags = AST_SMOOTHER_FLAG_G729,
++	.quality = 20,
+ };
+ 
+ static unsigned char get_n_bits_at(unsigned char *data, int n, int bit)
+@@ -584,6 +602,7 @@
+ 	.default_ms = 20,
+ 	.minimum_bytes = 10,
+ 	.samples_count = speex8_samples,
++	.quality = 40,
+ };
+ 
+ static int speex16_samples(struct ast_frame *frame)
+@@ -601,6 +620,7 @@
+ 	.default_ms = 20,
+ 	.minimum_bytes = 10,
+ 	.samples_count = speex16_samples,
++	.quality = 40,
+ };
+ 
+ static int speex32_samples(struct ast_frame *frame)
+@@ -618,6 +638,7 @@
+ 	.default_ms = 20,
+ 	.minimum_bytes = 10,
+ 	.samples_count = speex32_samples,
++	.quality = 40,
+ };
+ 
+ static int ilbc_samples(struct ast_frame *frame)
+@@ -641,6 +662,7 @@
+ 	.minimum_bytes = 38,
+ 	.samples_count = ilbc_samples,
+ 	.smooth = 0,
++	.quality = 45,
+ };
+ 
+ static struct ast_codec g722 = {
+@@ -655,6 +677,7 @@
+ 	.samples_count = g726_samples,
+ 	.get_length = g726_length,
+ 	.smooth = 1,
++	.quality = 110, /* In theory, better than ulaw */
+ };
+ 
+ static int siren7_samples(struct ast_frame *frame)
+@@ -678,6 +701,7 @@
+ 	.minimum_bytes = 80,
+ 	.samples_count = siren7_samples,
+ 	.get_length = siren7_length,
++	.quality = 85,
+ };
+ 
+ static int siren14_samples(struct ast_frame *frame)
+@@ -701,6 +725,7 @@
+ 	.minimum_bytes = 120,
+ 	.samples_count = siren14_samples,
+ 	.get_length = siren14_length,
++	.quality = 90,
+ };
+ 
+ static int g719_samples(struct ast_frame *frame)
+@@ -724,6 +749,7 @@
+ 	.minimum_bytes = 160,
+ 	.samples_count = g719_samples,
+ 	.get_length = g719_length,
++	.quality = 95,
+ };
+ 
+ static int opus_samples(struct ast_frame *frame)
+@@ -751,6 +777,7 @@
+ 	.default_ms = 20,
+ 	.samples_count = opus_samples,
+ 	.minimum_bytes = 10,
++	.quality = 50,
+ };
+ 
+ static struct ast_codec jpeg = {
+@@ -859,7 +886,7 @@
+ 	.maximum_ms = 100,
+ 	.default_ms = 20,
+ 	.minimum_bytes = 160,
+-	.samples_count = silk_samples
++	.samples_count = silk_samples,
+ };
+ 
+ static struct ast_codec silk12 = {
+diff --git a/main/translate.c b/main/translate.c
+index 3101598..5d811be 100644
+--- a/main/translate.c
++++ b/main/translate.c
+@@ -1465,11 +1465,39 @@
+ 				beststeps = matrix_get(x, y)->multistep;
+ 			} else if (matrix_get(x, y)->table_cost == besttablecost
+ 					&& matrix_get(x, y)->multistep == beststeps) {
++				int replace = 0;
+ 				unsigned int gap_selected = format_sample_rate_absdiff(best, bestdst);
+ 				unsigned int gap_current = format_sample_rate_absdiff(src, dst);
+ 
+ 				if (gap_current < gap_selected) {
+ 					/* better than what we have so far */
++					replace = 1;
++				} else if (gap_current == gap_selected) {
++					int src_quality, best_quality;
++					struct ast_codec *src_codec, *best_codec;
++
++					src_codec = ast_format_get_codec(src);
++					best_codec = ast_format_get_codec(best);
++					src_quality = src_codec->quality;
++					best_quality = best_codec->quality;
++
++					ao2_cleanup(src_codec);
++					ao2_cleanup(best_codec);
++
++					/* We have a tie, so choose the format with the higher quality, if they differ. */
++					if (src_quality > best_quality) {
++						/* Better than what we had before. */
++						replace = 1;
++						ast_debug(2, "Tiebreaker: preferring format %s (%d) to %s (%d)\n", ast_format_get_name(src), src_quality,
++							ast_format_get_name(best), best_quality);
++					} else {
++						/* This isn't necessarily indicative of a problem, but in reality this shouldn't really happen, unless
++						 * there are 2 formats that are basically the same. */
++						ast_debug(1, "Completely ambiguous tie between formats %s and %s (quality %d): sticking with %s, but this is arbitrary\n",
++							ast_format_get_name(src), ast_format_get_name(best), best_quality, ast_format_get_name(best));
++					}
++				}
++				if (replace) {
+ 					ao2_replace(best, src);
+ 					ao2_replace(bestdst, dst);
+ 					besttablecost = matrix_get(x, y)->table_cost;

@@ -1535,20 +1535,20 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	## Gerrit patches: remove once merged
-	gerrit_patch 19744 "https://gerrit.asterisk.org/changes/asterisk~19744/revisions/1/patch?download" # config.c: fix template inheritance/overrides
+	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
 		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
 	else
 		# WARNING: This will cause a crash due to ABI incompatibility if any external codecs are used. Use the older translate.diff patch in that case.
 		# This has been merged into master, but for the above reason will not appear in Asterisk until v21 when new binary codec modules are created for external codecs.
-		gerrit_patch 15953 "https://gerrit.asterisk.org/changes/asterisk~15953/revisions/7/patch?download" # translate.c: Prefer better codecs on ties.
+		git_patch "translate_c_Prefer_better_codecs_on_ties.patch" # translate.c: Prefer better codecs on ties.
 	fi
 
-	gerrit_patch 18369 "https://gerrit.asterisk.org/changes/asterisk~18369/revisions/2/patch?download" # core_local: bug fix for dial string parsing
+	git_patch "core_local_bug_fix_for_dial_string_parsing.patch" # core_local: bug fix for dial string parsing
 
-	gerrit_patch 18577 "https://gerrit.asterisk.org/changes/asterisk~18577/revisions/2/patch?download" # app_confbridge: Fix bridge shutdown race condition
-	gerrit_patch 17655 "https://gerrit.asterisk.org/changes/asterisk~17655/revisions/25/patch?download" # func_groupcount: GROUP VARs
+	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
+	git_patch "func_groupcount_GROUP_VARs.patch" # func_groupcount: GROUP VARs
 	if [ "$RTPULSING" = "1" ]; then
 		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
 		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
