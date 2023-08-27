@@ -1577,6 +1577,7 @@ done:
 				ast_log(LOG_WARNING, "Playback option specified, but failurefile option not set\n");
 				return 0; /* just continue */
 			}
+			ast_indicate(chan, AST_CONTROL_PROGRESS); /* Need at least progress to guarantee audio will be audible */
 			while ((file = strsep(&tmp, "&"))) {
 				int res;
 				if (!ast_fileexists(file, NULL, ast_channel_language(chan))) {
