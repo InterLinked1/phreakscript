@@ -461,8 +461,8 @@ struct notch_information {
 	struct ast_audiohook audiohook;
 	float frequency;
 	float bandwidth;
-	unsigned short int tx;
-	unsigned short int rx;
+	unsigned short int tx:1;
+	unsigned short int rx:1;
 	long rxp1;
 	long rxp2;
 	long rxp3;
@@ -521,8 +521,9 @@ static int notch_callback(struct ast_audiohook *audiohook, struct ast_channel *c
 	if (frame->frametype == AST_FRAME_VOICE) { /* we're filtering out an in-band frequency */
 		int newstate;
 		/* Based on direction of frame, and confirm it is applicable */
-		if (!(direction == AST_AUDIOHOOK_DIRECTION_READ ? &ni->rx : &ni->tx))
+		if (!(direction == AST_AUDIOHOOK_DIRECTION_READ ? ni->rx : ni->tx)) {
 			return 0;
+		}
 		/* Notch the sample now */
 		newstate = sf_detect(&ni->rd, frame->data.ptr, frame->samples, ni->rxp1, ni->rxp2, ni->rxp3);
 		/* if ni->state > 0 && ni->state != newstate, a state change has occured on this channel */

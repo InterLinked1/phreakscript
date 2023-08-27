@@ -461,8 +461,8 @@ static FILTER *create_filter(int freq)
 struct resonance_information {
 	struct ast_audiohook audiohook;
 	int frequency;
-	unsigned short int tx;
-	unsigned short int rx;
+	unsigned short int tx:1;
+	unsigned short int rx:1;
 	FILTER *iir;
 };
 
@@ -526,7 +526,7 @@ static int resonance_callback(struct ast_audiohook *audiohook, struct ast_channe
 
 	if (frame->frametype == AST_FRAME_VOICE) { /* we're filtering out an in-band frequency */
 		/* Based on direction of frame, and confirm it is applicable */
-		if (!(direction == AST_AUDIOHOOK_DIRECTION_READ ? &ni->rx : &ni->tx)) {
+		if (!(direction == AST_AUDIOHOOK_DIRECTION_READ ? ni->rx : ni->tx)) {
 			return 0;
 		}
 		/* Filter the sample now */

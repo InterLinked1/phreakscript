@@ -313,8 +313,8 @@ struct detect_information {
 	struct ast_audiohook audiohook;
 	char *gototx;
 	char *gotorx;
-	unsigned short int tx;
-	unsigned short int rx;
+	unsigned short int tx:1;
+	unsigned short int rx:1;
 	int txcount;
 	int rxcount;
 	int hitsrequired;
@@ -502,7 +502,7 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 		return 0;
 	}
 
-	if (!(direction == AST_AUDIOHOOK_DIRECTION_READ ? &di->rx : &di->tx)) {
+	if (!(direction == AST_AUDIOHOOK_DIRECTION_READ ? di->rx : di->tx)) {
 		return 0;
 	}
 
