@@ -223,12 +223,6 @@ the best Asterisk and DAHDI experience.
 **stresstest**
 : Run any specified test multiple times in a row. The argument is the name of the specific test to run.
 
-**gerrit**
-: Manually install a custom patch set from the Asterisk Gerrit repository
-
-**fuzzygerrit**
-: Manually install a custom patch set from the Asterisk Gerrit repository, using patch (not recommended)
-
 **fullpatch**
 : Redownload an entire PhreakNet source file from the PhreakScript repository.
 
@@ -238,7 +232,10 @@ the best Asterisk and DAHDI experience.
 ## Miscellaneous
 
 **docgen**
-: Generate Asterisk user documentation
+: DEPRECATED. Generate Asterisk user documentation, using astdocgen.
+
+**mkdocs**
+: Generate Asterisk documentation, using Asterisk mkdocs documentation generator.
 
 **pubdocs**
 : DEPRECATED. Generate Asterisk user documentation

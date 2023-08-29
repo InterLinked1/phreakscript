@@ -2,17 +2,18 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.0.0 (2023-07-27)
+# v1.0.1 (2023-08-28)
 
 # Setup (as root):
 # cd /usr/local/src
-# wget https://docs.phreaknet.org/script/phreaknet.sh
+# wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
 # chmod +x phreaknet.sh
 # ./phreaknet.sh make
 # phreaknet update
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-08-28 1.0.1 PhreakScript: remove gerrit commands
 # 2023-07-27 1.0.0 Asterisk: target 20.4.0
 # 2023-06-18 0.3.4 PhreakScript: add source command
 # 2023-05-25 0.3.3 Asterisk: target 20.3.0
@@ -282,7 +283,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install source dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest gerrit fuzzygerrit ccache fullpatch docgen pubdocs edit"
+	echo "about help version examples info wizard make man mancached install source dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
 	exit 0
 fi
 
@@ -366,13 +367,12 @@ Commands:
    runtests           Run differential PhreakNet tests
    runtest            Run any specified test (argument to command)
    stresstest         Run any specified test multiple times in a row
-   gerrit             Manually install a custom patch set from Gerrit
-   fuzzygerrit        Manually install a custom patch set from Gerrit, using patch (not recommended)
    fullpatch          Redownload an entire PhreakNet source file
    ccache             Globally install ccache to speed up recompilation
 
    *** Miscellaneous ***
-   docgen             Generate Asterisk user documentation
+   docgen             Generate Asterisk user documentation, using astdocgen (deprecated)
+   mkdocs             Generate Asterisk user documentation, using Asterisk documentation generator
    pubdocs            Generate Asterisk user documentation (deprecated)
    applist            List Asterisk dialplan applications in current source
    funclist           List Asterisk dialplan functions in current source
@@ -839,62 +839,6 @@ add_phreak_testsuite() {
 	printf "%s\n" "Finished patching testsuite"
 }
 
-gerrit_patch() {
-	printf "%s\n" "Downloading and applying Gerrit patch $1"
-	wget -q $2 -O $1.patch.base64
-	if [ $? -ne 0 ]; then
-		echoerr "Patch download failed"
-		exit 2
-	fi
-	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		b64decode -r $1.patch.base64 > $1.patch
-		if [ $? -ne 0 ]; then
-			exit 2
-		fi
-	else
-		base64 --decode $1.patch.base64 > $1.patch
-	fi
-	# Apply the patch file
-	git apply $1.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply Gerrit patch $1 ($2)... this should be reported..."
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			sleep 2
-		else
-			exit 2
-		fi
-	fi
-	rm $1.patch.base64 $1.patch
-}
-
-gerrit_fuzzy_patch() {
-	printf "%s\n" "Downloading and applying Gerrit patch $1"
-	wget -q $2 -O $1.patch.base64
-	if [ $? -ne 0 ]; then
-		echoerr "Patch download failed"
-		exit 2
-	fi
-	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		b64decode -r $1.patch.base64 > $1.patch
-		if [ $? -ne 0 ]; then
-			exit 2
-		fi
-	else
-		base64 --decode $1.patch.base64 > $1.patch
-	fi
-	# Apply the patch file
-	patch -p1 < $1.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply fuzzy Gerrit patch $1 ($2)... this should be reported..."
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			sleep 2
-		else
-			exit 2
-		fi
-	fi
-	rm $1.patch.base64 $1.patch
-}
-
 install_testsuite_itself() {
 	apt-get clean
 	apt-get update -y
@@ -909,7 +853,7 @@ install_testsuite_itself() {
 			echoerr "Test Suite already exists... specify --force flag to reinstall"
 		fi
 	fi
-	git clone https://gerrit.asterisk.org/testsuite
+	git clone https://github.com/asterisk/testsuite.git
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download testsuite..."
 		return 1
@@ -1515,14 +1459,13 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
-	# gerrit_patch 17948 "https://gerrit.asterisk.org/changes/asterisk~17948/revisions/5/patch?download" # dahdi hearpulsing
-	git_patch "hearpulsing-ast.diff"
+	git_patch "hearpulsing-ast.diff" # DAHDI hearpulsing
 
 	if [ "$WEAK_TLS" = "1" ]; then
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only beneficial for older ATAs that require older TLS protocols.
 	fi
 
-	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does. Might make sense to wait until the Gerrit to GitHub migration.
+	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does.
 
 	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
 
@@ -1531,7 +1474,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		:
 	fi
 
-	## Gerrit patches: remove once merged
+	## Unmerged patches: remove once merged
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 
 	if [ "$EXTERNAL_CODECS" = "1" ]; then
@@ -1568,37 +1511,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	fi
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
-		# does not cleanly patch, do not uncomment:
-		# this does not apply even with gerrit_fuzzy_patch:
-		# gerrit_patch 17719 "https://gerrit.asterisk.org/changes/asterisk~17719/revisions/8/patch?download" # res_pbx_validate
+		# res_pbx_validate
 		:
 	fi
-}
-
-phreak_gerrit_off() {
-	if [ ${#1} -le 10 ]; then
-		echoerr "Provide the full Gerrit patch link, not just the review number"
-		exit 2
-	fi
-	gerritid=`echo "$1" | cut -d'~' -f2 | cut -d'/' -f1`
-	if [ "${#gerritid}" -ne 5 ]; then
-		echoerr "Invalid Gerrit review (id $gerritid)"
-		exit 2
-	fi
-	gerrit_patch "$gerritid" "$1"
-}
-
-phreak_fuzzy_gerrit_off() {
-	if [ ${#1} -le 10 ]; then
-		echoerr "Provide the full Gerrit patch link, not just the review number"
-		exit 2
-	fi
-	gerritid=`echo "$1" | cut -d'~' -f2 | cut -d'/' -f1`
-	if [ "${#gerritid}" -ne 5 ]; then
-		echoerr "Invalid Gerrit review (id $gerritid)"
-		exit 2
-	fi
-	gerrit_fuzzy_patch "$gerritid" "$1"
 }
 
 freebsd_port_patch() {
@@ -2764,12 +2679,6 @@ elif [ "$cmd" = "fullpatch" ]; then
 		fi
 	fi
 	phreak_tree_module "$filename"
-elif [ "$cmd" = "gerrit" ]; then
-	read -r -p "Gerrit Patchset: " gurl
-	phreak_gerrit_off "$gurl"
-elif [ "$cmd" = "fuzzygerrit" ]; then
-	read -r -p "Gerrit Patchset: " gurl
-	phreak_fuzzy_gerrit_off "$gurl"
 elif [ "$cmd" = "runtest" ]; then
 	if [ ${#2} -eq 0 ]; then
 		echoerr "Missing argument."
@@ -2785,6 +2694,8 @@ elif [ "$cmd" = "stresstest" ]; then
 elif [ "$cmd" = "runtests" ]; then
 	run_testsuite_tests
 elif [ "$cmd" = "docgen" ]; then
+	echoerr "docgen is deprecated. Please migrate to mkdocs instead."
+	sleep 1
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
@@ -2818,6 +2729,32 @@ elif [ "$cmd" = "docgen" ]; then
 	fi
 	rm /tmp/astdocgen.xml
 	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
+elif [ "$cmd" = "mkdocs" ]; then
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	cd /tmp
+	if [ -d documentation ]; then
+		cd documentation
+		git stash
+		git pull
+		rm -rf /tmp/documentation/temp/site
+	else
+		git clone https://github.com/asterisk/documentation.git --depth 1
+		cd documentation
+	fi
+
+	pip3 install -r requirements.txt
+
+	# Set up build
+	echo "ASTERISK_XML_FILE := $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml" > Makefile.inc
+	echo "SKIP_ARI := yes" >> Makefile.inc
+	echo "BRANCHES := master" >> Makefile.inc
+
+	printf "Building documentation... this may take a couple minutes\n"
+
+	make BRANCH=master NO_STATIC=yes
+
+	printf "Documentation has been built to %s\n" "/tmp/documentation/temp/site"
 elif [ "$cmd" = "pubdocs" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
@@ -2847,7 +2784,7 @@ elif [ "$cmd" = "pubdocs" ]; then
 	./confluence2html < confluence.txt > docs.html
 	ls -l $AST_SOURCE_PARENT_DIR/publish-docs
 	printf "%s\n" "All Wiki documentation has been generated and is now in $AST_SOURCE_PARENT_DIR/publish-docs/docs.html"
-	printf "%s\n" "phreaknet pubdocs is deprecated. Please migrate to phreaknet docgen instead"
+	printf "%s\n" "phreaknet pubdocs is deprecated. Please migrate to phreaknet mkdocs instead"
 elif [ "$cmd" = "config" ]; then
 	inject=1
 	cd $AST_SOURCE_PARENT_DIR
