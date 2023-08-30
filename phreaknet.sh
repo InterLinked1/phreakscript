@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.0.1 (2023-08-28)
+# v1.0.2 (2023-08-30)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-08-30 1.0.2 wanpipe: Use wanpipe 7.0.35
 # 2023-08-28 1.0.1 PhreakScript: remove gerrit commands
 # 2023-07-27 1.0.0 Asterisk: target 20.4.0
 # 2023-06-18 0.3.4 PhreakScript: add source command
@@ -178,7 +179,7 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 # Script environment variables
 AST_SOURCE_NAME="asterisk-20-current"
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
-WANPIPE_SOURCE_NAME="wanpipe-7.0.34" # wanpipe-latest
+WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.35, 2023-06-29)
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
 AST_ALT_VER=""
