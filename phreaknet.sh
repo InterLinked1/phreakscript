@@ -2870,16 +2870,37 @@ elif [ "$cmd" = "keygen" ]; then
 	else
 		printf "%s\n" "--rotate flag not provided, skipping key rotation or creation."
 	fi
-	if [ ! -f phreaknetrsa.pub ]; then
+	if [ ! -f $AST_VARLIB_DIR/keys/phreaknetrsa.pub ]; then
 		die "File phreaknetrsa.pub not found"
 	fi
+	keylen=`wc -c $AST_VARLIB_DIR/keys/phreaknetrsa.pub | awk '{print $1;}'`
+	if [ "$keylen" = "" ]; then
+		echoerr "File %s not readable?" "$AST_VARLIB_DIR/keys/phreaknetrsa.pub"
+	elif [ $keylen -le 50 ]; then
+		echoerr "Readable key length only %s?" "$keylen" # if file not readable for some reason, probably won't work
+	else
+		printf "Key length: %s\n" "$keylen"
+	fi
+	cat phreaknetrsa.pub
 	if [ ${#INTERLINKED_APIKEY} -gt 30 ] && [ ${#PHREAKNET_CLLI} -eq 11 ]; then
 		wanip=`dig +short myip.opendns.com @resolver4.opendns.com`
 		printf "%s %s\n" "Autodetected WAN IP address is" $wanip
 		wanfqdn=`dig +short -x $wanip`
-		printf "%s %s\n" "Autodetected WAN FQDN hostname is" $wanfqdn
+		if [ "$wanfqdn" = "" ]; then
+			printf "Could not autodetect FQDN\n"
+		else
+			printf "%s %s\n" "Autodetected WAN FQDN hostname is" "$wanfqdn"
+		fi
 		printf "%s\n" "Attempting to upload RSA public key..."
-		cat phreaknetrsa.pub | curl -X POST --data-urlencode "rsakey=$(</dev/stdin)" -d "key=$INTERLINKED_APIKEY" -d "clli=$PHREAKNET_CLLI" https://api.phreaknet.org/v1/rsa
+		# if curl version is >= 7.76, we could use --fail-with-body and make just one request
+		curl --fail -X POST --data-urlencode "rsakey=$(cat phreaknetrsa.pub)" -d "key=$INTERLINKED_APIKEY" -d "clli=$PHREAKNET_CLLI" https://api.phreaknet.org/v1/rsa
+		if [ $? -ne 0 ]; then
+			echoerr "RSA key upload of $AST_VARLIB_DIR/keys/phreaknetrsa.pub failed."
+			# Repeat, without --fail, for error message:
+			curl -X POST --data-urlencode "rsakey=$(cat phreaknetrsa.pub)" -d "key=$INTERLINKED_APIKEY" -d "clli=$PHREAKNET_CLLI" https://api.phreaknet.org/v1/rsa
+			printf "\n"
+			exit 1
+		fi
 		printf "\n"
 	else
 		printf "%s\n" "No InterLinked API key and/or CLLI on file, skipping upload of public key..."
