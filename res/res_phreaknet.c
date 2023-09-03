@@ -56,6 +56,12 @@
 		<synopsis>PhreakNet enhancement module</synopsis>
 		<configFile name="res_phreaknet.conf">
 			<configObject name="general">
+				<configOption name="hostname" default="yes">
+					<synopsis>PhreakNet hostname</synopsis>
+					<description>
+						<para>Public PhreakNet hostname of this machine, used for key rotation.</para>
+					</description>
+				</configOption>
 				<configOption name="autokeyfetch" default="yes">
 					<synopsis>Whether to automatically fetch RSA public keys periodically.</synopsis>
 					<description>
@@ -237,6 +243,8 @@ static float blacklist_threshold;
 
 static char interlinked_api_key[INTERLINKED_API_KEYLEN + 1];
 static char mainphreaknetdisa[8];
+
+static char hostname_override[256] = "";
 
 static pthread_t phreaknet_thread = AST_PTHREADT_NULL;
 static ast_mutex_t refreshlock;
@@ -1061,7 +1069,9 @@ static int gen_keypair(int rotate)
 	}
 
 	/* If we can't determine our FQDN, bail now, before we do any rotation. */
-	if (get_fqdn(fqdn, sizeof(fqdn) - 8)) {
+	if (!ast_strlen_zero(hostname_override)) {
+		ast_copy_string(fqdn, hostname_override, sizeof(fqdn));
+	} else if (get_fqdn(fqdn, sizeof(fqdn) - 8)) {
 		ast_log(LOG_WARNING, "Failed to determine FQDN, aborting keypair %s\n", rotate ? "rotation" : "generation");
 		return -1;
 	}
@@ -1109,8 +1119,14 @@ static int gen_keypair(int rotate)
 
 	/* Upload the key. */
 
-	/* XXX What if this doesn't exist? (Answer: central keypair server now supports just using FQDN to update, so clli is optional) */
+	/* Central keypair server now supports just using FQDN to update, so clli is optional, but recommended */
 	clli = pbx_builtin_getvar_helper(NULL, "phreaknetclli");
+	if (!clli) {
+		clli = pbx_builtin_getvar_helper(NULL, "clli");
+	}
+	if (!clli) {
+		ast_log(LOG_WARNING, "Could not autodetect switch CLLI, are your [globals] set?\n");
+	}
 
 	snprintf(postdata, sizeof(postdata), "key=%s&hostname=%s&clli=%s&rsakey=%s", interlinked_api_key, fqdn, S_OR(clli, ""), uploadkey);
 	str = curl_post("https://api.phreaknet.org/v1/rsa", postdata);
@@ -1531,6 +1547,7 @@ static int load_config(int reload)
 	int decline = 0;
 
 	/* Set (or reset) defaults. */
+	hostname_override[0] = '\0';;
 	memset(&module_flags, 0, sizeof(module_flags));
 	module_flags.autokeyfetch = 1;
 	module_flags.autokeyrotate = 1;
@@ -1564,7 +1581,9 @@ static int load_config(int reload)
 		if (!strcasecmp(cat, "general")) {
 			var = ast_variable_browse(cfg, cat);
 			while (var) {
-				if (!strcasecmp(var->name, "autokeyfetch")) {
+				if (!strcasecmp(var->name, "hostname")) {
+					ast_copy_string(hostname_override, var->value, sizeof(hostname_override));
+				} else if (!strcasecmp(var->name, "autokeyfetch")) {
 					module_flags.autokeyfetch = ast_true(var->value) ? 1 : 0;
 				} else if (!strcasecmp(var->name, "autokeyrotate")) {
 					module_flags.autokeyrotate = ast_true(var->value) ? 1 : 0;
