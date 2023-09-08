@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.0.2 (2023-08-30)
+# v1.0.3 (2023-09-08)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-09-08 1.0.3 wanpipe: Use wanpipe 7.0.36
 # 2023-08-30 1.0.2 wanpipe: Use wanpipe 7.0.35
 # 2023-08-28 1.0.1 PhreakScript: remove gerrit commands
 # 2023-07-27 1.0.0 Asterisk: target 20.4.0
@@ -179,7 +180,7 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 # Script environment variables
 AST_SOURCE_NAME="asterisk-20-current"
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
-WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.35, 2023-06-29)
+WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.36, 2023-09-05)
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
 AST_ALT_VER=""
@@ -212,6 +213,7 @@ DAHDI_OLD_DRIVERS=0
 DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
+IGNORE_FAILURES=0
 ENHANCED_INSTALL=1
 EXPERIMENTAL_FEATURES=0
 LIGHTWEIGHT=0
@@ -1272,24 +1274,25 @@ install_wanpipe() {
 	cd $AST_SOURCE_PARENT_DIR
 	wget https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
+	WANPIPE_DIR=`tar -tzf $WANPIPE_SOURCE_NAME.tgz | head -1 | cut -f1 -d"/"`
+	cd ${WANPIPE_DIR}
+	if [ $? -ne 0 ]; then
+		die "Failed to download/extract wanpipe"
+	fi
 	rm ${WANPIPE_SOURCE_NAME}.tgz
-	cd ${WANPIPE_SOURCE_NAME}
 	#phreak_fuzzy_patch "af_wanpipe.diff"
 
-	#if [ "$MYSOURCEDIRORIG" != "$MYSOURCEDIR" ]; then
-	#	echoerr "Your system uses recursive Makefile includes, which wanpipe doesn't yet support... specifying the proper directory explicitly for you"
-		### XXX Currently an issue on Debian (see issue #3 on GitHub). Sangoma is supposedly working on this currently as well.
-		### BUGBUG This makes it get further than before, but doesn't fully work yet.
-	#	./Setup dahdi --silent --with-linux=$MYSOURCEDIR
-	#else
-		./Setup dahdi --silent
-	#fi
+	./Setup dahdi --silent
 
 	if [ $? -ne 0 ]; then
-		# XXX Should have an option to fail here forcibly, for testing.
 		echoerr "wanpipe install failed: unsupported kernel?"
-		printf "Installation of other items will proceed\n"
-		sleep 1
+		IGNORE_FAILURES=1 # XXX: For now, remove once wanpipe is more reliable
+		if [ "$IGNORE_FAILURES" = "1" ]; then
+			printf "Installation of other items will proceed anyways...\n"
+			sleep 1
+		else
+			exit 1
+		fi
 	else
 		wanrouter stop
 		wanrouter start
@@ -1985,7 +1988,7 @@ while true; do
 		-b | --backtraces ) ENABLE_BACKTRACES=1; shift ;;
         -c | --cc ) AST_CC=$2; shift 2;;
 		-d | --dahdi ) CHAN_DAHDI=1; shift ;;
-		-f | --force ) FORCE_INSTALL=1; shift ;;
+		-f | --force ) FORCE_INSTALL=1; IGNORE_FAILURES=1; shift ;;
 		-h | --help ) cmd="help"; shift ;;
 		-o | --flag-test ) FLAG_TEST=1; shift;;
 		-s | --sip ) CHAN_SIP=1; shift ;;
