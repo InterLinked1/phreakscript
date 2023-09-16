@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.0.3 (2023-09-08)
+# v1.0.4 (2023-09-16)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-09-16 1.0.4 DAHDI: Fix DAHDI driver restoral, fix wcte12xp compilation on kernels >= 5.16
 # 2023-09-08 1.0.3 wanpipe: Use wanpipe 7.0.36
 # 2023-08-30 1.0.2 wanpipe: Use wanpipe 7.0.35
 # 2023-08-28 1.0.1 PhreakScript: remove gerrit commands
@@ -232,7 +233,7 @@ FREEPBX_GUI=0
 GENERIC_HEADERS=0
 EXTERNAL_CODECS=0
 RTPULSING=0 # XXX: Change to 1 as soon as we can
-HAVE_COMPATIBLE_SPANDSP=0 # XXX: Change to 1 as soon as we can
+HAVE_COMPATIBLE_SPANDSP=1
 
 handler() {
 	kill $BGPID
@@ -930,7 +931,7 @@ install_samples() {
 
 dahdi_undo() {
 	printf "Restoring drivers by undoing PATCH: %s\n" "$3"
-	wget -q "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$4" -O /tmp/$2.patch --no-cache
+	wget -q "https://github.com/asterisk/dahdi-linux/commit/$4.patch" -O /tmp/$2.patch --no-cache
 	patch -u -b -p 1 --reverse -i /tmp/$2.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to reverse DAHDI patch... this should be reported..."
@@ -982,7 +983,7 @@ custom_patch() {
 
 dahdi_patch() {
 	printf "Applying unmerged DAHDI patch: %s\n" "$1"
-	wget -q "https://git.asterisk.org/gitweb/?p=dahdi/linux.git;a=patch;h=$1" -O /tmp/$1.patch --no-cache
+	wget -q "https://github.com/asterisk/dahdi-linux/commit/$1.patch" -O /tmp/$1.patch --no-cache
 	patch -u -b -p 1 -i /tmp/$1.patch
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply DAHDI patch... this should be reported..."
@@ -1022,6 +1023,7 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	dahdi_undo $1 "wctdm" "Remove support for wctdm800, wcaex800, wctdm410, wcaex410." "a66e88e666229092a96d54e5873d4b3ae79b1ce3"
 	dahdi_undo $1 "wcte12xp" "Remove support for wcte12xp." "3697450317a7bd60bfa7031aad250085928d5c47"
 	dahdi_custom_patch "wcte12xp_base" "$1/drivers/dahdi/wcte12xp/base.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/wcte12xp_base.diff" # bug fix for case statement fallthrough
+	dahdi_custom_patch "wcte12xp_types" "$1/drivers/dahdi/wcte12xp/base.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/wcte12xp_types.diff" # bug fix for >= 5.16 stdbool.h
 	dahdi_undo $1 "wcte11xp" "Remove support for wcte11xp." "3748456d22122cf807b47d5cf6e2ff23183f440d"
 	dahdi_undo $1 "wctdm" "Remove support for wctdm." "04e759f9c5a6f76ed88bc6ba6446fb0c23c1ff55"
 	dahdi_undo $1 "wct1xxp" "Remove support for wct1xxp." "dade6ac6154b58c4f5b6f178cc09de397359000b"
