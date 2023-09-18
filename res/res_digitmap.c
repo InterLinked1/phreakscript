@@ -41,6 +41,26 @@
 #include "asterisk/cli.h"
 #include "asterisk/module.h"
 #include "asterisk/pbx.h"
+#include "asterisk/manager.h"
+
+/*** DOCUMENTATION
+	<manager name="GenerateDigitMap" language="en_US" module="res_xmpp">
+		<synopsis>
+			Generate a digit map for a context.
+		</synopsis>
+		<syntax>
+			<xi:include xpointer="xpointer(/docs/manager[@name='Login']/syntax/parameter[@name='ActionID'])" />
+			<parameter name="Context" required="true">
+				<para>Name of dialplan context for which to generate a digit map.</para>
+			</parameter>
+		</syntax>
+		<description>
+			<para>Generates the digit map for the specified dialplan context.</para>
+			<para>Digit maps are used by many SIP devices when digits are collected locally,
+			and the digit map should correspond to the dial plan allowed by a device's context.</para>
+		</description>
+	</manager>
+***/
 
 #define BUF_SIZE 2048 /* Grandstream devices only support a digit map of max length 2048 */
 
@@ -122,6 +142,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 			buf_append(buf, len, "%s", prefix);
 		}
 
+		/* Process the pattern, one character at a time. */
 		while (*name) {
 			/* If there's already a prefix, insert comma for 2nd dial tone now. Otherwise the prefix code is the first digit below and we do so afterwards. */
 			if (!ast_strlen_zero(prefix) && ignorepat) {
@@ -161,7 +182,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 					}
 
 					name = range_end; /* Once we exit the loop, pick up at the end of the [] range */
-					ast_debug(2, "Processing section: %.*s\n", (int) (range_end + 1 - range_start), range_start); /* Print out contents of [] */
+					ast_debug(4, "Processing section: %.*s\n", (int) (range_end + 1 - range_start), range_start); /* Print out contents of [] */
 
 					while (range_start < range_end) {
 						if (*range_start == '-') {
@@ -169,7 +190,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 							range_first = *(range_start - 1); /* This will always succeed, because we ensure the initial range_start doesn't start with a - */
 						}
 #ifdef EXTRA_DEBUG
-						ast_debug(4, "initial_range_start: %p (%c), range_start: %p (%c), range_end: %p\n",
+						ast_debug(5, "initial_range_start: %p (%c), range_start: %p (%c), range_end: %p\n",
 							initial_range_start, *initial_range_start, range_start, *range_start, range_end);
 #endif
 						/* We check 2 bounds here: if we started more than 2 ago or we're ending more than 2 from now, then there's more than just 1 range specified, and we need to expand. */
@@ -178,7 +199,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 							/* If the [] is of format [2-9], then leave it alone. If it's any larger than that, we need to expand it or it won't be valid for a digit map. */
 							char range_last = *(range_start + 1); /* End of the range is whatever the next character is. */
 							/* Expand the range so it forms a valid digit map. */
-							ast_debug(2, "Range from %c to %c must be expanded for %s\n", range_first, range_last, ast_get_extension_name(e));
+							ast_debug(4, "Range from %c to %c must be expanded for %s\n", range_first, range_last, ast_get_extension_name(e));
 							range_first++; /* Add 1, since we already wrote the first character in the range the previous iteration of the loop. */
 							while (range_first <= range_last) { /* Write out the entire range */
 								buf_append(buf, len, "%c", range_first);
@@ -232,7 +253,6 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 				char *tmp, *tmp2 = "", *includename = ast_strdup(ast_get_include_name(i)); /* Don't use strdupa in a loop */
 
 				if (!includename) {
-					ast_log(LOG_ERROR, "strdup failed\n");
 					continue;
 				}
 				/* Only care about the include context name, not other arguments to the include */
@@ -290,7 +310,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 	geninfo->includecount -= 1;
 	includes[geninfo->includecount] = NULL;
 
-	return res < 0  ? res : (buf - start);
+	return res < 0 ? res : (buf - start);
 }
 
 static int generate_digit_map_all(int fd, const char *context_name)
@@ -311,19 +331,18 @@ static int generate_digit_map_all(int fd, const char *context_name)
 	/* XXX Would be nice if we could condense the direct translation of dialplan => digit map into a condensed form, e.g. 22|23|24 -> 2[2-4] */
 
 	/* Print */
+	ast_debug(1, "Generated digit map length: %d\n", res);
 	ast_cli(fd, "%s\n", buf + 1); /* Skip leading | */
 	return 0;
 }
 
 static char *handle_dialplan_generate_digitmap(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
-	const char *context = NULL;
-
 	switch (cmd) {
 	case CLI_INIT:
 		e->command = "dialplan generate digitmap";
 		e->usage =
-			"Usage: dialplan generate digitmap [context]\n"
+			"Usage: dialplan generate digitmap <context>\n"
 			"       Generate device digit maps for a dialplan context\n";
 		return NULL;
 	case CLI_GENERATE:
@@ -335,14 +354,42 @@ static char *handle_dialplan_generate_digitmap(struct ast_cli_entry *e, int cmd,
 #endif
 	}
 
-	if (a->argc < 4) {
+	if (a->argc != 4) {
 		return CLI_SHOWUSAGE;
 	}
-	if (a->argc == 4) {
-		context = a->argv[3];
+
+	return generate_digit_map_all(a->fd, a->argv[3]) ? CLI_FAILURE : CLI_SUCCESS;
+}
+
+static int manager_digitmap(struct mansession *s, const struct message *m)
+{
+	int res = 0;
+	const char *includes[AST_PBX_MAX_STACK];
+	char buf[BUF_SIZE];
+	struct map_geninfo geninfo = {
+		.includecount = 0,
+	};
+	const char *id = astman_get_header(m, "ActionID");
+	const char *context = astman_get_header(m, "Context");
+
+	if (ast_strlen_zero(context)) {
+		astman_send_error(s, m, "No context specified");
+		return 0;
 	}
 
-	return generate_digit_map_all(a->fd, context) ? CLI_FAILURE : CLI_SUCCESS;
+	res = generate_digit_map(NULL, context, &geninfo, includes, buf, sizeof(buf));
+	if (res <= 0) {
+		astman_send_error(s, m, "Could not generate digit map for requested context");
+		return 0;
+	}
+
+	ast_debug(1, "Generated digit map length: %d\n", res);
+	astman_append(s, "Response: Success\r\n");
+	if (!ast_strlen_zero(id)) {
+		astman_append(s, "ActionID: %s\r\n", id);
+	}
+	astman_append(s, "DigitMap: %s\r\n\r\n", buf + 1); /* Skip leading | */
+	return 0;
 }
 
 static struct ast_cli_entry generate_cli[] = {
@@ -351,14 +398,17 @@ static struct ast_cli_entry generate_cli[] = {
 
 static int unload_module(void)
 {
+	ast_manager_unregister("GenerateDigitMap");
 	ast_cli_unregister_multiple(generate_cli, ARRAY_LEN(generate_cli));
 	return 0;
 }
 
 static int load_module(void)
 {
-	ast_cli_register_multiple(generate_cli, ARRAY_LEN(generate_cli));
-	return 0;
+	int res = 0;
+	res |= ast_cli_register_multiple(generate_cli, ARRAY_LEN(generate_cli));
+	res |= ast_manager_register_xml("GenerateDigitMap", EVENT_FLAG_CONFIG | EVENT_FLAG_REPORTING, manager_digitmap);
+	return res;
 }
 
 AST_MODULE_INFO_STANDARD_EXTENDED(ASTERISK_GPL_KEY, "Device Digit Map Generation");

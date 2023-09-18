@@ -223,7 +223,7 @@ PKG_AUDIT=0
 MANUAL_MENUSELECT=0
 ENABLE_BACKTRACES=0
 ASTKEYGEN=0
-DEFAULT_PATCH_DIR="/var/www/html/interlinked/sites/phreak/code/asterisk/patches" # for new patches
+DEFAULT_PATCH_DIR="/tmp" # for new patches
 PHREAKNET_CLLI=""
 INTERLINKED_APIKEY=""
 BOILERPLATE_SOUNDS=0
@@ -1085,6 +1085,7 @@ install_dahdi() {
 		if [ "$FORCE_INSTALL" = "1" ]; then
 			rm -rf $DAHDI_LIN_SRC_DIR
 		else
+			ls -la
 			echoerr "Directory $DAHDI_LIN_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
 			exit 1
 		fi
@@ -1093,6 +1094,7 @@ install_dahdi() {
 		if [ "$FORCE_INSTALL" = "1" ]; then
 			rm -rf $DAHDI_TOOLS_SRC_DIR
 		else
+			ls -la
 			echoerr "Directory $DAHDI_TOOLS_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
 			exit 1
 		fi
@@ -2718,7 +2720,7 @@ elif [ "$cmd" = "docgen" ]; then
 		exit 2 # if the XML docs aren't valid, then give up now
 	fi
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y php php7.4-xml
+		apt-get install -y php php8.2-xml # XXX TODO: Should determine correct version dynamically
 	fi
 	printf "%s\n" "Obtaining latest version of astdocgen..."
 	wget -q "https://raw.githubusercontent.com/InterLinked1/astdocgen/master/astdocgen.php" -O astdocgen.php --no-cache
