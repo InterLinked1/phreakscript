@@ -1739,8 +1739,9 @@ static struct ast_str *phreaknet_lookup_full(const char *number, const char *fla
 	return curl_get(url, NULL);
 }
 
-static int safe_encoded_string(const char *s, char *buf, size_t len)
+static int safe_encoded_string(const char *restrict s, char *restrict buf, size_t len)
 {
+	ast_assert(s != NULL);
 	while (*s) {
 		if (isalnum(*s)) {
 			*buf++ = *s;
@@ -1762,7 +1763,7 @@ static struct ast_str *phreaknet_lookup(struct ast_channel *chan, const char *nu
 {
 	char *clid, *cnam;
 	char cvs[3];
-	char filtered_cnam[32];
+	char filtered_cnam[32] = "";
 	int ani2;
 	const char *clidverif;
 
@@ -1775,7 +1776,7 @@ static struct ast_str *phreaknet_lookup(struct ast_channel *chan, const char *nu
 	ast_copy_string(cvs, S_OR(clidverif, ""), sizeof(cvs));
 	ast_channel_unlock(chan);
 
-	if (safe_encoded_string(cnam, filtered_cnam, sizeof(filtered_cnam))) {
+	if (!ast_strlen_zero(cnam) && safe_encoded_string(cnam, filtered_cnam, sizeof(filtered_cnam))) {
 		return NULL;
 	}
 
