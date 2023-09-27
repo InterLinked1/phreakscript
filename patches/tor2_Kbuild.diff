@@ -1,0 +1,15 @@
+--- drivers/dahdi/Kbuild.bak	2023-09-27 13:45:46.096351443 +0000
++++ drivers/dahdi/Kbuild	2023-09-27 13:47:29.817323574 +0000
+@@ -158,9 +158,11 @@
+ obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_ECHOCAN_HPEC)	+= dahdi_echocan_hpec.o
+ endif
+ 
++$(obj)/tor2.o: $(obj)/tor2fw.h
+ 
+ hostprogs := makefw
+ 
+-
++$(obj)/tor2fw.h: $(src)/tormenta2.rbt $(obj)/makefw
++	$(obj)/makefw $< tor2fw > $@
+ 
+ clean-files	:= radfw.h 

@@ -1,0 +1,11 @@
+--- drivers/dahdi/Kbuild.orig	2023-09-27 20:20:17.025040055 +0000
++++ drivers/dahdi/Kbuild	2023-09-27 20:21:44.829846216 +0000
+@@ -167,4 +167,7 @@
+ $(obj)/tor2fw.h: $(src)/tormenta2.rbt $(obj)/makefw
+ 	$(obj)/makefw $< tor2fw > $@
+ 
+-clean-files	:= radfw.h 
++$(obj)/radfw.h: $(src)/pciradio.rbt $(obj)/makefw
++	$(obj)/makefw $< radfw > $@
++
++clean-files	:= tor2fw.h radfw.h 

@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.0.4 (2023-09-16)
+# v1.0.5 (2023-09-27)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-09-27 1.0.5 DAHDI: restore tor2 and pciradio drivers, PhreakScript: pull update script from GitHub
 # 2023-09-16 1.0.4 DAHDI: Fix DAHDI driver restoral, fix wcte12xp compilation on kernels >= 5.16
 # 2023-09-08 1.0.3 wanpipe: Use wanpipe 7.0.36
 # 2023-08-30 1.0.2 wanpipe: Use wanpipe 7.0.35
@@ -535,6 +536,13 @@ install_prereq() {
 		if [ -f /etc/needrestart/needrestart.conf ]; then
 			sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
 		fi
+		if [ -f /var/cache/apt/pkgcache.bin ]; then
+			echo $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) ))
+			if [ $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) )) -lt 7200 ]; then # within last 2 hours
+				printf "Package updates occured recently, skipping...\n"
+				return
+			fi
+		fi
 		apt-get clean
 		apt-get update -y
 		apt-get upgrade -y
@@ -940,6 +948,13 @@ dahdi_undo() {
 	rm /tmp/$2.patch
 }
 
+dahdi_undo_force() {
+	printf "Restoring drivers by undoing PATCH: %s\n" "$3"
+	wget -q "https://github.com/asterisk/dahdi-linux/commit/$4.patch" -O /tmp/$2.patch --no-cache
+	patch -u -b -p 1 --reverse -i /tmp/$2.patch
+	rm /tmp/$2.patch
+}
+
 dahdi_custom_undo() {
 	printf "Applying custom reverse DAHDI patch: %s\n" "$3"
 	wget -q "$4" -O /tmp/$2.patch --no-cache
@@ -1028,8 +1043,13 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	dahdi_undo $1 "wctdm" "Remove support for wctdm." "04e759f9c5a6f76ed88bc6ba6446fb0c23c1ff55"
 	dahdi_undo $1 "wct1xxp" "Remove support for wct1xxp." "dade6ac6154b58c4f5b6f178cc09de397359000b"
 	dahdi_undo $1 "wcfxo" "Remove support for wcfxo." "14198aee8532bbafed2ad1297177f8e0e0f13f50"
-	#dahdi_undo $1 "tor2" "Remove support for tor2." "60d058cc7a064b6e07889f76dd9514059c303e0f"
-	#dahdi_undo $1 "pciradio" "Remove support for pciradio." "bfdfc4728c033381656b59bf83aa37187b5dfca8"
+
+	# The tor2 and pciradio patches do not revert cleanly on their own. We need to finish it off manually with additional patches:
+	dahdi_undo_force $1 "tor2" "Remove support for tor2." "60d058cc7a064b6e07889f76dd9514059c303e0f"
+	dahdi_custom_patch "tor2_Kbuild" "$1/drivers/dahdi/Kbuild" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/tor2_Kbuild.diff"
+	dahdi_undo_force $1 "pciradio" "Remove support for pciradio." "bfdfc4728c033381656b59bf83aa37187b5dfca8"
+	dahdi_custom_patch "pciradio_Kbuild" "$1/drivers/dahdi/Kbuild" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/pciradio_Kbuild.diff"
+
 	printf "%s\n" "Finished undoing DAHDI removals!"
 }
 
@@ -2945,8 +2965,8 @@ elif [ "$cmd" = "ban" ]; then
 	iptables -A INPUT -s $2 -j DROP
 elif [ "$cmd" = "update" ]; then
 	assert_root
-	if [ ! -f "/tmp/phreakscript_update.sh" ]; then
-		wget -q $PATCH_DIR/phreakscript_update.sh -O /tmp/phreakscript_update.sh
+	if [ ! -f "/tmp/phreakscript_update.sh" ] || [ $(stat -c%s "/tmp/phreakscript_update.sh") -eq 0 ]; then
+		wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_update.sh" -O /tmp/phreakscript_update.sh
 		chmod +x /tmp/phreakscript_update.sh
 	fi
 	printf "%s\n" "Updating PhreakScript..."
