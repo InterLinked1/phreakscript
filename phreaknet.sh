@@ -1475,7 +1475,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## Add patches to existing modules
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
-	phreak_tree_patch "apps/app_dial.c" "6112308.diff" # app_dial: Bug fix to prevent infinite loop on progress-sent DTMF
 	if [ "$ENHANCED_CHAN_SIP" != "1" ]; then
 		phreak_tree_patch "channels/chan_sip.c" "sipfaxcontrol.diff" # chan_sip: Add fax timing controls
 	fi
@@ -1487,7 +1486,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
-	git_patch "hearpulsing-ast.diff" # DAHDI hearpulsing
+	# No longer cleanly patches
+	#git_patch "hearpulsing-ast.diff" # DAHDI hearpulsing
 
 	if [ "$WEAK_TLS" = "1" ]; then
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only beneficial for older ATAs that require older TLS protocols.
@@ -3103,25 +3103,35 @@ elif [ "$cmd" = "restart" ]; then
 	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
 	printf "Current drivers: --- %s ---\n", "$curdrivers"
 	if which wanrouter > /dev/null; then
-		printf "Stopping wanpipe spans\n"
-		if ! wanrouter stop all; then # stop all T1 spans on wanpipe
-			die "Failed to stop wanpipe spans"
-		elif ! service wanrouter stop; then # stop wanpipe service
-			die "Failed to stop wanrouter"
-		elif ! modprobe -r dahdi_echocan_mg2; then # remove DAHDI echocan
-			die "Failed to remove DAHDI echocan"
+		service wanpipe status
+		if [ $? -ne 0 ]; then
+			printf "Stopping wanpipe spans\n"
+			if ! wanrouter stop all; then # stop all T1 spans on wanpipe
+				die "Failed to stop wanpipe spans"
+			elif ! service wanrouter stop; then # stop wanpipe service
+				die "Failed to stop wanrouter"
+			elif ! modprobe -r dahdi_echocan_mg2; then # remove DAHDI echocan
+				die "Failed to remove DAHDI echocan"
+			fi
 		fi
+	else
+		printf "wanpipe is not running, skipping...\n"
 	fi
-	printf "Stopping DAHDI...\n" # XXX extraneous comma in output???
-	if ! service dahdi stop; then
-		printf "Returned %d\n" $?
-		die "Failed to stop DAHDI"
-	elif ! modprobe -r dahdi; then
-		die "Failed to remove DAHDI from kernel"
-	elif ! service dahdi stop; then # do it again, just to be sure
-		die "Failed to stop DAHDI the second time"
+	service dahdi status
+	if [ $? -ne 0 ]; then
+		printf "Stopping DAHDI...\n" # XXX extraneous comma in output???
+		if ! service dahdi stop; then
+			printf "Returned %d\n" $?
+			die "Failed to stop DAHDI"
+		elif ! modprobe -r dahdi; then
+			die "Failed to remove DAHDI from kernel"
+		elif ! service dahdi stop; then # do it again, just to be sure
+			die "Failed to stop DAHDI the second time"
+		fi
+		printf "DAHDI shutdown complete\n"
+	else
+		printf "DAHDI is not running, skipping...\n"
 	fi
-	printf "DAHDI shutdown complete\n"
 	sleep 1
 	printf "Starting DAHDI...\n"
 	if which wanrouter > /dev/null; then
