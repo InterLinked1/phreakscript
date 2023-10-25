@@ -268,6 +268,7 @@ if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	XMLSTARLET="/usr/local/bin/xml"
 elif [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
 	PAC_MAN="yum"
+	WGET="wget -q" # --show-progress not supported by yum/Sangoma Linux?
 fi
 
 phreakscript_info() {
@@ -276,6 +277,7 @@ phreakscript_info() {
 	echo $OS_DIST_INFO
 	uname -a
 	echo "Package Manager: $PAC_MAN"
+	gcc -v 2>&1 | grep "gcc version"
 	asterisk -V 2> /dev/null # Asterisk might or might not exist...
 	if [ -d /etc/dahdi ]; then
 		dahdi_cfg -tv 2>&1 | grep "ersion"
@@ -561,7 +563,8 @@ install_prereq() {
 		# used to feed the country code non-interactively
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
-	# TODO: missing yum support
+	elif [ "$PAC_MAN" = "yum" ]; then
+		yum install -y git
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -f
 		pkg upgrade -y
@@ -577,7 +580,6 @@ install_prereq() {
 	else
 		echoerr "Could not determine what package manager to use..."
 	fi
-	apt autoremove
 }
 
 ensure_installed() {
@@ -3000,18 +3002,20 @@ elif [ "$cmd" = "update" ]; then
 			rm /tmp/phreakscript_autocomplete.sh
 		fi
 		if [ ! -f /etc/bash_completion.d/phreaknet ]; then # try to add auto-completion
-			printf "Downloading auto-completion binding script\n"
-			wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_autocomplete.sh" -O /tmp/phreakscript_autocomplete.sh
-			mv /tmp/phreakscript_autocomplete.sh /etc/bash_completion.d/phreaknet
-			# by default, auto completion isn't active, so activate it:
-			# there has GOT to be a much better way to do this, but technically this will work:
-			sed -i -r "s|#if ! shopt -oq posix; then|if ! shopt -oq posix; then|g" /etc/bash.bashrc
-			sed -i -r "s|#  if|  if|g" /etc/bash.bashrc
-			sed -i -r "s|#    . /usr/share/bash-completion/bash_completion|    . /usr/share/bash-completion/bash_completion|g" /etc/bash.bashrc
-			sed -i -r "s|#  elif|  elif|g" /etc/bash.bashrc
-			sed -i -r "s|#    . /etc/bash_completion|    . /etc/bash_completion|g" /etc/bash.bashrc
-			sed -i -r "s|#  fi|  fi|g" /etc/bash.bashrc
-			sed -i -r "s|#fi|fi|g" /etc/bash.bashrc
+			if [ -f /etc/bash.bashrc ]; then
+				printf "Downloading auto-completion binding script\n"
+				wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_autocomplete.sh" -O /tmp/phreakscript_autocomplete.sh
+				mv /tmp/phreakscript_autocomplete.sh /etc/bash_completion.d/phreaknet
+				# by default, auto completion isn't active, so activate it:
+				# there has GOT to be a much better way to do this, but technically this will work:
+				sed -i -r "s|#if ! shopt -oq posix; then|if ! shopt -oq posix; then|g" /etc/bash.bashrc
+				sed -i -r "s|#  if|  if|g" /etc/bash.bashrc
+				sed -i -r "s|#    . /usr/share/bash-completion/bash_completion|    . /usr/share/bash-completion/bash_completion|g" /etc/bash.bashrc
+				sed -i -r "s|#  elif|  elif|g" /etc/bash.bashrc
+				sed -i -r "s|#    . /etc/bash_completion|    . /etc/bash_completion|g" /etc/bash.bashrc
+				sed -i -r "s|#  fi|  fi|g" /etc/bash.bashrc
+				sed -i -r "s|#fi|fi|g" /etc/bash.bashrc
+			fi
 		fi
 	fi
 	exec /tmp/phreakscript_update.sh "$SCRIPT_UPSTREAM" "$FILE_PATH" "/tmp/phreakscript_update.sh"
@@ -3021,7 +3025,7 @@ elif [ "$cmd" = "patch" ]; then
 	rm -rf /tmp/phreakpatch
 	mkdir /tmp/phreakpatch
 	printf "%s\n" "Downloading patches..."
-	wget -r -l 1 -nd -np -q --show-progress -P /tmp/phreakpatch -R -A patch "https://code.phreaknet.org/asterisk/patches/"
+	$WGET -r -l 1 -nd -np -q -P /tmp/phreakpatch -R -A patch "https://code.phreaknet.org/asterisk/patches/"
 	find /tmp/phreakpatch -name "*index*.html*" | xargs rm
 	printf "%s\n" "Patching configuration..."
 	if [ ! -d $AST_CONFIG_DIR/dialplan/phreaknet ]; then
