@@ -549,7 +549,7 @@ install_prereq() {
 		if [ "$ENHANCED_INSTALL" = "1" ]; then
 			apt-get dist-upgrade -y
 		fi
-		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc build-essential git subversion mpg123 # necessary for install and basic operation.
+		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc build-essential git subversion patch mpg123 # necessary for install and basic operation.
 		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
 			apt-get install -y ntp tcpdump festival
 		fi
@@ -1900,10 +1900,14 @@ get_source() {
 		mv asterisk asterisk-master
 	else
 		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
+		# If someone is downloading the current version, it might not be in the releases directory, which is for archived (old) releases only
+		if [ $? -ne 0 ]; then
+			$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+		fi
 	fi
 	if [ $? -ne 0 ]; then
 		if [ "$AST_ALT_VER" != "master" ]; then
-			echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz"
+			echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz"
 		fi
 		if [ "$AST_ALT_VER" != "" ]; then
 			printf "It seems Asterisk version %s does not exist...\n" "$AST_ALT_VER"
@@ -2078,6 +2082,15 @@ fi
 dialog_result() {
 	if [ "$1" = "$2" ]; then
 		wizardresult="$wizardresult $3"
+	fi
+}
+
+require_installed_asterisk() {
+	if [ ! -d $AST_VARLIB_DIR ]; then
+		die "$AST_VARLIB_DIR does not exist; please install Asterisk before running this commands"
+	fi
+	if [ ! -d $AST_SOUNDS_DIR ]; then
+		die "$AST_SOUNDS_DIR does not exist; please install Asterisk before running this commands"
 	fi
 }
 
@@ -2594,6 +2607,7 @@ elif [ "$cmd" = "installts" ]; then
 	assert_root
 	install_testsuite "$FORCE_INSTALL"
 elif [ "$cmd" = "uninstall" ]; then
+	assert_root
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
 	if [ -f $AST_CONFIG_DIR/freepbx_module_admin.conf ]; then
@@ -2602,6 +2616,7 @@ elif [ "$cmd" = "uninstall" ]; then
 	cd $AST_SRC_DIR
 	make uninstall
 elif [ "$cmd" = "uninstall-all" ]; then
+	assert_root
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
 	echoerr "WARNING: This will remove all configuration, spool contents, logs, etc."
@@ -2614,8 +2629,11 @@ elif [ "$cmd" = "uninstall-all" ]; then
 	cd $AST_SRC_DIR
 	make uninstall-all
 elif [ "$cmd" = "pulsar" ]; then
+	assert_root
+	require_installed_asterisk
 	cd $AST_SOURCE_PARENT_DIR
-	wget https://octothorpe.info/downloads/pulsar-agi.tar.gz
+	# Certificate has expired (unmaintained)
+	wget --no-check-certificate https://octothorpe.info/downloads/pulsar-agi.tar.gz
 	wget https://code.phreaknet.org/asterisk/pulsar-noanswer.agi # bug fix to pulsar.agi, to fix broken answer supervision:
 	mv pulsar-agi.tar.gz $AST_VARLIB_DIR
 	cd $AST_VARLIB_DIR
@@ -2626,6 +2644,8 @@ elif [ "$cmd" = "pulsar" ]; then
 		echoerr "pulsar.agi is missing"
 	fi
 elif [ "$cmd" = "sounds" ]; then
+	assert_root
+	require_installed_asterisk
 	printf "%s\n" "Installing Asterisk audio files..."
 
 	printf "%s\n" "Installing Pat Fleet audio files..."
