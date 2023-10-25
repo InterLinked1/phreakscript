@@ -40,6 +40,7 @@
 #ifdef HAVE_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/opensslv.h>
 #endif
 
 /* For TDD stuff */
@@ -773,7 +774,11 @@ static int softmodem_communicate(modem_session *s, int tls)
 	if (tls) {
 #ifdef HAVE_OPENSSL
 		int sres;
-		ctx = SSL_CTX_new(TLS_client_method());
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+		ctx = SSL_CTX_new(TLS_method());
+#else
+		ctx = SSL_CTX_new(TLSv1_method()); /* If the system is this old, it probably should use an old TLS version anyways */
+#endif
 		if (!ctx) {
 			close(sock);
 			return -1;

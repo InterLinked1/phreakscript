@@ -85,7 +85,6 @@ PhreakScript installs:
       - Adds fax timing and parameter control to `chan_sip`
       - Adds prefix capabilities to `include => `
       - Fixes ulaw/gsm codec translation bug
-      - Fixes infinite loop Dial bug
 
 PhreakScript is also useful for:
 - automating installation and maintenance of Asterisk, Asterisk Test Suite, Asterisk Test Framework, DAHDI Linux, DAHDI Tools, and related resources

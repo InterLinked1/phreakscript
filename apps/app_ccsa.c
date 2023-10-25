@@ -1376,7 +1376,7 @@ static int offer_ohq(struct ast_channel *chan)
 /*! \retval -1 on hangup, 0 on timeout, positive integer on complete input */
 static int get_auth_code(struct ast_channel *chan, char *buf, size_t len)
 {
-	int res;
+	int res = 0;
 	struct ast_tone_zone_sound *ts = NULL;
 	int x = 0;
 

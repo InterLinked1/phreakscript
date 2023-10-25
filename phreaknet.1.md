@@ -304,6 +304,9 @@ directories if necessary.
 **--minimal**
 : Do not upgrade the kernel or install nonrequired dependencies (such as utilities that may be useful on typical Asterisk servers)
 
+**-n**, **--no-rc**
+: Do not install release candidate versions, if they are available.
+
 **-s**, **--sip**
 : Install chan_sip instead of or in addition to chan_pjsip. By default, chan_sip is not compiled or loaded since it is deprecated and will be removed in Asterisk 21.
 

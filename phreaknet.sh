@@ -180,12 +180,16 @@ AST_VARLIB_DIR="/var/lib/asterisk"
 AST_SOURCE_PARENT_DIR="/usr/src"
 
 # Script environment variables
-AST_SOURCE_NAME="asterisk-20-current"
+AST_ALT_VER=""
+AST_DEFAULT_MAJOR_VER=20
+AST_NEXT_MAJOR_VER=22
+AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
+AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
+AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing"
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
 WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.36, 2023-09-05)
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
-AST_ALT_VER=""
 MIN_ARGS=1
 FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 FILE_NAME=$( basename $0 ) # grr... why is realpath not in the POSIX standard?
@@ -217,6 +221,7 @@ TEST_SUITE=0
 FORCE_INSTALL=0
 IGNORE_FAILURES=0
 ENHANCED_INSTALL=1
+PREFER_RELEASE_CANDIDATES=1
 EXPERIMENTAL_FEATURES=0
 LIGHTWEIGHT=0
 FAST_COMPILE=0
@@ -391,6 +396,7 @@ Options:
    -d, --dahdi        Install DAHDI
    -f, --force        Force install or config
    -h, --help         Display usage
+   -n, --no-rc        Do not install release candidate versions
    -o, --flag-test    Option flag test
    -s, --sip          Install chan_sip instead of or in addition to chan_pjsip
    -t, --testsuite    Compile with developer support for Asterisk test suite and unit tests
@@ -1020,6 +1026,17 @@ git_patch() {
 	rm "/tmp/$1"
 }
 
+asterisk_pr() {
+	printf "Applying current Asterisk pull request %d\n" "$1"
+	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/292.diff" -O /tmp/$1.pr.diff --no-cache
+	git apply "/tmp/$1.pr.diff"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply Asterisk PR... this should be reported..."
+		exit 2
+	fi
+	rm "/tmp/$1.pr.diff"
+}
+
 git_custom_patch() {
 	printf "Applying git patch: %s\n" "$1"
 	wget -q "$1" -O /tmp/tmp_git_patch.diff --no-cache
@@ -1507,18 +1524,20 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Unmerged patches: remove once merged
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 
-	if [ "$EXTERNAL_CODECS" = "1" ]; then
-		phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
-	else
-		# WARNING: This will cause a crash due to ABI incompatibility if any external codecs are used. Use the older translate.diff patch in that case.
-		# This has been merged into master, but for the above reason will not appear in Asterisk until v21 when new binary codec modules are created for external codecs.
-		git_patch "translate_c_Prefer_better_codecs_on_ties.patch" # translate.c: Prefer better codecs on ties.
+	if [ $AST_MAJOR_VER -lt 21 ]; then
+		if [ "$EXTERNAL_CODECS" = "1" ]; then
+			phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
+		else
+			# WARNING: This will cause a crash due to ABI incompatibility if any external codecs are used. Use the older translate.diff patch in that case.
+			# This has been merged into master, but for the above reason will not appear in Asterisk until v21 when new binary codec modules are created for external codecs.
+			git_patch "translate_c_Prefer_better_codecs_on_ties.patch" # translate.c: Prefer better codecs on ties.
+		fi
 	fi
 
 	git_patch "core_local_bug_fix_for_dial_string_parsing.patch" # core_local: bug fix for dial string parsing
 
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
-	git_patch "func_groupcount_GROUP_VARs.patch" # func_groupcount: GROUP VARs
+	asterisk_pr 292 # GROUP VARs
 	if [ "$RTPULSING" = "1" ]; then
 		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
 		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -1532,7 +1551,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ]; then
 		printf "Installing patches for experimental features\n"
-		git_custom_patch "https://code.phreaknet.org/asterisk/pubsub.diff" # NOTE: Already merged into master.
+		if [ "$AST_ALT_VER" != "master" ] && [ "${AST_ALT_VER:0:2}" != "21" ]; then
+			git_custom_patch "https://code.phreaknet.org/asterisk/pubsub.diff" # NOTE: Already merged into master.
+		fi
 		custom_module "include/asterisk/res_pjsip_body_generator_types.h" "https://code.phreaknet.org/asterisk/res_pjsip_body_generator_types.h"
 		custom_module "res/res_pjsip_device_features.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features.c"
 		custom_module "res/res_pjsip_device_features_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features_body_generator.c"
@@ -1864,10 +1885,12 @@ get_source() {
 	# Get latest Asterisk LTS version
 	if [ "$AST_ALT_VER" = "master" ]; then
 		AST_SOURCE_NAME="asterisk-master"
+		AST_MAJOR_VER=$AST_NEXT_MAJOR_VER
 		printf "%s\n" "Proceeding to clone master branch of Asterisk..."
 		sleep 1
 	elif [ "$AST_ALT_VER" != "" ]; then
 		AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
+		AST_MAJOR_VER=${AST_ALT_VER:0:2}
 		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER..."
 		echoerr "***************************** WARNING *****************************"
 		printf "%s\n" "PhreakScript IS NOT TESTED WITH OLDER VERSIONS OF ASTERISK!!!"
@@ -1876,7 +1899,16 @@ get_source() {
 	fi
 	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
-		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+		if [ "$PREFER_RELEASE_CANDIDATES" = "1" ]; then
+			$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_RC_SOURCE_NAME.tar.gz
+			if [ $? -ne 0 ]; then
+				printf "No release candidate is currently available, installing latest stable version instead\n"
+				PREFER_RELEASE_CANDIDATES=0
+			fi
+		fi
+		if [ "$PREFER_RELEASE_CANDIDATES" = "0" ]; then
+			$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
+		fi
 	elif [ "$AST_ALT_VER" = "master" ]; then # clone master branch
 		if [ -d "asterisk" ]; then
 			if [ "$FORCE_INSTALL" = "1" ]; then
@@ -2020,6 +2052,7 @@ while true; do
 		-d | --dahdi ) CHAN_DAHDI=1; shift ;;
 		-f | --force ) FORCE_INSTALL=1; IGNORE_FAILURES=1; shift ;;
 		-h | --help ) cmd="help"; shift ;;
+		-n | --no-rc ) PREFER_RELEASE_CANDIDATES=0; shift ;;
 		-o | --flag-test ) FLAG_TEST=1; shift;;
 		-s | --sip ) CHAN_SIP=1; shift ;;
 		-t | --testsuite ) TEST_SUITE=1; DEVMODE=1; shift ;;

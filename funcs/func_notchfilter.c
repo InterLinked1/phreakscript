@@ -211,9 +211,11 @@ complex evaluate(complex topco[], int nz, complex botco[], int np, complex z)
 static complex eval(complex coeffs[], int npz, complex z)
 {
 	complex sum;
+	int i;
+
 	sum.re = 0.0;
 	sum.im = 0.0;
-	for (int i = npz; i >= 0; i--) {
+	for (i = npz; i >= 0; i--) {
 		sum = complexadd2((complexmult2(sum, z)), coeffs[i]);
 	}
 	return sum;
@@ -286,11 +288,11 @@ static void compute_bpres(void)
     } else { /* must iterate to find exact pole positions */
 		complex topcoeffs[MAXPZ+1];
 		double r, thm = theta, th1 = 0.0, th2 = PI;
-		int cvg;
+		int cvg, i;
 		expand(zplane.zeros, zplane.numzeros, topcoeffs);
 		r = exp(-theta / (2.0 * qfactor));
 		cvg = 0;
-		for (int i=0; i < 50 && !cvg; i++) {
+		for (i=0; i < 50 && !cvg; i++) {
 			complex botcoeffs[MAXPZ+1];
 			complex g;
 			double phi;
@@ -366,8 +368,9 @@ static void expand(complex pz[], int npz, complex coeffs[])
 /* multiply factor (z-w) into coeffs */
 static void multin(complex w, int npz, complex coeffs[])
 {
+	int i;
 	complex nw = complexnegative(w);
-	for (int i = npz; i >= 1; i--) {
+	for (i = npz; i >= 1; i--) {
 		coeffs[i] = complexadd2((complexmult2(nw, coeffs[i])), coeffs[i-1]);
 	}
 	coeffs[0] = complexmult2(nw, coeffs[0]);

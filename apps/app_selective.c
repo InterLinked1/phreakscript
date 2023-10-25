@@ -1225,7 +1225,8 @@ static int delete_private_entries(char *family, char *key, int res)
 /*! \brief Remove either all or all private entries from a list */
 static int selective_clear(struct ast_channel *chan, struct ast_str *strbuf, char *buf, struct selective_proc *f, int flags)
 {
-	int privates, entries = get_number_entries(chan, strbuf, f, ENTRY_ANY);
+	int privates = 0; /* Can't be used uninitialized since only used if ENTRY_PRIVATE, but whatever */
+	int entries = get_number_entries(chan, strbuf, f, ENTRY_ANY);
 
 	if (!entries) { /* list is empty, there is nothing to clear out from it... */
 		ast_verb(3, "User requested clearing all%s entries from %s list, but list is empty", flags == ENTRY_PRIVATE ? " private" : "", f->name);
