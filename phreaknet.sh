@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.0.5 (2023-09-27)
+# v1.1.0 (2023-10-26)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2023-10-26 1.1.0 Asterisk/DAHDI: target Asterisk 21, DAHDI 3.3.0-rc1
 # 2023-09-27 1.0.5 DAHDI: restore tor2 and pciradio drivers, PhreakScript: pull update script from GitHub
 # 2023-09-16 1.0.4 DAHDI: Fix DAHDI driver restoral, fix wcte12xp compilation on kernels >= 5.16
 # 2023-09-08 1.0.3 wanpipe: Use wanpipe 7.0.36
@@ -181,11 +182,28 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 
 # Script environment variables
 AST_ALT_VER=""
-AST_DEFAULT_MAJOR_VER=20
+AST_DEFAULT_MAJOR_VER=21
 AST_NEXT_MAJOR_VER=22
 AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
 AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
 AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing"
+
+DAHDI_VERSION="3.2.0"
+DAHLIN_SRC_NAME="dahdi-linux-current.tar.gz"
+DAHTOOL_SRC_NAME="dahdi-tools-current.tar.gz"
+DAHLIN_SRC_URL="http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz"
+DAHTOOL_SRC_URL="http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz"
+
+# Pull from GitHub for now, since 3.3.0 is only available there right now
+DAHDI_VERSION="3.3.0-rc1"
+DAHLIN_SRC_NAME="dahdi-linux-${DAHDI_VERSION}.tar.gz"
+DAHTOOL_SRC_NAME="dahdi-tools-${DAHDI_VERSION}.tar.gz"
+DAHLIN_SRC_URL="https://github.com/asterisk/dahdi-linux/releases/download/v${DAHDI_VERSION}/${DAHLIN_SRC_NAME}"
+DAHTOOL_SRC_URL="https://github.com/asterisk/dahdi-tools/releases/download/v${DAHDI_VERSION}/${DAHTOOL_SRC_NAME}"
+
+# DAHDI_MM_VER="${DAHDI_VERSION:0:1}${DAHDI_VERSION:2:1}" Requires bash
+DAHDI_MM_VER=33
+
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
 WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.36, 2023-09-05)
 ODBC_VER="3.1.14"
@@ -1026,9 +1044,26 @@ git_patch() {
 	rm "/tmp/$1"
 }
 
+github_pr() {
+	printf "Applying GitHub pull request for %s\n" "$1"
+	wget -q "$2" -O /tmp/$1.pr.diff --no-cache
+	git apply "/tmp/$1.pr.diff"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to apply GitHub PR ($1)... this should be reported..."
+		if [ "$3" != "try" ]; then
+			exit 2
+		else
+			# This could be something that needs to be looked into, or maybe this was merged and is no longer relevant.
+			printf "Will continue momentarily...\n"
+			sleep 10
+		fi
+	fi
+	rm "/tmp/$1.pr.diff"
+}
+
 asterisk_pr() {
 	printf "Applying current Asterisk pull request %d\n" "$1"
-	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/292.diff" -O /tmp/$1.pr.diff --no-cache
+	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O /tmp/$1.pr.diff --no-cache
 	git apply "/tmp/$1.pr.diff"
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Asterisk PR... this should be reported..."
@@ -1059,7 +1094,9 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	dahdi_custom_patch "wcte12xp_base" "$1/drivers/dahdi/wcte12xp/base.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/wcte12xp_base.diff" # bug fix for case statement fallthrough
 	dahdi_custom_patch "wcte12xp_types" "$1/drivers/dahdi/wcte12xp/base.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/wcte12xp_types.diff" # bug fix for >= 5.16 stdbool.h
 	dahdi_undo $1 "wcte11xp" "Remove support for wcte11xp." "3748456d22122cf807b47d5cf6e2ff23183f440d"
-	dahdi_undo $1 "wctdm" "Remove support for wctdm." "04e759f9c5a6f76ed88bc6ba6446fb0c23c1ff55"
+	if [ $DAHDI_MM_VER -lt 33 ]; then
+		dahdi_undo $1 "wctdm" "Remove support for wctdm." "04e759f9c5a6f76ed88bc6ba6446fb0c23c1ff55"
+	fi
 	dahdi_undo $1 "wct1xxp" "Remove support for wct1xxp." "dade6ac6154b58c4f5b6f178cc09de397359000b"
 	dahdi_undo $1 "wcfxo" "Remove support for wcfxo." "14198aee8532bbafed2ad1297177f8e0e0f13f50"
 
@@ -1092,7 +1129,8 @@ linux_headers_install() {
 	fi
 	if [ $? -ne 0 ]; then
 		kernel=`uname -r`
-		echoerr "Unable to find automatic installation candidate for $kernel"
+		# Can happen if a newer kernel was installed but hasn't taken effect yet
+		echoerr "Unable to find automatic installation candidate for $kernel - reboot needed?"
 		# install the generic kernel headers
 		# this usually won't happen in a VM, but can happen in containers. For example, the containers used for GitHub actions.
 		GENERIC_HEADERS=1
@@ -1115,11 +1153,11 @@ install_dahdi() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR
 	# just in case, for some reason, these already existed... don't let them throw everything off:
-	rm -f dahdi-linux-current.tar.gz dahdi-tools-current.tar.gz
-	$WGET http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz
-	$WGET http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz
-	DAHDI_LIN_SRC_DIR=`tar -tzf dahdi-linux-current.tar.gz | head -1 | cut -f1 -d"/"`
-	DAHDI_TOOLS_SRC_DIR=`tar -tzf dahdi-tools-current.tar.gz | head -1 | cut -f1 -d"/"`
+	rm -f dahdi-linux-current.tar.gz dahdi-tools-current.tar.gz $DAHLIN_SRC_NAME $DAHTOOL_SRC_NAME
+	$WGET $DAHLIN_SRC_URL
+	$WGET $DAHTOOL_SRC_URL
+	DAHDI_LIN_SRC_DIR=`tar -tzf $DAHLIN_SRC_NAME | head -1 | cut -f1 -d"/"`
+	DAHDI_TOOLS_SRC_DIR=`tar -tzf $DAHTOOL_SRC_NAME | head -1 | cut -f1 -d"/"`
 	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR" ]; then
 		if [ "$FORCE_INSTALL" = "1" ]; then
 			rm -rf $DAHDI_LIN_SRC_DIR
@@ -1138,8 +1176,8 @@ install_dahdi() {
 			exit 1
 		fi
 	fi
-	tar -zxvf dahdi-linux-current.tar.gz && rm dahdi-linux-current.tar.gz
-	tar -zxvf dahdi-tools-current.tar.gz && rm dahdi-tools-current.tar.gz
+	tar -zxvf $DAHLIN_SRC_NAME && rm $DAHLIN_SRC_NAME
+	tar -zxvf $DAHTOOL_SRC_NAME && rm $DAHTOOL_SRC_NAME
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
 		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
 		exit 2
@@ -1164,13 +1202,16 @@ install_dahdi() {
 	fi
 
 	# Compiler fixes for 5.17/5.18:
-	# Yet another patch that git apply WILL NOT WORK WITH thanks to the huge divergence from massively broken DAHDI upstream, do a fuzzy patch.
-	phreak_fuzzy_patch "dahdi_pci.diff"
-	custom_fuzzy_patch "b6d9b417e1992868549d443efad11e4f1513c9d7.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/b6d9b417e1992868549d443efad11e4f1513c9d7.diff"
-	custom_fuzzy_patch "09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
+	if [ $DAHDI_MM_VER -lt 33 ]; then
+		phreak_fuzzy_patch "dahdi_pci.diff"
+		custom_fuzzy_patch "b6d9b417e1992868549d443efad11e4f1513c9d7.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/b6d9b417e1992868549d443efad11e4f1513c9d7.diff"
+		custom_fuzzy_patch "09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
+		# Compiler fixes for newer kernels (5.15, 5.17, 5.18)
+		#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
 
-	# Compiler fixes for 6.1+ 
-	phreak_fuzzy_patch "dahdi_kern_61.diff"
+		# Compiler fixes for 6.1+
+		phreak_fuzzy_patch "dahdi_kern_61.diff"
+	fi
 
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
@@ -1181,8 +1222,6 @@ install_dahdi() {
 		git_patch "kewl.diff"
 		# The 2nd one DOES NOT APPLY with git apply and WILL FAIL, because fuzz (offset 33 lines) and git apply is too stupid to deal with that.
 		# Therefore, fallback to using patch, manually, for it.
-		# This is just what we have to do, due to all these out of tree patches stacking up
-		# DAHDI team: PLEASE, PLEASE, PLEASE get your act together so we can stop this nonsense!!!!!!! How phreaking hard is it to merge code???
 		phreak_fuzzy_patch "kewl2.diff"
 		# hearpulsing
 		git_patch "hearpulsing-dahlin.diff"
@@ -1195,10 +1234,6 @@ install_dahdi() {
 		echoerr "Not compiling XPP driver for 32-bit"
 		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
 	fi
-
-	# Compiler fixes for newer kernels (5.15, 5.17, 5.18)
-	# doesn't apply cleanly, but patches needed:
-	#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
 
 	make $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
@@ -1488,6 +1523,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Third Party Modules
 	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
 		custom_module "apps/app_tdd.c" "https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c"
+		# TODO: Remove once PR is merged
+		cd apps # Since this repo has app_tdd in the root directory, we need to match it to use git apply
+		github_pr "app_tdd_compiler_fix" "https://patch-diff.githubusercontent.com/raw/dgorski/app_tdd/pull/21.diff" "try"
+		cd ..
 	fi
 	custom_module "apps/app_fsk.c" "https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c"
 	sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
@@ -1514,7 +1553,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does.
 
-	printf "Determining patches applicable to %s\n" "$AST_ALT_VER"
+	printf "Determining patches applicable to %s (~%s)\n" "$AST_ALT_VER" "$AST_MAJOR_VER"
 
 	## merged into master, not yet in a release version
 	if [ "$AST_ALT_VER" != "master" ]; then
@@ -1549,11 +1588,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"
 
-	if [ "$EXPERIMENTAL_FEATURES" = "1" ]; then
-		printf "Installing patches for experimental features\n"
-		if [ "$AST_ALT_VER" != "master" ] && [ "${AST_ALT_VER:0:2}" != "21" ]; then
-			git_custom_patch "https://code.phreaknet.org/asterisk/pubsub.diff" # NOTE: Already merged into master.
-		fi
+	if [ "$EXPERIMENTAL_FEATURES" = "1" ] && [ $AST_MAJOR_VER -ge 21 ]; then
+		printf "Installing 21+ patches for experimental features\n"
 		custom_module "include/asterisk/res_pjsip_body_generator_types.h" "https://code.phreaknet.org/asterisk/res_pjsip_body_generator_types.h"
 		custom_module "res/res_pjsip_device_features.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features.c"
 		custom_module "res/res_pjsip_device_features_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features_body_generator.c"
@@ -1599,10 +1635,10 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 }
 
 install_odbc() {
-	assert_installed mariadb-server
 	# https://wiki.asterisk.org/wiki/display/AST/Getting+Asterisk+Connected+to+MySQL+via+ODBC
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y unixodbc unixodbc-dev unixodbc-bin mariadb-server
+		# unixodbc is what contains isql
+		apt-get install -y unixodbc unixodbc-dev unixodbc-bin mariadb-server odbcinst
 	fi
 	cd $AST_SOURCE_PARENT_DIR
 	# http://www.unixodbc.org/ to get isql (if desired for manual testing)
@@ -1615,8 +1651,12 @@ install_odbc() {
 	fi
 	tar -zxvf mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
 	cd mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64/lib/mariadb
+	if [ ! -d /usr/lib/x86_64-linux-gnu/odbc/ ]; then
+		mkdir /usr/lib/x86_64-linux-gnu/odbc/
+	fi
 	cp libmaodbc.so /usr/lib/x86_64-linux-gnu/odbc/
 	cp libmariadb.so /usr/lib/x86_64-linux-gnu/odbc/
+	rm mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
 	cd $AST_SOURCE_PARENT_DIR
 	odbcinst -j
 	if [ $? -ne 0 ]; then
@@ -2366,7 +2406,7 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$ENABLE_BACKTRACES" = "1" ]; then
 		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
 	fi
-	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. Trashis will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
+	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. This will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
 	if [ -d /etc/dahdi ]; then
 		# in reality, this will never fail, even if they can't be enabled...
 		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
@@ -2387,10 +2427,12 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	# in 19+, ADSI is not built by default. We should always build and enable it.
 	menuselect/menuselect --enable res_adsi --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
-	# Disable the built-in skinny and mgcp modules, since there are better alternatives, and they're deprecated as of 19
-	menuselect/menuselect --disable chan_skinny --disable chan_mgcp menuselect.makeopts
-	# Who's actually using this?
-	menuselect/menuselect --disable app_osplookup menuselect.makeopts
+	if [ $AST_MAJOR_VER -lt 21 ]; then
+		# Disable the built-in skinny and mgcp modules, since there are better alternatives, and they're deprecated as of 19
+		menuselect/menuselect --disable chan_skinny --disable chan_mgcp menuselect.makeopts
+		# Who's actually using this?
+		menuselect/menuselect --disable app_osplookup menuselect.makeopts
+	fi
 
 	# Expand TLS support from 1.2 to 1.0 for older ATAs, if needed
 	if [ "$WEAK_TLS" = "1" ]; then
@@ -2678,6 +2720,7 @@ elif [ "$cmd" = "pulsar" ]; then
 	if [ ! -f $AST_VARLIB_DIR/agi-bin/pulsar.agi ]; then
 		echoerr "pulsar.agi is missing"
 	fi
+	rm pulsar-agi.tar.gz
 elif [ "$cmd" = "sounds" ]; then
 	assert_root
 	require_installed_asterisk

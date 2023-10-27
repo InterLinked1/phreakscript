@@ -15,8 +15,10 @@ if [ "$test" = "1" ]; then
 	mv $tmp $2
 	v2=`grep "# v" $2 | head -1 | cut -d'v' -f2`
 	g "Successfully updated PhreakScript from $v1 to $v2"
+	exec rm -f "$3"
 else
 	err "PhreakScript failed to update - upstream contains errors ($test)."
+	$tmp -o # run the flag test, if the script is invalid, it should dump the error
 	rm "$tmp"
+	exit 1
 fi
-exec rm -f "$3"

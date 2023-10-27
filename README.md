@@ -3,21 +3,23 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 20.5.0 (latest LTS release of Asterisk)
-- DAHDI Linux 3.2.0 (with optional DAHDI install flag)
-- DAHDI Tools 3.2.0 (with optional DAHDI install flag)
+- Asterisk 21.0.0 (latest standard release[1] of Asterisk)
+- DAHDI Linux 3.3.0 (with optional DAHDI install flag)
+- DAHDI Tools 3.3.0 (with optional DAHDI install flag)
 - many additional features and stability improvements
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
    - DAHDI/wanpipe/LibPRI compilation fixes
-   - Native coin and blue boxing support
+   - Native coin detection and blue boxing support
    - Real time dial pulsing support
    - Automatic dialplan context to digit map generation
+   - Broadworks compatible device feature key synchronization (PJSIP)
+   - Broadworks compatible Shared Call Appearances (PJSIP)
    - Presence publishing (PJSIP)
    - AGI `RECORD FILE` option to require noise before silence detection
-   - Optional restored and enhanced [`chan_sip`](https://github.com/InterLinked1/chan_sip) for master / versions 21+ (removed by Sangoma)
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver)
       - Cisco Call Manager support for `chan_sip`
+      - Restored and enhanced [`chan_sip`](https://github.com/InterLinked1/chan_sip) for master / versions 21+ (removed by Sangoma)
    - Adds the following applications:
       - ``Assert``
       - ``ReturnIf``
@@ -97,6 +99,11 @@ PhreakScript is also useful for:
 - generating core dumps
 - automating PhreakNet boilerplate dialplan installation
 
+[1] Normally, PhreakScript installs the latest LTS version of Asterisk. However, version 21 will be installed by default until version 22 is released,
+    due to the significant change in functionality from version 20 which allows for a richer installation by default.
+    To install the latest LTS version (20), you can specify the version explicitly e.g. `--version=20.5.0`.
+    However, there should not be a need to do so unless you are using obsolete modules that were removed in Asterisk 21.
+
 ### Installation
 
 Please refer to the Docs: https://docs.phreaknet.org/#phreakscript
@@ -105,7 +112,7 @@ In a nutshell, run:
 
 **Linux:**
 
-```cd /usr/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
+```cd /usr/local/src && wget https://docs.phreaknet.org/script/phreaknet.sh && chmod +x phreaknet.sh && ./phreaknet.sh make```
 
 **FreeBSD:**
 
@@ -115,7 +122,7 @@ Then, you can use PhreakScript. Run ```phreaknet help``` or ```phreaknet example
 
 For a basic install, you can run `phreaknet install`
 
-To install with DAHDI, run `phreaknet install --dahdi`
+To install with DAHDI, run `phreaknet install --dahdi` (add `--drivers` to also restore drivers that were removed upstream in DAHDI 3).
 
 For a guided, interactive installation, you can also run `phreaknet wizard`. The wizard will determine what installation options are best for you, based on your preferences.
 
