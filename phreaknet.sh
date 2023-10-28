@@ -1524,9 +1524,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
 		custom_module "apps/app_tdd.c" "https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c"
 		# TODO: Remove once PR is merged
-		cd apps # Since this repo has app_tdd in the root directory, we need to match it to use git apply
-		github_pr "app_tdd_compiler_fix" "https://patch-diff.githubusercontent.com/raw/dgorski/app_tdd/pull/21.diff" "try"
-		cd ..
+		#cd apps # Since this repo has app_tdd in the root directory, we need to match it to use git apply
+		#github_pr "app_tdd_compiler_fix" "https://patch-diff.githubusercontent.com/raw/dgorski/app_tdd/pull/21.diff" "try"
+		#cd ..
 	fi
 	custom_module "apps/app_fsk.c" "https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c"
 	sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
@@ -1930,7 +1930,8 @@ get_source() {
 		sleep 1
 	elif [ "$AST_ALT_VER" != "" ]; then
 		AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
-		AST_MAJOR_VER=${AST_ALT_VER:0:2}
+		# AST_MAJOR_VER=${AST_ALT_VER:0:2} # Not POSIX shell compatible
+		AST_MAJOR_VER=`printf "%s" | cut -c 1-2`
 		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER..."
 		echoerr "***************************** WARNING *****************************"
 		printf "%s\n" "PhreakScript IS NOT TESTED WITH OLDER VERSIONS OF ASTERISK!!!"
