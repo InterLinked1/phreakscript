@@ -182,6 +182,7 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 
 # Script environment variables
 AST_ALT_VER=""
+AST_MIN_PREFERRED_VER=20
 AST_DEFAULT_MAJOR_VER=21
 AST_NEXT_MAJOR_VER=22
 AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
@@ -1929,14 +1930,23 @@ get_source() {
 		printf "%s\n" "Proceeding to clone master branch of Asterisk..."
 		sleep 1
 	elif [ "$AST_ALT_VER" != "" ]; then
-		AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
-		# AST_MAJOR_VER=${AST_ALT_VER:0:2} # Not POSIX shell compatible
-		AST_MAJOR_VER=`printf "%s" | cut -c 1-2`
-		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER..."
-		echoerr "***************************** WARNING *****************************"
-		printf "%s\n" "PhreakScript IS NOT TESTED WITH OLDER VERSIONS OF ASTERISK!!!"
-		printf "%s\n" "Proceed at your own risk..."
-		sleep 1
+		minor_ver=`echo "$AST_ALT_VER" | cut -c 3-`
+		if [ "$minor_ver" = "" ]; then
+			# Only a major version specified, use the latest version available for that major version (assume it's supported)
+			AST_SOURCE_NAME="asterisk-$AST_ALT_VER-current"
+			AST_MAJOR_VER=$AST_ALT_VER
+		else
+			# Install a specific major.minor.patch version
+			AST_SOURCE_NAME="asterisk-$AST_ALT_VER"
+			AST_MAJOR_VER=`echo "$AST_ALT_VER" | cut -c 1-2`
+		fi
+		printf "%s\n" "Proceeding to install Asterisk $AST_ALT_VER (~major $AST_MAJOR_VER)..."
+		if [ $AST_MAJOR_VER -lt $AST_MIN_PREFERRED_VER ]; then
+			echoerr "***************************** WARNING *****************************"
+			printf "%s\n" "PhreakScript IS NOT TESTED WITH OLDER VERSIONS OF ASTERISK!!!"
+			printf "%s\n" "Proceed at your own risk..."
+			sleep 1
+		fi
 	fi
 	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
@@ -3639,6 +3649,7 @@ elif [ "$cmd" = "examples" ]; then
 	printf "%s\n"		"phreaknet install --dahdi          Install the latest version of Asterisk, with DAHDI."
 	printf "%s\n"		"phreaknet install --sip --weaktls  Install Asterisk with chan_sip built AND support for TLS 1.0."
 	printf "%s\n"		"phreaknet install --version 18.9.0 Install Asterisk version 18.9.0 as the base version of Asterisk."
+	printf "%s\n"		"phreaknet install --version=20     Install latest version of Asterisk 20 as the base version of Asterisk."
 	printf "%s\n"		"phreaknet installts                Install Asterisk Test Suite and Unit Test support (developers only)."
 	printf "%s\n"		"phreaknet pulsar                   Install revertive pulsing pulsar AGI, with bug fixes"
 	printf "%s\n"		"phreaknet sounds --boilerplate     Install Pat Fleet sounds and basic boilerplate old city tone audio."

@@ -32,11 +32,25 @@ jobs:
           sudo ./phreaknet.sh make
           sudo phreaknet install -d -s -t
           sudo phreaknet runtests
-  debian-stable:
+  debian-stable-asterisk-lts:
     runs-on: ubuntu-latest
     container: debian:12
     steps:
-      - name: Run Debian build
+      - name: Run Debian 12 build for Asterisk 20
+        run: |
+          cd /usr/src/
+          apt-get update -y
+          apt-get install -y wget
+          wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
+          chmod +x phreaknet.sh
+          ./phreaknet.sh make
+          phreaknet install -d -s -t --version=20
+          phreaknet runtests
+  debian-stable-asterisk-latest:
+    runs-on: ubuntu-latest
+    container: debian:12
+    steps:
+      - name: Run Debian 12 build for Asterisk 21
         run: |
           cd /usr/src
           apt-get update -y
