@@ -2379,7 +2379,7 @@ static char *cli_show_calls(int fd, const char *facname, int show_active, int sh
 			continue; /* Doesn't match filter */
 		}
 		if (!total++) {
-			ast_cli(fd, "%10s %15s %-10s %-6s %8s %4s %4s %-10s %s\n", "Caller", "Called No.", "Route", "Status", "Duration", "MLPP", "QPri", "CBQ Ext.", "Channel");
+			ast_cli(fd, "%10s %15s %-30s %-6s %8s %4s %4s %-10s %s\n", "Caller", "Called No.", "Route", "Status", "Duration", "MLPP", "QPri", "CBQ Ext.", "Channel");
 		}
 
 		/* Calculate duration */
@@ -2388,7 +2388,7 @@ static char *cli_show_calls(int fd, const char *facname, int show_active, int sh
 		min = (diff % 3600) / 60;
 		sec = diff % 60;
 
-		ast_cli(fd, "%10s %15s %-10s %-6s %02d:%02d:%02d %4c %4c %10s %s\n",
+		ast_cli(fd, "%10s %15s %-30s %-6s %02d:%02d:%02d %4c %4c %10s %s\n",
 			call->caller, call->called, call->route, call->active ? "Active" : call->cbq ? "CBQ" : "OHQ", hr, min, sec, isprint(call->call_priority) ? call->call_priority : ' ', !call->active ? '0' + call->queue_priority : '-', S_OR(call->cbqexten, ""), call->channel);
 	}
 	AST_RWLIST_UNLOCK(&calls);
