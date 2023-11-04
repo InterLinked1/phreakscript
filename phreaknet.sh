@@ -186,6 +186,7 @@ AST_MIN_PREFERRED_VER=20
 AST_DEFAULT_MAJOR_VER=21
 AST_NEXT_MAJOR_VER=22
 AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
+AST_MM_VER=0
 AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
 AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing"
 
@@ -589,7 +590,7 @@ install_prereq() {
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "yum" ]; then
-		yum install -y git
+		yum install -y git patch
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -f
 		pkg upgrade -y
@@ -1063,7 +1064,6 @@ github_pr() {
 }
 
 asterisk_pr() {
-	printf "Applying current Asterisk pull request %d\n" "$1"
 	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O /tmp/$1.pr.diff --no-cache
 	git apply "/tmp/$1.pr.diff"
 	if [ $? -ne 0 ]; then
@@ -1462,6 +1462,39 @@ custom_fuzzy_patch() {
 	rm "/tmp/$1"
 }
 
+# Only for numbered versions, not for master
+# $1 = maximum version to match for a branch (non inclusive), e.g. 210100 for 21.1.0
+# $2 = PR number
+asterisk_pr_if_single() {
+	mm_desired=`echo $1 | cut -c 1-2`
+	if [ "$1" != "" ]; then
+		# This is C-style integer division, which is what we want
+		mm=$(( $AST_MM_VER / 10000 ))
+		if [ "$mm" = "$mm_desired" ]; then
+			if [ $AST_MM_VER -lt $1 ]; then
+				printf "Applying PR %d because $AST_MM_VER matches %d and < %s\n" $2 "$mm_desired" "$1"
+				asterisk_pr $2
+			fi
+		fi
+	fi
+}
+
+asterisk_pr_if() {
+	# If we're master, patch never applies since we're already merged
+	if [ $AST_MM_VER -eq 999999 ]; then
+		printf "Skipping patch of PR %d since already merged into master\n" $1
+		return
+	fi
+	asterisk_pr_if_single $2 $1
+	asterisk_pr_if_single $3 $1
+	asterisk_pr_if_single $4 $1
+}
+
+asterisk_pr_unconditional() {
+	printf "Applying PR %d unconditionally\n" $1
+	asterisk_pr $1
+}
+
 phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	### Inject custom PhreakNet patches to add additional functionality and features.
 	### If/when/as these are integrated upstream, they will be removed from this function. 
@@ -1554,12 +1587,13 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does.
 
-	printf "Determining patches applicable to %s (~%s)\n" "$AST_ALT_VER" "$AST_MAJOR_VER"
+	printf "Determining patches applicable to %s -> %d (~%s)\n" "$AST_ALT_VER" "$AST_MM_VER" "$AST_MAJOR_VER"
 
 	## merged into master, not yet in a release version
-	if [ "$AST_ALT_VER" != "master" ]; then
-		:
-	fi
+	asterisk_pr_if 287 210100 200600 182100 # IAX2 auth debug improvement
+	asterisk_pr_if 309 210100 200600 182100 # chan_console deadlock fix
+	asterisk_pr_if 355 210100 200600 182100 # app_voicemail: Disable ADSI if unavailable
+	asterisk_pr_if 399 210100 200600 182100 # app_voicemail: Add AMI event for password changes
 
 	## Unmerged patches: remove once merged
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
@@ -1574,10 +1608,12 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		fi
 	fi
 
+	# Soon to be merged
 	git_patch "core_local_bug_fix_for_dial_string_parsing.patch" # core_local: bug fix for dial string parsing
 
+	# Unmerged patches
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
-	asterisk_pr 292 # GROUP VARs
+	asterisk_pr_unconditional 292 # GROUP VARs
 	if [ "$RTPULSING" = "1" ]; then
 		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
 		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -2005,6 +2041,7 @@ get_source() {
 
 	if [ "$AST_ALT_VER" = "master" ]; then
 		AST_SRC_DIR="asterisk-master"
+		AST_MM_VER=999999
 	else
 		AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
 		if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
@@ -2015,6 +2052,12 @@ get_source() {
 				exit 1
 			fi
 		fi
+		ver=`echo $AST_SRC_DIR | cut -d'-' -f2`
+		major=`echo $ver | cut -d'.' -f1`
+		minor=`echo $ver | cut -d'.' -f2`
+		patch=`echo $ver | cut -d'.' -f3`
+		AST_MM_VER=`printf "%02d%02d%02d" "$major" "$minor" "$patch"`
+		printf "Asterisk MMmmPP: %s\n", "$AST_MM_VER"
 	fi
 	printf "%s\n" "Installing production version $AST_SRC_DIR..."
 	if [ "$AST_ALT_VER" != "master" ]; then
@@ -2988,6 +3031,10 @@ elif [ "$cmd" = "keygen" ]; then
 	if [ ${#PHREAKNET_CLLI} -eq 0 ]; then
 		PHREAKNET_CLLI=`grep -R "clli=" $AST_CONFIG_DIR | grep -v "5551111" | grep -v "curl " | grep -v "<switch-clli>" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#PHREAKNET_CLLI} -ne 11 ]; then
+			printf "Failed to find CLLI by grepping configs, querying Asterisk...\n"
+			PHREAKNET_CLLI=`/sbin/rasterisk -x "dialplan show globals" | grep "clli=" | cut -d'=' -f2 | awk '{print $1;}'`
+		fi
+		if [ ${#PHREAKNET_CLLI} -ne 11 ]; then
 			echoerr "Failed to find PhreakNet CLLI. For future use, please set your [globals] variables, e.g. by running phreaknet config"
 			printf '\a'
 			read -r -p "PhreakNet CLLI: " PHREAKNET_CLLI
@@ -3050,6 +3097,7 @@ elif [ "$cmd" = "keygen" ]; then
 	if [ ${#astrunuser} -gt 0 ]; then
 		## If you are running Asterisk as non-root, make the user as which Asterisk runs own the private key and the new files:
 		chown "$astrunuser" phreaknetrsa.key
+		chown "$astrunuser" phreaknetrsa.pub
 		chown "$astrunuser" $AST_CONFIG_DIR/iax.conf
 		chown "$astrunuser" $AST_CONFIG_DIR/iax-phreaknet*
 	fi
