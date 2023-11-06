@@ -315,7 +315,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install source dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
+	echo "about help version examples info wizard make man mancached install source dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update astpr patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
 	exit 0
 fi
 
@@ -361,6 +361,7 @@ Commands:
 
    *** Maintenance ***
    update             Update PhreakScript
+   astpr              Apply an Asterisk PR patch
    patch              Patch PhreakNet Asterisk configuration
    genpatch           Generate a PhreakPatch
    alembic            Generate an Asterisk Alembic revision
@@ -1063,9 +1064,15 @@ github_pr() {
 	rm "/tmp/$1.pr.diff"
 }
 
+# $2 = 1 to force
 asterisk_pr() {
 	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O /tmp/$1.pr.diff --no-cache
-	git apply "/tmp/$1.pr.diff"
+	if [ "$2" = "1" ]; then
+		git apply -v "/tmp/$1.pr.diff"
+		patch -p1 -F 3 -f --verbose --reject < "/tmp/$1.pr.diff"
+	else
+		git apply "/tmp/$1.pr.diff"
+	fi
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Asterisk PR... this should be reported..."
 		exit 2
@@ -1473,7 +1480,7 @@ asterisk_pr_if_single() {
 		if [ "$mm" = "$mm_desired" ]; then
 			if [ $AST_MM_VER -lt $1 ]; then
 				printf "Applying PR %d because $AST_MM_VER matches %d and < %s\n" $2 "$mm_desired" "$1"
-				asterisk_pr $2
+				asterisk_pr $2 0
 			fi
 		fi
 	fi
@@ -1614,6 +1621,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	# Unmerged patches
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
 	asterisk_pr_unconditional 292 # GROUP VARs
+	asterisk_pr_unconditional 414 # IAX2 loopback warning
 	if [ "$RTPULSING" = "1" ]; then
 		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
 		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -2559,6 +2567,12 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	if [ $? -ne 0 ]; then
+		if [ ! -f channels/chan_dahdi.o ]; then
+			# Debug failed chan_dahdi compilation
+			# chan_dahdi.c:7677:18: error: unused variable 'x' [-Werror=unused-variable]
+			# 7677 |         int res, x;
+			sed -n 7677,7800p channels/chan_dahdi.c
+		fi
 		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
@@ -3154,6 +3168,11 @@ elif [ "$cmd" = "update" ]; then
 		fi
 	fi
 	exec /tmp/phreakscript_update.sh "$SCRIPT_UPSTREAM" "$FILE_PATH" "/tmp/phreakscript_update.sh"
+elif [ "$cmd" = "astpr" ]; then
+	if [ "$2" = "" ]; then
+		die "astpr requires a PR number"
+	fi
+	asterisk_pr "$2" 1 # force patch
 elif [ "$cmd" = "patch" ]; then
 	printf "%s\n" "Updating PhreakNet Asterisk configuration..."
 	rm -f /tmp/phreakpatch/*.patch

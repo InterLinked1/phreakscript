@@ -60,3 +60,16 @@ jobs:
           ./phreaknet.sh make
           phreaknet install -d -s -t
           phreaknet runtests
+  debian-stable-asterisk-latest-unpatched:
+    runs-on: ubuntu-latest
+    container: debian:12
+    steps:
+      - name: Run Debian 12 build for vanilla Asterisk 21
+        run: |
+          cd /usr/src
+          apt-get update -y
+          apt-get install -y wget
+          wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
+          chmod +x phreaknet.sh
+          ./phreaknet.sh make
+          phreaknet install -d --vanilla
