@@ -50,6 +50,7 @@ PhreakScript installs:
       - ``WaitForDeposit``
       - ``CoinDisposition``
       - ``SendCWCID``
+      - ``DAHDIMonitor``
       - ``DialSpeedTest``
       - ``LoopDisconnect``
       - ``ToneSweep``
