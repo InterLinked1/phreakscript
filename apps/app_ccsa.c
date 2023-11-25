@@ -1556,8 +1556,10 @@ static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *
 	}
 
 	ccsa_log(chan, fd, "Considering route: %s\n", route);
-	cdr_set_var(chan, cdrvar_facility, facility);
-	cdr_set_var(chan, cdrvar_route, route);
+	if (chan) { /* If we're just doing a simulation, don't try to set any CDR variables, since there's no channel */
+		cdr_set_var(chan, cdrvar_facility, facility);
+		cdr_set_var(chan, cdrvar_route, route);
+	}
 
 	if (frl > *callerfrl && *frl_upgraded == -2) { /* If FRL upgraded allowed (and haven't done yet), prompt for authorization code. Otherwise, skip. */
 		*frl_upgraded = -1; /* At this point, mark that we've tried, at least, as we shouldn't prompt for authorization code more than once. */
@@ -2324,6 +2326,8 @@ static char *handle_simulate_route(struct ast_cli_entry *e, int cmd, struct ast_
 	int cbq = 1, ohq = 1;
 	int callerfrl = MAX_FRL;
 	const char *faclist;
+	char *ret = NULL;
+	int which = 0;
 
 	switch(cmd) {
 	case CLI_INIT:
@@ -2333,7 +2337,29 @@ static char *handle_simulate_route(struct ast_cli_entry *e, int cmd, struct ast_
 			"       Simulate routing of a CCSA call.\n";
 		return NULL;
 	case CLI_GENERATE:
-		return NULL;
+		if (a->pos == 3) {
+			size_t wlen = strlen(a->word);
+			AST_RWLIST_RDLOCK(&ccsas);
+			AST_RWLIST_TRAVERSE(&ccsas, c, entry) {
+				if (!strncasecmp(a->word, c->name, wlen) && ++which > a->n) {
+					ret = ast_strdup(c->name);
+					break;
+				}
+			}
+			AST_RWLIST_UNLOCK(&ccsas);
+		} else if (a->pos == 4) {
+			struct route *r;
+			size_t wlen = strlen(a->word);
+			AST_RWLIST_RDLOCK(&routes);
+			AST_RWLIST_TRAVERSE(&routes, r, entry) {
+				if (!strncasecmp(a->word, r->name, wlen) && ++which > a->n) {
+					ret = ast_strdup(r->name);
+					break;
+				}
+			}
+			AST_RWLIST_UNLOCK(&routes);
+		}
+		return ret;
 	}
 
 	if (a->argc < 4) {
