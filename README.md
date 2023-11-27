@@ -15,6 +15,7 @@ PhreakScript installs:
    - Broadworks compatible device feature key synchronization (PJSIP)
    - Broadworks compatible Shared Call Appearances (PJSIP)
    - Presence publishing (PJSIP)
+   - Message Send Protocol send support
    - AGI `RECORD FILE` option to require noise before silence detection
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver)
