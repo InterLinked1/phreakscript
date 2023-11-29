@@ -1333,6 +1333,7 @@ install_dahdi() {
 install_wanpipe() {
 	MYSOURCEDIR=/lib/modules/$(uname -r)/build
 	MYSOURCEDIRORIG=$MYSOURCEDIR
+	MYINCLUDEDIR=/usr/src/linux-headers-$(uname -r)/include
 
 	# wanpipe currently fails to install on Debian because the wanpipe Setup.sh doesn't support recursive Makefile includes.
 	# Explicitly find the right source directory to use if that's the case.
@@ -1367,6 +1368,20 @@ install_wanpipe() {
 	fi
 	rm ${WANPIPE_SOURCE_NAME}.tgz
 	#phreak_fuzzy_patch "af_wanpipe.diff"
+
+	if [ ! -f "$MYINCLUDEDIR/linux/version.h" ]; then
+		echoerr "File $MYINCLUDEDIR/linux/version.h does not exist, trying to symlink file $MYINCLUDEDIR/generated/uapi/linux/version.h\n"
+		if [ -f "$MYINCLUDEDIR/generated/uapi/linux/version.h" ]; then
+			ln -s ${MYINCLUDEDIR}/generated/uapi/linux/version.h ${MYINCLUDEDIR}/linux/version.h
+			if [ $? -ne 0 ]; then
+				echoerr "symlink failed: wanpipe utilities may not be installed\n"
+			else
+				printf "symlink successful: created file $MYINCLUDEDIR/linux/version.h\n"
+			fi
+		else
+			echoerr "File $MYINCLUDEDIR/generated/uapi/linux/version.h does not exist, wanpipe utilities may not be installed\n"
+		fi
+	fi
 
 	./Setup dahdi --silent
 
