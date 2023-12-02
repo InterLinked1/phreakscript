@@ -79,7 +79,7 @@ struct map_geninfo {
 };
 
 /*! \retval -1 on failure, number of bytes written on success */
-static int generate_digit_map(const char *prefix, const char *context, struct map_geninfo *geninfo, const char *includes[], char *buf, size_t len)
+static int generate_digit_map(const char *prefix, const char *rootcontext, const char *context, struct map_geninfo *geninfo, const char *includes[], char *buf, size_t len, int timeoutsuffix)
 {
 	int idx;
 	struct ast_context *c;
@@ -106,6 +106,8 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 	while ((e = ast_walk_context_extensions(c, e))) {
 		char firstchar[2] = "";
 		int ignorepat = 0;
+		int needtimeout = 0;
+		int complex_exten = 0;
 		const char *startbuf, *name = ast_get_extension_name(e);
 		/* XXX use macro for this */
 		if (!strcmp(name, "a") || !strcmp(name, "i") || !strcmp(name, "s") || !strcmp(name, "t")) {
@@ -155,10 +157,13 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 			/* Digit maps don't understand N or Z, so expand them */
 			if (*name == 'N') {
 				buf_append(buf, len, "[2-9]");
+				complex_exten = 1;
 			} else if (*name == 'Z') {
 				buf_append(buf, len, "[1-9]");
+				complex_exten = 1;
 			} else if (*name == 'X') {
 				buf_append(buf, len, "x"); /* Digit maps do recognize 'x', but they use lowercase x, not uppercase X */
+				complex_exten = 1;
 			} else if (*name == '!') {
 #if 0
 				/* S0 is not support by Grandstream. So we should just ignore ! characters. */
@@ -171,6 +176,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 					const char *initial_range_start, *range_start, *range_end = strchr(name, ']');
 
 					initial_range_start = range_start = name;
+					complex_exten = 1;
 					if (!range_end) {
 						ast_log(LOG_WARNING, "Dialplan is invalid: unterminated range: %s\n", ast_get_extension_name(e));
 						res = -1;
@@ -233,6 +239,100 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 			}
 			name++;
 		}
+#define VALID_DIGIT(x) (isdigit(x) || (x >= 'A' && x <= 'D') || x == '*' || x == '#')
+#define VALID_DIGITMAP_DIGIT(x) (VALID_DIGIT(x) || x == 'x')
+		/* If this is a prefix of another valid extension, certain devices (e.g. Polycom) require the digit T be suffixed. */
+		if (timeoutsuffix && !needtimeout) {
+			/* This first check only works for literal extensions, not patterns. */
+			if (!complex_exten && ast_matchmore_extension(NULL, ast_get_context_name(c), ast_get_extension_name(e), 1, NULL)) {
+				needtimeout = 1;
+			} else if (complex_exten) { /* Assume it's a pattenr */
+				char sample_exten[AST_MAX_EXTENSION + 1]; /* Should ensure bounds check is okay */
+				char *dst = sample_exten;
+				int in_pattern = 0;
+				char start_digit = 0, end_digit = 0;
+				const char *src = startbuf;
+				/* If we have a pattern like _[2-9] and the pattern, say, _[2-4]XXX
+				 * then the first pattern is a prefix of the second one (at least when the first digit is 2-4).
+				 * Ideally, we would split the first pattern into _[2-4]T and _[5-9],
+				 * but it would be difficult to do this efficiently, so we compromise
+				 * by allowing for some false positives for timeouts (since false negatives are never acceptable,
+				 * as that would preclude being able to dial certain extensions).
+				 * To do this, we need to instantiate the pattern and see if it could match anything further.
+				 * Admittedly, the way we do this here is not 100% accurate, more probalistic, but should work in most real world use cases: */
+				while (*src) {
+					if (*src == '[') {
+						if (in_pattern++) {
+							ast_log(LOG_WARNING, "Was already in a pattern match?\n");
+						}
+					} else if (*src == ']') {
+						if (in_pattern--) {
+							if (!start_digit || !end_digit) {
+								ast_log(LOG_WARNING, "Pattern missing start or end?\n");
+							} else {
+								*dst++ = start_digit;
+							}
+						} else {
+							ast_log(LOG_WARNING, "Wasn't already in a pattern match?\n");
+						}
+					} else {
+						if (in_pattern) {
+							if (!start_digit) {
+								if (VALID_DIGIT(*src)) {
+									start_digit = *src;
+								} else {
+									ast_log(LOG_WARNING, "Invalid digit prior to - character: %c\n", *src);
+								}
+							} else {
+								/* Even if the range is not continuous, this is fine for a hueristic approach: */
+								end_digit = *src;
+							}
+						} else {
+							if (*src != ',') {
+								if (!VALID_DIGITMAP_DIGIT(*src)) {
+									ast_log(LOG_WARNING, "Invalid digit outside of pattern match: %c\n", *src);
+								}
+								*dst++ = *src;
+							}
+						}
+					}
+					src++;
+				}
+				*dst = '\0';
+				/* Now, instantiate any instances of X, N, or Z, arbitrarily. */
+				dst = sample_exten;
+				while (*dst) {
+					int min = 0; /* Max is 9 for all */
+					if (isalpha(*dst)) {
+						switch (*dst) {
+							case 'N':
+								min = 2;
+								break;
+							case 'Z':
+								min = 1;
+								break;
+							case 'X':
+								break;
+							default:
+								break;
+						}
+						*dst = min + '0'; /* Replace pattern digit with something concrete */
+					}
+					dst++;
+				}
+				ast_debug(3, "Instantiated pattern '%s' as %s@%s\n", startbuf, sample_exten, rootcontext);
+				/* It could match in a context that includes the current one, so use the root context for comparison.
+				 * When doing this, we need to include the prefix. */
+				if (ast_matchmore_extension(NULL, rootcontext, sample_exten, 1, NULL)) {
+					needtimeout = 1;
+				}
+			}
+		}
+
+		if (needtimeout) {
+			ast_debug(2, "Extension %s %s prefixes other valid extension(s)\n", ast_get_extension_name(e), complex_exten ? "probably" : "definitely");
+			buf_append(buf, len, "%c", 'T');
+		}
 		ast_debug(3, "%p: Added to digit map: %s\n", startbuf, startbuf);
 	}
 
@@ -288,7 +388,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 					char newprefix[32];
 					snprintf(newprefix, sizeof(newprefix), "%s%s", prefix, tmp2); /* prefix is non NULL so no need for S_OR */
 
-					res = generate_digit_map(newprefix, includename, geninfo, includes, buf, len);
+					res = generate_digit_map(newprefix, rootcontext, includename, geninfo, includes, buf, len, timeoutsuffix);
 
 					if (res > 0) {
 						buf += res;
@@ -313,7 +413,7 @@ static int generate_digit_map(const char *prefix, const char *context, struct ma
 	return res < 0 ? res : (buf - start);
 }
 
-static int generate_digit_map_all(int fd, const char *context_name)
+static int generate_digit_map_all(int fd, const char *context_name, int timeoutsuffix)
 {
 	int res = 0;
 	const char *includes[AST_PBX_MAX_STACK];
@@ -322,7 +422,7 @@ static int generate_digit_map_all(int fd, const char *context_name)
 		.includecount = 0,
 	};
 
-	res = generate_digit_map(NULL, context_name, &geninfo, includes, buf, sizeof(buf));
+	res = generate_digit_map(NULL, context_name, context_name, &geninfo, includes, buf, sizeof(buf), timeoutsuffix);
 
 	if (res <= 0) {
 		return res;
@@ -342,8 +442,9 @@ static char *handle_dialplan_generate_digitmap(struct ast_cli_entry *e, int cmd,
 	case CLI_INIT:
 		e->command = "dialplan generate digitmap";
 		e->usage =
-			"Usage: dialplan generate digitmap <context>\n"
-			"       Generate device digit maps for a dialplan context\n";
+			"Usage: dialplan generate digitmap <context> [T]\n"
+			"       Generate device digit maps for a dialplan context\n"
+			"       The argument T will suffix a T for any extensions that prefix other valid extensions.\n";
 		return NULL;
 	case CLI_GENERATE:
 #if 0
@@ -354,16 +455,17 @@ static char *handle_dialplan_generate_digitmap(struct ast_cli_entry *e, int cmd,
 #endif
 	}
 
-	if (a->argc != 4) {
+	if (a->argc != 4 && a->argc != 5) {
 		return CLI_SHOWUSAGE;
 	}
 
-	return generate_digit_map_all(a->fd, a->argv[3]) ? CLI_FAILURE : CLI_SUCCESS;
+	return generate_digit_map_all(a->fd, a->argv[3], a->argc == 5) ? CLI_FAILURE : CLI_SUCCESS;
 }
 
 static int manager_digitmap(struct mansession *s, const struct message *m)
 {
 	int res = 0;
+	int timeoutsuffix;
 	const char *includes[AST_PBX_MAX_STACK];
 	char buf[BUF_SIZE];
 	struct map_geninfo geninfo = {
@@ -371,19 +473,22 @@ static int manager_digitmap(struct mansession *s, const struct message *m)
 	};
 	const char *id = astman_get_header(m, "ActionID");
 	const char *context = astman_get_header(m, "Context");
+	const char *timeoutsuffix_s = astman_get_header(m, "TimeoutSuffix");
 
 	if (ast_strlen_zero(context)) {
 		astman_send_error(s, m, "No context specified");
 		return 0;
 	}
 
-	res = generate_digit_map(NULL, context, &geninfo, includes, buf, sizeof(buf));
+	timeoutsuffix = !ast_strlen_zero(timeoutsuffix_s) && ast_true(timeoutsuffix_s);
+
+	res = generate_digit_map(NULL, context, context, &geninfo, includes, buf, sizeof(buf), timeoutsuffix);
 	if (res <= 0) {
 		astman_send_error(s, m, "Could not generate digit map for requested context");
 		return 0;
 	}
 
-	ast_debug(1, "Generated digit map length: %d\n", res);
+	ast_debug(1, "Generated digit map length: %d: '%s'\n", res, buf + 1);
 	astman_append(s, "Response: Success\r\n");
 	if (!ast_strlen_zero(id)) {
 		astman_append(s, "ActionID: %s\r\n", id);
