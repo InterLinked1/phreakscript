@@ -2284,7 +2284,7 @@ elif [ "$cmd" = "wizard" ]; then
 		ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install Asterisk to run as another user?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 		if [ "$ans" = "y" ]; then
 			ans=$(dialog --nocancel --inputbox "What user do you want to run Asterisk under?" 20 60 "asterisk" 2>&1 >/dev/tty)
-			wizardresult="$wizardresult --version=$ans"
+			wizardresult="$wizardresult --user=$ans"
 		fi
 		ans=$(dialog --nocancel --inputbox "What version of Asterisk do you want to install?\n e.g. latestlts = latest LTS version, master = Git master, 18.12.0 = 18.2.0" 20 60 "latestlts" 2>&1 >/dev/tty)
 		if [ "$ans" != "latestlts" ]; then
