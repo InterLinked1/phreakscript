@@ -52,6 +52,10 @@
 #endif
 #include <spandsp/v22bis.h>
 #include <spandsp/v18.h>
+#include <spandsp/v27ter_tx.h>
+#include <spandsp/v27ter_rx.h>
+#include <spandsp/v29tx.h>
+#include <spandsp/v29rx.h>
 
 /* For TDD stuff */
 #define SPANDSP_EXPOSE_INTERNAL_STRUCTURES
@@ -124,29 +128,35 @@
 					<option name="v">
 						<para>Modem version</para>
 						<enumlist>
-							<enum name="V21">
-								<para>300/300 baud</para>
-							</enum>
-							<enum name="V23">
-								<para>1200/75 baud</para>
-							</enum>
-							<enum name="Bell103">
-								<para>300/300 baud</para>
-							</enum>
-							<enum name="Bell202">
-								<para>1200/1200 baud</para>
-							</enum>
-							<enum name="V22">
-								<para>1200/1200 baud</para>
-							</enum>
-							<enum name="V22bis">
-								<para>2400/2400 baud</para>
-							</enum>
 							<enum name="baudot45">
-								<para>V18 45.45bps TDD (US TTY) Baudot code</para>
+								<para>V18 45.45 bps TDD (US TTY) Baudot code</para>
 							</enum>
 							<enum name="baudot50">
-								<para>V18 50bps TDD (international) Baudot code</para>
+								<para>V18 50 bps TDD (international) Baudot code</para>
+							</enum>
+							<enum name="V21">
+								<para>300/300 bps</para>
+							</enum>
+							<enum name="V23">
+								<para>1200/75 bps</para>
+							</enum>
+							<enum name="Bell103">
+								<para>300/300 bps</para>
+							</enum>
+							<enum name="Bell202">
+								<para>1200/1200 bps</para>
+							</enum>
+							<enum name="V22">
+								<para>1200/1200 bps</para>
+							</enum>
+							<enum name="V22bis">
+								<para>2400/2400 bps</para>
+							</enum>
+							<enum name="V27ter">
+								<para>4800 bps - NOT WORKING</para>
+							</enum>
+							<enum name="V29">
+								<para>9600 bps - NOT WORKING</para>
 							</enum>
 						</enumlist>
 					</option>
@@ -215,6 +225,8 @@ enum {
 	VERSION_BELL202,
 	VERSION_V22,
 	VERSION_V22BIS,
+	VERSION_V27TER,	/* 4800 bps */
+	VERSION_V29,	/* 9600 bps */
 	VERSION_V18_45, /* V18_MODE_5BIT_45 */
 	VERSION_V18_50, /* V18_MODE_5BIT_50 */
 };
@@ -528,6 +540,12 @@ static int modem_get_bit(void *user_data)
 					} else if (tx->session->version == VERSION_V22BIS) {
 						tx_baud = 2400;
 						rx_baud = 2400;
+					} else if (tx->session->version == VERSION_V27TER) {
+						tx_baud = 4800;
+						rx_baud = 4800;
+					} else if (tx->session->version == VERSION_V29) {
+						tx_baud = 9600;
+						rx_baud = 9600;
 					} else {
 						tx_baud = 0;
 						rx_baud = 0;
@@ -630,6 +648,66 @@ static int v22_generator_generate(struct ast_channel *chan, void *data, int len,
 	return 0;
 }
 
+static int v27_generator_generate(struct ast_channel *chan, void *data, int len, int samples)
+{
+	v27ter_tx_state_t *tx = (v27ter_tx_state_t*) data;
+	uint8_t buffer[AST_FRIENDLY_OFFSET + MAX_SAMPLES * sizeof(uint16_t)];
+	int16_t *buf = (int16_t *) (buffer + AST_FRIENDLY_OFFSET);
+
+	struct ast_frame outf = {
+		.frametype = AST_FRAME_VOICE,
+		.subclass.format = ast_format_slin,
+		.src = __FUNCTION__,
+	};
+
+	if (samples > MAX_SAMPLES) {
+		ast_log(LOG_WARNING, "Only generating %d samples, where %d requested\n", MAX_SAMPLES, samples);
+		samples = MAX_SAMPLES;
+	}
+
+	if ((len = v27ter_tx(tx, buf, samples)) > 0) {
+		outf.samples = len;
+		AST_FRAME_SET_BUFFER(&outf, buffer, AST_FRIENDLY_OFFSET, len * sizeof(int16_t));
+
+		if (ast_write(chan, &outf) < 0) {
+			ast_log(LOG_WARNING, "Failed to write frame to %s: %s\n", ast_channel_name(chan), strerror(errno));
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int v29_generator_generate(struct ast_channel *chan, void *data, int len, int samples)
+{
+	v29_tx_state_t *tx = (v29_tx_state_t*) data;
+	uint8_t buffer[AST_FRIENDLY_OFFSET + MAX_SAMPLES * sizeof(uint16_t)];
+	int16_t *buf = (int16_t *) (buffer + AST_FRIENDLY_OFFSET);
+
+	struct ast_frame outf = {
+		.frametype = AST_FRAME_VOICE,
+		.subclass.format = ast_format_slin,
+		.src = __FUNCTION__,
+	};
+
+	if (samples > MAX_SAMPLES) {
+		ast_log(LOG_WARNING, "Only generating %d samples, where %d requested\n", MAX_SAMPLES, samples);
+		samples = MAX_SAMPLES;
+	}
+
+	if ((len = v29_tx(tx, buf, samples)) > 0) {
+		outf.samples = len;
+		AST_FRAME_SET_BUFFER(&outf, buffer, AST_FRIENDLY_OFFSET, len * sizeof(int16_t));
+
+		if (ast_write(chan, &outf) < 0) {
+			ast_log(LOG_WARNING, "Failed to write frame to %s: %s\n", ast_channel_name(chan), strerror(errno));
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static int v18_generator_generate(struct ast_channel *chan, void *data, int len, int samples)
 {
 	v18_state_t  *tx = (v18_state_t *) data;
@@ -671,6 +749,16 @@ struct ast_generator v22_generator = {
 	generate: 	v22_generator_generate,
 };
 
+struct ast_generator v27_generator = {
+	alloc:		modem_generator_alloc,
+	generate:	v27_generator_generate,
+};
+
+struct ast_generator v29_generator = {
+	alloc:		modem_generator_alloc,
+	generate:	v29_generator_generate,
+};
+
 struct ast_generator v18_generator = {
 	alloc:		modem_generator_alloc,
 	generate: 	v18_generator_generate,
@@ -693,8 +781,15 @@ static int softmodem_communicate(modem_session *s, int tls)
 	fsk_tx_state_t *modem_tx = NULL;
 	fsk_rx_state_t *modem_rx = NULL;
 
-	v22bis_state_t *v22_modem = NULL;
 	v18_state_t  *v18_modem = NULL;
+
+	v22bis_state_t *v22_modem = NULL;
+
+	v27ter_rx_state_t *v27_rx = NULL;
+    v27ter_tx_state_t *v27_tx = NULL;
+
+	v29_rx_state_t *v29_modem_rx = NULL;
+    v29_tx_state_t *v29_modem_tx = NULL;
 
 	int sock;
 	struct sockaddr_in server;
@@ -851,6 +946,12 @@ static int softmodem_communicate(modem_session *s, int tls)
 		v22_modem = v22bis_init(NULL, 1200, 0, s->flipmode, modem_get_bit, &txdata, modem_put_bit, &rxdata);
 	} else if (s->version == VERSION_V22BIS) {
 		v22_modem = v22bis_init(NULL, 2400, 0, s->flipmode, modem_get_bit, &txdata, modem_put_bit, &rxdata);
+	} else if (s->version == VERSION_V27TER) {
+		v27_tx = v27ter_tx_init(NULL, 4800, 0, modem_get_bit, &txdata);
+		v27_rx = v27ter_rx_init(NULL, 4800, modem_put_bit, &rxdata);
+	} else if (s->version == VERSION_V29) {
+		v29_modem_tx = v29_tx_init(NULL, 9600, 0, modem_get_bit, &txdata);
+		v29_modem_rx = v29_rx_init(NULL, 9600, modem_put_bit, &rxdata);
 	} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
 		fsk_rx_state_t *fs = NULL;
 		/* This softmodem is the called side, so answerer mode */
@@ -866,17 +967,27 @@ static int softmodem_communicate(modem_session *s, int tls)
 	}
 
 	if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version ==  VERSION_BELL103 || s->version ==  VERSION_BELL202) {
-		fsk_tx_power (modem_tx, s->txpower);
+		fsk_tx_power(modem_tx, s->txpower);
 		fsk_rx_signal_cutoff(modem_rx, s->rxcutoff);
 	} else if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
 		v22bis_tx_power(v22_modem, s->txpower);
 		v22bis_rx_signal_cutoff(v22_modem, s->rxcutoff);
+	} else if (s->version == VERSION_V27TER) {
+		v27ter_tx_power(v27_tx, s->txpower);
+		v27ter_rx_signal_cutoff(v27_rx, s->rxcutoff);
+	} else if (s->version == VERSION_V29) {
+		v29_tx_power(v29_modem_tx, s->txpower);
+		v29_rx_signal_cutoff(v29_modem_rx, s->rxcutoff);
 	}
 
 	if (s->version == VERSION_V21 || s->version == VERSION_V23 || s->version == VERSION_BELL103 || s->version ==  VERSION_BELL202) {
 		ast_activate_generator(s->chan, &fsk_generator, modem_tx);
 	} else if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
 		ast_activate_generator(s->chan, &v22_generator, v22_modem);
+	} else if (s->version == VERSION_V27TER) {
+		ast_activate_generator(s->chan, &v27_generator, v27_tx);
+	} else if (s->version == VERSION_V29) {
+		ast_activate_generator(s->chan, &v29_generator, v29_modem_tx);
 	} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
 		ast_activate_generator(s->chan, &v18_generator, v18_modem);
 	}
@@ -909,6 +1020,18 @@ static int softmodem_communicate(modem_session *s, int tls)
 				}
 			} else if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
 				if (v22bis_rx(v22_modem, inf->data.ptr, inf->samples) < 0) {
+					ast_log(LOG_WARNING, "softmodem returned error\n");
+					res = -1;
+					break;
+				}
+			} else if (s->version == VERSION_V27TER) {
+				if (v27ter_rx(v27_rx, inf->data.ptr, inf->samples) < 0) {
+					ast_log(LOG_WARNING, "softmodem returned error\n");
+					res = -1;
+					break;
+				}
+			} else if (s->version == VERSION_V29) {
+				if (v29_rx(v29_modem_rx, inf->data.ptr, inf->samples) < 0) {
 					ast_log(LOG_WARNING, "softmodem returned error\n");
 					res = -1;
 					break;
@@ -998,6 +1121,12 @@ cleanup:
 	if (s->version == VERSION_V22 || s->version == VERSION_V22BIS) {
 		v22bis_release(v22_modem);
 		v22bis_free(v22_modem);
+	} else if (s->version == VERSION_V27TER) {
+		v27ter_rx_release(v27_rx);
+		v27ter_rx_free(v27_rx);
+	} else if (s->version == VERSION_V29) {
+		v29_rx_release(v29_modem_rx);
+		v29_rx_free(v29_modem_rx);
 	} else if (s->version == VERSION_V18_45 || s->version == VERSION_V18_50) {
 		v18_release(v18_modem);
 		v18_free(v18_modem);
@@ -1104,6 +1233,10 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 					session.version = VERSION_V22;
 				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V22bis")) {
 					session.version = VERSION_V22BIS;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V27ter")) {
+					session.version = VERSION_V27TER;
+				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "V29")) {
+					session.version = VERSION_V29;
 				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "baudot45")) {
 					session.version = VERSION_V18_45;
 				} else if (!strcasecmp(option_args[OPT_ARG_MODEM_VERSION], "baudot50")) {
