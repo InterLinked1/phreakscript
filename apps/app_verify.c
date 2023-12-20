@@ -1277,7 +1277,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 				}
 				regfree(&regexbuf);
 			}
-			ast_verb(3, "Verification result for %s is '%s'\n", name, vresult ? vresult : "(null)");
+			ast_verb(3, "Verification result for %s (%s) is '%s'\n", callerid, name, vresult ? vresult : "(null)");
 			verify_set_var(chan, local_var, vresult);
 		}
 	} else if (method == 3) { /* regex */
@@ -1295,11 +1295,11 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			ast_log(LOG_WARNING, "Malformed input %s(%s): %s\n", "REGEX", successregex, buf);
 		} else if (!regexec(&regexbuf, callerid, 0, NULL, 0)) {
 			verify_set_var(chan, local_var, code_good);
-			ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, *code_good ? code_good : "(null)");
+			ast_verb(3, "Verification result for %s (%s) is '%s' (SUCCESS)\n", callerid, name, *code_good ? code_good : "(null)");
 			success = 1;
 		} else {
 			verify_set_var(chan, local_var, code_fail);
-			ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *code_fail ? code_fail : "(null)");
+			ast_verb(3, "Verification result for %s (%s) is '%s' (FAILURE)\n", callerid, name, *code_fail ? code_fail : "(null)");
 		}
 		regfree(&regexbuf);
 	} else if (method == 4) { /* dialplan pattern */
@@ -1312,7 +1312,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			ast_log(LOG_WARNING, "Failed to find extension match for %s in context %s. Autofallthrough to bad call.\n", callerid, verifycontext);
 			/* it's probably a safe bet that if we couldn't find a pattern, it's a bad call. At least, fail safe to flagging as bad. */
 			verify_set_var(chan, local_var, code_fail);
-			ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *code_fail ? code_fail : "(null)");
+			ast_verb(3, "Verification result for %s (%s) is '%s' (FAILURE)\n", callerid, name, *code_fail ? code_fail : "(null)");
 		} else {
 			verify_set_var(chan, local_var, tmpbuf);
 			do {
@@ -1329,10 +1329,10 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 					regerror(errcode, &regexbuf, buf, BUFLEN2);
 					ast_log(LOG_WARNING, "Malformed input %s(%s): %s\n", "REGEX", successregex, buf);
 				} else if (!regexec(&regexbuf, tmpbuf, 0, NULL, 0)) {
-					ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, *tmpbuf ? tmpbuf : "(null)");
+					ast_verb(3, "Verification result for %s (%s) is '%s' (SUCCESS)\n", callerid, name, *tmpbuf ? tmpbuf : "(null)");
 					success = 1;
 				} else {
-					ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, *tmpbuf ? tmpbuf : "(null)");
+					ast_verb(3, "Verification result for %s (%s) is '%s' (FAILURE)\n", callerid, name, *tmpbuf ? tmpbuf : "(null)");
 				}
 				regfree(&regexbuf);
 			} while (0);
@@ -1493,11 +1493,11 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		}
 success: /* only as a branch, if we fall through to here, that doesn't necessarily mean success */
 		verify_set_var(chan, local_var, vresult);
-		ast_verb(3, "Verification result for %s is '%s' (SUCCESS)\n", name, vresult ? vresult : "(null)");
+		ast_verb(3, "Verification result for %s (%s) is '%s' (SUCCESS)\n", callerid, name, vresult ? vresult : "(null)");
 		goto done;
 fail:
 		verify_set_var(chan, local_var, viaverify ? code_spoof : code_fail);
-		ast_verb(3, "Verification result for %s is '%s' (FAILURE)\n", name, viaverify ? (*code_spoof ? code_spoof : "(null)") : (*code_fail ? code_fail : "(null)"));
+		ast_verb(3, "Verification result for %s (%s) is '%s' (FAILURE)\n", callerid, name, viaverify ? (*code_spoof ? code_spoof : "(null)") : (*code_fail ? code_fail : "(null)"));
 	}
 
 done:

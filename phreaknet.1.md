@@ -60,6 +60,9 @@ the best Asterisk and DAHDI experience.
 **source**
 : Download and patch source code only, without building or installing. This operates on the current working directory.
 
+**experimental**
+: Add experimental features to an existing Asterisk source
+
 **dahdi**
 : Install or upgrade DAHDI (only). Generally this command does not need to be used. To install Asterisk with DAHDI, use the install command and provide the -d or --dahdi option instead.
 

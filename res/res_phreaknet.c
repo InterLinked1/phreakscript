@@ -162,7 +162,7 @@
 		</syntax>
 		<description>
 			<para>Places a PhreakNet call.</para>
-			<para>This application automatically handles lookup reequests, out-verification, in-band signalling setup, and authentication fallbacks and retries.</para>
+			<para>This application automatically handles lookup requests, out-verification, in-band signalling setup, and authentication fallbacks and retries.</para>
 			<example title="Call 5551212">
 			same => n,PhreakNetDial(5551212)
 			</example>
@@ -1086,17 +1086,17 @@ static int gen_keypair(int rotate)
 
 	/* Generate the new keypair, and wait for it to finish. */
 	if (ast_safe_execvp(0, "astgenkey", argv) == -1) {
-		ast_log(LOG_WARNING, "Failed to execute astgenkey\n");
+		ast_log(LOG_WARNING, "Failed to execute astgenkey: %s\n", strerror(errno));
 		return -1;
 	}
 
 	/* astgenkey will create files in the current working directory, not ast_config_AST_KEY_DIR.
 	 * We could chdir after we fork but before we execvp, but let's just rename the file from what it is to what it should be. */
 	if (rename(MY_KEYPAIR_NAME ".key", privkeyfile)) {
-		ast_log(LOG_WARNING, "Failed to rename file to %s\n", privkeyfile);
+		ast_log(LOG_WARNING, "Failed to rename file to %s: %s\n", privkeyfile, strerror(errno));
 		return -1;
 	} else if (rename(MY_KEYPAIR_NAME ".pub", pubkeyfile)) {
-		ast_log(LOG_WARNING, "Failed to rename file to %s\n", pubkeyfile);
+		ast_log(LOG_WARNING, "Failed to rename file to %s: %s\n", pubkeyfile, strerror(errno));
 		return -1;
 	}
 

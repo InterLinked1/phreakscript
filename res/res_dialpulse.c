@@ -133,7 +133,8 @@ AST_APP_OPTIONS(dspeed_app_options, {
 
 static const char *dspeed_name = "DialSpeedTest";
 
-static int dspeed_test(struct ast_channel *chan, int timeout) {
+static int dspeed_test(struct ast_channel *chan, int timeout)
+{
 	struct ast_frame *frame = NULL;
 	struct timeval start;
 	int remaining_time = timeout;

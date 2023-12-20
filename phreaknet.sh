@@ -197,7 +197,7 @@ DAHLIN_SRC_URL="http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-li
 DAHTOOL_SRC_URL="http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz"
 
 # Pull from GitHub for now, since 3.3.0 is only available there right now
-DAHDI_VERSION="3.3.0-rc1"
+DAHDI_VERSION="3.3.0"
 DAHLIN_SRC_NAME="dahdi-linux-${DAHDI_VERSION}.tar.gz"
 DAHTOOL_SRC_NAME="dahdi-tools-${DAHDI_VERSION}.tar.gz"
 DAHLIN_SRC_URL="https://github.com/asterisk/dahdi-linux/releases/download/v${DAHDI_VERSION}/${DAHLIN_SRC_NAME}"
@@ -207,6 +207,7 @@ DAHTOOL_SRC_URL="https://github.com/asterisk/dahdi-tools/releases/download/v${DA
 DAHDI_MM_VER=33
 
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
+LIBSS7_VERSION="2.0.1"
 WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.36, 2023-09-05)
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
@@ -315,7 +316,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install source dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update astpr patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
+	echo "about help version examples info wizard make man mancached install source experimental dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update astpr patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
 	exit 0
 fi
 
@@ -338,6 +339,7 @@ Commands:
    mancached          Install cached man page (may be outdated)
    install            Install or upgrade PhreakNet-enhanced Asterisk
    source             Prepare PhreakNet-enhanced Asterisk source code only
+   experimental       Add experimental features to an existing Asterisk source
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    wanpipe            Install wanpipe
    odbc               Install ODBC (MariaDB)
@@ -565,9 +567,9 @@ install_prereq() {
 		if [ -f /etc/needrestart/needrestart.conf ]; then
 			sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
 		fi
-		if [ -f /var/cache/apt/pkgcache.bin ]; then
+		if [ -f /var/cache/apt/pkgcache.bin ] && [ "$FORCE_INSTALL" != "1"]; then
 			echo $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) ))
-			if [ $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) )) -lt 7200 ]; then # within last 2 hours
+			if [ $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) )) -lt 300 ]; then # within last 5 minutes
 				printf "Package updates occured recently, skipping...\n"
 				return
 			fi
@@ -925,7 +927,7 @@ install_testsuite_itself() {
 }
 
 configure_devmode() {
-	./configure --enable-dev-mode --with-jansson-bundled
+	./configure --enable-dev-mode --with-jansson-bundled --with-pjproject-bundled
 	make menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable COMPILE_DOUBLE --enable DO_CRASH menuselect.makeopts
 	menuselect/menuselect --enable DEBUG_THREADS --enable MALLOC_DEBUG --enable DEBUG_FD_LEAKS menuselect.makeopts
@@ -1069,7 +1071,7 @@ asterisk_pr() {
 	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O /tmp/$1.pr.diff --no-cache
 	if [ "$2" = "1" ]; then
 		git apply -v "/tmp/$1.pr.diff"
-		patch -p1 -F 3 -f --verbose --reject < "/tmp/$1.pr.diff"
+		patch -p1 -F 3 -f --verbose < "/tmp/$1.pr.diff"
 	else
 		git apply "/tmp/$1.pr.diff"
 	fi
@@ -1324,6 +1326,14 @@ install_dahdi() {
 	cd ${LIBPRI_SOURCE_NAME}
 	make && make install
 
+	# LibSS7
+	cd $AST_SOURCE_PARENT_DIR
+	wget https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz
+	tar -zxvf ${LIBSS7_VERSION}.tar.gz
+	rm ${LIBSS7_VERSION}.tar.gz
+	cd ${LIBSS7_VERSION}
+	make && make install
+
 	# Wanpipe
 	install_wanpipe
 
@@ -1517,6 +1527,14 @@ asterisk_pr_unconditional() {
 	asterisk_pr $1
 }
 
+add_experimental() {
+	custom_module "include/asterisk/res_pjsip_body_generator_types.h" "https://code.phreaknet.org/asterisk/res_pjsip_body_generator_types.h"
+	custom_module "res/res_pjsip_device_features.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features.c"
+	custom_module "res/res_pjsip_device_features_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features_body_generator.c"
+	custom_module "res/res_pjsip_sca.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca.c"
+	custom_module "res/res_pjsip_sca_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca_body_generator.c"
+}
+
 phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	### Inject custom PhreakNet patches to add additional functionality and features.
 	### If/when/as these are integrated upstream, they will be removed from this function. 
@@ -1533,7 +1551,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_george.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
-	phreak_tree_module "apps/app_loopdisconnect.c"
 	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
 	phreak_tree_module "apps/app_memory.c"
@@ -1564,18 +1581,23 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "funcs/func_tech.c"
-
 	phreak_tree_module "res/res_coindetect.c"
+
 	if [ "$DEVMODE" = "1" ]; then
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
 	fi
-	if [ "$RTPULSING" = "1" ]; then
-		phreak_tree_module "res/res_dialpulse.c"
-	fi
+
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
 	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
+
+	if [ "$CHAN_DAHDI" = "1" ]; then
+		phreak_tree_module "apps/app_loopdisconnect.c"
+		if [ "$RTPULSING" = "1" ]; then
+			phreak_tree_module "res/res_dialpulse.c"
+		fi
+	fi
 
 	## Third Party Modules
 	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
@@ -1638,6 +1660,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
 	asterisk_pr_unconditional 292 # GROUP VARs
 	asterisk_pr_unconditional 414 # IAX2 loopback warning
+	asterisk_pr_unconditional 459 # sig_analog: Fix channel leak with mwimonitor=yes
 	if [ "$RTPULSING" = "1" ]; then
 		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
 		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -1651,11 +1674,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ] && [ $AST_MAJOR_VER -ge 21 ]; then
 		printf "Installing 21+ patches for experimental features\n"
-		custom_module "include/asterisk/res_pjsip_body_generator_types.h" "https://code.phreaknet.org/asterisk/res_pjsip_body_generator_types.h"
-		custom_module "res/res_pjsip_device_features.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features.c"
-		custom_module "res/res_pjsip_device_features_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features_body_generator.c"
-		custom_module "res/res_pjsip_sca.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca.c"
-		custom_module "res/res_pjsip_sca_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca_body_generator.c"
+		add_experimental
 	fi
 
 	if [ "$DEVMODE" = "1" ]; then # highly experimental
@@ -1747,7 +1766,7 @@ install_odbc() {
 
 paste_post() { # $1 = file to upload, $2 = 1 to delete file on success, $3 = auto-email to business office
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
-		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}'`
+		INTERLINKED_APIKEY=`grep -R "interlinkedkey=" $AST_CONFIG_DIR | grep -v "your-interlinked-api-key" | cut -d'=' -f2 | awk '{print $1;}' | head -n 1`
 		if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
 			echoerr "Failed to find InterLinked API key. For future use, please set your [globals] variables, e.g. by running phreaknet config"
 			printf '\a' # alert the user
@@ -2364,14 +2383,25 @@ elif [ "$cmd" = "mancached" ]; then
 	mandb
 elif [ "$cmd" = "source" ]; then
 	if [ $(id -u) -ne 0 ]; then
-		#check for source prereqs: git and svn
+		# check for source prereqs: git and svn
 		{ git --version >/dev/null && svn help >/dev/null; } || { echoerr "Please install git and subversion packages and try again."; exit 2; }
 	else
-		#we are already root, so just install prereqs
+		# we are already root, so just install prereqs
 		install_prereq
 	fi
 	AST_SOURCE_PARENT_DIR=$PWD
 	get_source
+elif [ "$cmd" = "experimental" ]; then
+	assert_root
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	if [ $AST_MAJOR_VER -ge 21 ]; then
+		printf "Installing 21+ patches for experimental features\n"
+		add_experimental
+		$AST_MAKE
+	else
+		echoerr "Your version of Asterisk is not eligible for experimental features"
+	fi
 elif [ "$cmd" = "install" ]; then
 	preinstall_warn=0
 
@@ -2459,7 +2489,7 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$DEVMODE" = "1" ]; then
 		configure_devmode
 	else
-		./configure --with-jansson-bundled
+		./configure --with-jansson-bundled --with-pjproject-bundled
 	fi
 	if [ $? -ne 0 ]; then
 		exit 2
@@ -2688,6 +2718,9 @@ elif [ "$cmd" = "install" ]; then
 			chgrp -R $AST_USER /etc/letsencrypt/archive
 		fi
 	fi
+
+	# Allow core dumps
+	ulimit -c unlimited
 
 	# Make sure we can read any keys we need, or Asterisk will not be happy when it restarts.
 	if [ -d /etc/letsencrypt ]; then
