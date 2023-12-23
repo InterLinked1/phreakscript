@@ -468,7 +468,9 @@ static int modem_get_bit(void *user_data)
 				}
 				return 0; /* return startbit immediately */
 			} else if (rc == 0) {
-				ast_log(LOG_WARNING, "Socket seems closed. Will hangup.\n");
+				if (!tx->session->finished) {
+					ast_verb(4, "TCP server closed connection, hanging up...\n");
+				}
 				tx->session->finished = 1;
 			}
 		} else {
