@@ -1755,6 +1755,9 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 			}
 		}
 		ast_verb(3, "Updating CALLERID(name) from '%s' to '%s'\n", cnam, newcnam);
+		if (ast_channel_caller(chan)->id.name.str) {
+			ast_free(ast_channel_caller(chan)->id.name.str);
+		}
 		ast_channel_caller(chan)->id.name.str = ast_strdup(newcnam);
 		ast_trim_blanks(ast_channel_caller(chan)->id.name.str);
 	}

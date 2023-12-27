@@ -179,11 +179,14 @@
 			<parameter name="property" required="true">
 				<para>Must be one of the following:</para>
 				<enumlist>
-					<enum name="lookup">
-						<para>Perform a lookup for a PhreakNet number</para>
-					</enum>
 					<enum name="cdr">
-						<para>Enable PhreakNet CDR on the channel</para>
+						<para>W/O. Enable PhreakNet CDR on the channel</para>
+					</enum>
+					<enum name="lookup">
+						<para>R/O. Check if a PhreakNet number exists</para>
+					</enum>
+					<enum name="lookup">
+						<para>R/O. Perform a lookup for a PhreakNet number</para>
 					</enum>
 				</enumlist>
 			</parameter>
@@ -195,6 +198,9 @@
 			<para>Usage varies depending on the property chosen.</para>
 			<example title="Enable PhreakNet CDR on a channel">
 			same => n,Set(PHREAKNET(CDR)=${EXTEN})
+			</example>
+			<example title="Check whether 555-1212 is a number that exists">
+			same => n,Set(exists=${PHREAKNET(exists,5551212)})
 			</example>
 		</description>
 		<see-also>
@@ -1819,18 +1825,61 @@ static int lookup_number_token(struct ast_channel *chan, const char *number, con
 	return 0;
 }
 
+static int number_exists(const char *number)
+{
+	struct ast_str *str;
+	char url[256];
+	int i;
+
+	snprintf(url, sizeof(url), "https://api.phreaknet.org/v1/exists?key=%s&number=%s", interlinked_api_key, number);
+	str = curl_get(url, NULL);
+	if (!str) {
+		return 0;
+	}
+	i = atoi(S_OR(ast_str_buffer(str), ""));
+	ast_free(str);
+	return i;
+}
+
 static int phreaknet_read(struct ast_channel *chan, const char *cmd, char *data, char *buf, size_t len)
 {
 	if (!chan) {
 		ast_log(LOG_WARNING, "No channel was provided to %s function.\n", cmd);
 		return -1;
 	}
-	if (!strcasecmp(data, "lookup")) {
+	if (ast_begins_with(data, "lookup")) {
 		char *number = strchr(data, ',');
 		if (number) {
 			*number++ = '\0';
 		}
+		if (!ast_channel_caller(chan)->id.number.str) {
+			const char *maindisa;
+			/* If there's no Caller ID (such as when querying from the CLI), this will fail.
+			 * Use a generic Caller ID assigned to this node to get a valid response. */
+			ast_channel_lock(chan);
+			/* It's a global variable, so don't even bother providing a channel: */
+			maindisa = pbx_builtin_getvar_helper(NULL, "mainphreaknetdisa");
+			if (maindisa) {
+				ast_channel_caller(chan)->id.number.str = ast_strdup(maindisa);
+				if (ast_channel_caller(chan)->id.number.str) {
+					ast_channel_caller(chan)->id.number.valid = 1;
+				}
+			}
+			ast_channel_unlock(chan);
+		}
 		return lookup_number(chan, number, "", buf, len);
+	} else if (ast_begins_with(data, "exists")) {
+		const char *number = strchr(data, ',');
+		if (!number) {
+			ast_log(LOG_ERROR, "Missing number\n");
+			return -1;
+		}
+		number++;
+		if (ast_strlen_zero(number)) {
+			ast_log(LOG_ERROR, "Missing number\n");
+			return -1;
+		}
+		ast_copy_string(buf, number_exists(number) ? "1" : "0", len);
 	} else if (!strcasecmp(data, "CDR")) {
 		/* PhreakNet CDR already enabled on this channel? */
 		ast_copy_string(buf, cdr_channel_applicable(ast_channel_name(chan), 0) ? "1" : "0", len);
