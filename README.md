@@ -3,7 +3,7 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 21.0.0 (latest standard release[1] of Asterisk)
+- Asterisk 21.1.0 (latest standard release[1] of Asterisk)
 - DAHDI Linux 3.3.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.3.0 (with optional DAHDI install flag)
 - many additional features and stability improvements

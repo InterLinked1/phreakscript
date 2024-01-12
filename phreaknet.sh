@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.0 (2023-10-26)
+# v1.1.1 (2024-01-12)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -12,7 +12,8 @@
 # phreaknet update
 # phreaknet install
 
-## Begin Change Log:
+## Begin Change Log:'
+# 2024-01-12 1.1.1 Asterisk: target Asterisk 21.1.0-rc1, fix 'phreaknet restart' command
 # 2023-10-26 1.1.0 Asterisk/DAHDI: target Asterisk 21, DAHDI 3.3.0-rc1
 # 2023-09-27 1.0.5 DAHDI: restore tor2 and pciradio drivers, PhreakScript: pull update script from GitHub
 # 2023-09-16 1.0.4 DAHDI: Fix DAHDI driver restoral, fix wcte12xp compilation on kernels >= 5.16
@@ -188,7 +189,9 @@ AST_NEXT_MAJOR_VER=22
 AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
 AST_MM_VER=0
 AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
-AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing"
+# This was meant to be -testing, but ended up being -testing-rc#,
+# if this is fixed, this will need to be adjusted accordingly.
+AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing-rc1"
 
 DAHDI_VERSION="3.2.0"
 DAHLIN_SRC_NAME="dahdi-linux-current.tar.gz"
@@ -567,7 +570,7 @@ install_prereq() {
 		if [ -f /etc/needrestart/needrestart.conf ]; then
 			sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
 		fi
-		if [ -f /var/cache/apt/pkgcache.bin ] && [ "$FORCE_INSTALL" != "1"]; then
+		if [ -f /var/cache/apt/pkgcache.bin ] && [ "$FORCE_INSTALL" != "1" ]; then
 			echo $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) ))
 			if [ $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) )) -lt 300 ]; then # within last 5 minutes
 				printf "Package updates occured recently, skipping...\n"
@@ -1653,14 +1656,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		fi
 	fi
 
-	# Soon to be merged
-	git_patch "core_local_bug_fix_for_dial_string_parsing.patch" # core_local: bug fix for dial string parsing
-
 	# Unmerged patches
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
 	asterisk_pr_unconditional 292 # GROUP VARs
 	asterisk_pr_unconditional 414 # IAX2 loopback warning
-	asterisk_pr_unconditional 459 # sig_analog: Fix channel leak with mwimonitor=yes
 	if [ "$RTPULSING" = "1" ]; then
 		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
 		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -2027,9 +2026,13 @@ get_source() {
 			sleep 1
 		fi
 	fi
-	rm -f $AST_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
+	EFF_SOURCE_NAME=$AST_SOURCE_NAME
+	# Remove any previous version to ensure wget doesn't add a suffix to the filename
+	rm -f $EFF_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
 		if [ "$PREFER_RELEASE_CANDIDATES" = "1" ]; then
+			EFF_SOURCE_NAME=$AST_RC_SOURCE_NAME
+			rm -f $EFF_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 			$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_RC_SOURCE_NAME.tar.gz
 			if [ $? -ne 0 ]; then
 				printf "No release candidate is currently available, installing latest stable version instead\n"
@@ -2086,7 +2089,7 @@ get_source() {
 		AST_SRC_DIR="asterisk-master"
 		AST_MM_VER=999999
 	else
-		AST_SRC_DIR=`tar -tzf $AST_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
+		AST_SRC_DIR=`tar -tzf $EFF_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
 		if [ -d "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" ]; then
 			if [ "$FORCE_INSTALL" = "1" ]; then
 				rm -rf $AST_SRC_DIR
@@ -2104,8 +2107,8 @@ get_source() {
 	fi
 	printf "%s\n" "Installing production version $AST_SRC_DIR..."
 	if [ "$AST_ALT_VER" != "master" ]; then
-		tar -zxvf $AST_SOURCE_NAME.tar.gz
-		rm $AST_SOURCE_NAME.tar.gz
+		tar -zxvf $EFF_SOURCE_NAME.tar.gz
+		rm $EFF_SOURCE_NAME.tar.gz
 	fi
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
 		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
@@ -3326,12 +3329,18 @@ elif [ "$cmd" = "forcerestart" ]; then
 	fi
 elif [ "$cmd" = "restart" ]; then
 	service asterisk stop # stop Asterisk
+	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | cut -d' ' -f2 )
+	if [ "$astpid" != "" ]; then
+		# if that didn't work, kill it manually
+		kill -9 $astpid
+		printf "Killed Asterisk process %s\n" "$astpid"
+	fi
 	lsmod | grep dahdi
 	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
 	printf "Current drivers: --- %s ---\n", "$curdrivers"
 	if which wanrouter > /dev/null; then
 		service wanpipe status
-		if [ $? -ne 0 ]; then
+		if [ $? -eq 0 ]; then
 			printf "Stopping wanpipe spans\n"
 			if ! wanrouter stop all; then # stop all T1 spans on wanpipe
 				die "Failed to stop wanpipe spans"
@@ -3345,7 +3354,7 @@ elif [ "$cmd" = "restart" ]; then
 		printf "wanpipe is not running, skipping...\n"
 	fi
 	service dahdi status
-	if [ $? -ne 0 ]; then
+	if [ $? -eq 0 ]; then
 		printf "Stopping DAHDI...\n" # XXX extraneous comma in output???
 		if ! service dahdi stop; then
 			printf "Returned %d\n" $?
@@ -3378,6 +3387,8 @@ elif [ "$cmd" = "restart" ]; then
 	fi
 	printf "DAHDI is now running normally...\n"
 	service asterisk start
+	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | cut -d' ' -f2 )
+	printf "Asterisk now running on pid %s\n" "$astpid"
 elif [ "$cmd" = "edit" ]; then
 	exec nano $FILE_PATH
 elif [ "$cmd" = "validate" ]; then
