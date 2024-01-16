@@ -211,7 +211,7 @@ DAHDI_MM_VER=33
 
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
 LIBSS7_VERSION="2.0.1"
-WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.36, 2023-09-05)
+WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.37.1, 2023-12-21)
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
 MIN_ARGS=1
@@ -1637,13 +1637,12 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	printf "Determining patches applicable to %s -> %d (~%s)\n" "$AST_ALT_VER" "$AST_MM_VER" "$AST_MAJOR_VER"
 
-	## merged into master, not yet in a release version
-	asterisk_pr_if 287 210100 200600 182100 # IAX2 auth debug improvement
-	asterisk_pr_if 309 210100 200600 182100 # chan_console deadlock fix
-	asterisk_pr_if 355 210100 200600 182100 # app_voicemail: Disable ADSI if unavailable
-	asterisk_pr_if 399 210100 200600 182100 # app_voicemail: Add AMI event for password changes
+	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
 
 	## Unmerged patches: remove once merged
+	if [ -f main/logger.xml ]; then
+		asterisk_pr_unconditional 540 # critical linking fix for 21.1.0-rc1
+	fi
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then
@@ -1660,6 +1659,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
 	asterisk_pr_unconditional 292 # GROUP VARs
 	asterisk_pr_unconditional 414 # IAX2 loopback warning
+
 	if [ "$RTPULSING" = "1" ]; then
 		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
 		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
@@ -2001,11 +2001,23 @@ run_rules() {
 }
 
 get_source() {
-	# Get latest Asterisk LTS version
+	GIT_VERSION=""
+	# Get latest Asterisk LTS version by default
+	len=$(printf "%s" $AST_ALT_VER | wc -c)
 	if [ "$AST_ALT_VER" = "master" ]; then
-		AST_SOURCE_NAME="asterisk-master"
+		AST_SOURCE_NAME="asterisk-git"
+		GIT_VERSION="master"
+		AST_ALT_VER="git"
 		AST_MAJOR_VER=$AST_NEXT_MAJOR_VER
-		printf "%s\n" "Proceeding to clone master branch of Asterisk..."
+		printf "Proceeding to clone %s branch of Asterisk...\n" "master"
+		sleep 1
+	elif [ $len = 40 ]; then
+		# Git commit hash
+		AST_SOURCE_NAME="asterisk-git"
+		GIT_VERSION=$AST_ALT_VER
+		AST_ALT_VER="git"
+		AST_MAJOR_VER=$AST_NEXT_MAJOR_VER # Actually, we don't know... who knows?
+		printf "Proceeding to clone %s branch of Asterisk...\n" "$GIT_VERSION"
 		sleep 1
 	elif [ "$AST_ALT_VER" != "" ]; then
 		minor_ver=`echo "$AST_ALT_VER" | cut -c 3-`
@@ -2042,7 +2054,7 @@ get_source() {
 		if [ "$PREFER_RELEASE_CANDIDATES" = "0" ]; then
 			$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_SOURCE_NAME.tar.gz
 		fi
-	elif [ "$AST_ALT_VER" = "master" ]; then # clone master branch
+	elif [ "$AST_ALT_VER" = "git" ]; then # clone master branch
 		if [ -d "asterisk" ]; then
 			if [ "$FORCE_INSTALL" = "1" ]; then
 				rm -rf "asterisk"
@@ -2051,20 +2063,18 @@ get_source() {
 				exit 1
 			fi
 		fi
-		if [ -d "asterisk-master" ]; then
-			if [ "$FORCE_INSTALL" = "1" ]; then
-				rm -rf "asterisk-master"
-			else
-				echoerr "Directory asterisk-master already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
-			fi
+		if [ -d "asterisk-git" ]; then
+			cd asterisk-git
+			git reset --hard origin/master
+			cd ..
+		else
+			git clone "https://github.com/asterisk/asterisk"
+			mv asterisk asterisk-git
 		fi
-		git clone "https://github.com/asterisk/asterisk"
 		if [ $? -ne 0 ]; then
-			echoerr "Failed to clone asterisk master branch"
+			echoerr "Failed to clone asterisk repository"
 			exit 1
 		fi
-		mv asterisk asterisk-master
 	else
 		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
 		# If someone is downloading the current version, it might not be in the releases directory, which is for archived (old) releases only
@@ -2073,7 +2083,7 @@ get_source() {
 		fi
 	fi
 	if [ $? -ne 0 ]; then
-		if [ "$AST_ALT_VER" != "master" ]; then
+		if [ "$AST_ALT_VER" != "git" ]; then
 			echoerr "Failed to download file: https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz"
 		fi
 		if [ "$AST_ALT_VER" != "" ]; then
@@ -2085,8 +2095,8 @@ get_source() {
 		git clone https://github.com/chan-sccp/chan-sccp.git chan-sccp
 	fi
 
-	if [ "$AST_ALT_VER" = "master" ]; then
-		AST_SRC_DIR="asterisk-master"
+	if [ "$AST_ALT_VER" = "git" ]; then
+		AST_SRC_DIR="asterisk-git"
 		AST_MM_VER=999999
 	else
 		AST_SRC_DIR=`tar -tzf $EFF_SOURCE_NAME.tar.gz | head -1 | cut -f1 -d"/"`
@@ -2106,7 +2116,7 @@ get_source() {
 		printf "Asterisk MMmmPP: %s\n", "$AST_MM_VER"
 	fi
 	printf "%s\n" "Installing production version $AST_SRC_DIR..."
-	if [ "$AST_ALT_VER" != "master" ]; then
+	if [ "$AST_ALT_VER" != "git" ]; then
 		tar -zxvf $EFF_SOURCE_NAME.tar.gz
 		rm $EFF_SOURCE_NAME.tar.gz
 	fi
@@ -2129,6 +2139,10 @@ get_source() {
 		AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
 	done
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	if [ "$GIT_VERSION" != "" ]; then
+		git checkout $GIT_VERSION
+		$AST_MAKE clean # git reset and git checkout aren't sufficient, we need to 'make clean' as well
+	fi
 	if [ ! -f channels/chan_sip.c ]; then
 		printf "chan_sip was not natively present in this version of Asterisk\n"
 		ENHANCED_CHAN_SIP=1 # chan_sip isn't present anymore, we need to readd it ourselves (if we're going to build chan_sip at all)
@@ -2430,7 +2444,7 @@ elif [ "$cmd" = "install" ]; then
 		printf "\n"
 		preinstall_warn=1
 	fi
-	if [ "$EXTERNAL_CODECS" = "1" ] && [ "$AST_ALT_VER" = "master" ]; then
+	if [ "$EXTERNAL_CODECS" = "1" ] && [ "$AST_ALT_VER" = "git" ]; then
 		echoerr "WARNING: External codecs should not be installed with the master branch."
 		echoerr "This may cause ABI (Application Binary Interface) issues, including crashes."
 		printf "\n"
@@ -2612,7 +2626,10 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		nice $AST_MAKE ASTLDFLAGS=-lcrypt main
 	else
-		nice $AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+		nice $AST_MAKE -j$(nproc) main # compile 'main' subdirectory first
+		if [ $? -eq 0 ]; then
+			nice $AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+		fi
 	fi
 
 	if [ $? -ne 0 ]; then
@@ -2625,6 +2642,7 @@ elif [ "$cmd" = "install" ]; then
 		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
+		echoerr "Compilation or doc validation failed"
 		exit 2
 	fi
 	if [ "$DEVMODE" = "1" ]; then
@@ -2634,6 +2652,7 @@ elif [ "$cmd" = "install" ]; then
 		if [ "$DEVMODE" = "1" ]; then
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
+		echoerr "Compilation or doc validation failed"
 		exit 2
 	fi
 
