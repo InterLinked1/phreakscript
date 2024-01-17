@@ -233,6 +233,7 @@ PATH="/sbin:$PATH" # in case su used without path
 AST_CC=1 # Country Code (default: 1 - NANPA)
 AST_USER=""
 EXTRA_FEATURES=1
+ALSA=0
 WEAK_TLS=0
 CHAN_SIP=0
 ENHANCED_CHAN_SIP=0
@@ -440,6 +441,7 @@ Options:
        --experimental install: Install experimental features that may not be production ready
        --fast         install: Compile as fast as possible
        --lightweight  install: Only install basic, required modules for basic Asterisk functionality
+       --alsa         install: Ensure ALSA library detection exists in the build system. This does NOT readd the deprecated/removed chan_alsa module.
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
@@ -2183,7 +2185,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -2213,6 +2215,7 @@ while true; do
 		-u | --user ) AST_USER=$2; shift 2;;
 		-v | --version ) AST_ALT_VER=$2; shift 2;;
 		-w | --weaktls ) WEAK_TLS=1; shift ;;
+		--alsa ) ALSA=1; shift ;;
 		--audit ) PKG_AUDIT=1; shift ;;
 		--cisco ) SIP_CISCO=1; shift ;;
 		--sccp ) CHAN_SCCP=1; shift ;;
@@ -2299,6 +2302,8 @@ elif [ "$cmd" = "wizard" ]; then
 	dialog_result "$ans" "y" "--drivers"
 
 	# Channel Drivers
+	ans=$(dialog --nocancel --default-item 'n' --menu "Do you require ALSA library support?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
+	dialog_result "$ans" "y" "--alsa"
 	ans=$(dialog --nocancel --default-item 'n' --menu "Do you need support for the deprecated chan_sip (SIP) module?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
 	dialog_result "$ans" "y" "--sip"
 	ans=$(dialog --nocancel --default-item 'n' --menu "Do you want to install the chan_sccp (Skinny) channel driver?" 20 60 12 y Yes n No 2>&1 >/dev/tty)
@@ -2503,6 +2508,18 @@ elif [ "$cmd" = "install" ]; then
 		apt-get install -y libvpb1
 	fi
 	./contrib/scripts/install_prereq install
+
+	# Modify build system if needed
+	if [ "$ALSA" = "1" ]; then
+		# chan_alsa was removed in Asterisk 21, and with it, the support for ALSA lib detection in the build system. Add it back if needed.
+		lines=$(grep "HAVE_ALSA" include/asterisk/autoconfig.h | wc -l)
+		if [ $lines -eq 0 ]; then
+			printf "Patching build system to detect ALSA library\n"
+			git_patch "alsa.diff"
+			./bootstrap.sh # Regenerate configure and include/asterisk/autoconfig.h.in
+		fi
+	fi
+
 	if [ "$DEVMODE" = "1" ]; then
 		configure_devmode
 	else
@@ -2513,6 +2530,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	cp contrib/scripts/voicemailpwcheck.py /usr/local/bin
 	chmod +x /usr/local/bin/voicemailpwcheck.py
+
 	# Change Compile Options: https://wiki.asterisk.org/wiki/display/AST/Using+Menuselect+to+Select+Asterisk+Options
 	$AST_MAKE menuselect.makeopts
 	menuselect/menuselect --enable format_mp3 menuselect.makeopts # add mp3 support

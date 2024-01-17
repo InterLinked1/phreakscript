@@ -313,6 +313,9 @@ directories if necessary.
 **-s**, **--sip**
 : Install chan_sip instead of or in addition to chan_pjsip. By default, chan_sip is not compiled or loaded since it is deprecated and will be removed in Asterisk 21.
 
+**--alsa**
+: Ensure ALSA library detection exists in the build system. This does NOT readd the deprecated/removed chan_alsa module.
+
 **--cisco**
 : Add full support for Cisco Call Manager phones using the usecallmanager patches (chan_sip only)
 

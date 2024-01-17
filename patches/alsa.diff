@@ -1,0 +1,44 @@
+diff --git a/build_tools/menuselect-deps.in b/build_tools/menuselect-deps.in
+index 6594a922eb..21a8a2ac49 100644
+--- a/build_tools/menuselect-deps.in
++++ b/build_tools/menuselect-deps.in
+@@ -1,3 +1,4 @@
++ALSA=@PBX_ALSA@
+ BLUETOOTH=@PBX_BLUETOOTH@
+ BEANSTALK=@PBX_BEANSTALK@
+ COROSYNC=@PBX_COROSYNC@
+diff --git a/configure.ac b/configure.ac
+index a3563e97a9..1d6a6143af 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -530,6 +530,7 @@ THIRD_PARTY_CONFIGURE()
+ # by the --with option name (the third field),
+ # to make things easier for the users.
+ 
++AST_EXT_LIB_SETUP([ALSA], [Advanced Linux Sound Architecture], [asound])
+ AST_EXT_LIB_SETUP([BFD], [Debug symbol decoding], [bfd])
+ 
+ # BKTR is used for backtrace support on platforms that do not
+@@ -1633,6 +1634,8 @@ fi
+ 
+ # do the package library checks now
+ 
++AST_EXT_LIB_CHECK([ALSA], [asound], [snd_pcm_open], [alsa/asoundlib.h])
++
+ AST_EXT_LIB_CHECK([BFD], [bfd], [bfd_openr], [bfd.h])
+ # Fedora/RedHat/CentOS require extra libraries
+ AST_EXT_LIB_CHECK([BFD], [bfd], [bfd_openr], [bfd.h], [-ldl -liberty])
+diff --git a/makeopts.in b/makeopts.in
+index f7824f3476..bddf77ac1a 100644
+--- a/makeopts.in
++++ b/makeopts.in
+@@ -130,6 +130,9 @@ C_COMPILER_FAMILY=@AST_C_COMPILER_FAMILY@
+ AST_RPATH=@AST_RPATH@
+ AST_FORTIFY_SOURCE=@AST_FORTIFY_SOURCE@
+ 
++ALSA_INCLUDE=@ALSA_INCLUDE@
++ALSA_LIB=@ALSA_LIB@
++
+ BFD_INCLUDE=@BFD_INCLUDE@
+ BFD_LIB=@BFD_LIB@
+ 
