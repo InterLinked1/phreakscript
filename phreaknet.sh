@@ -192,6 +192,7 @@ AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
 # This was meant to be -testing, but ended up being -testing-rc#,
 # if this is fixed, this will need to be adjusted accordingly.
 AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing-rc1"
+AST_RC_SOURCE_NAME2="asterisk-${AST_DEFAULT_MAJOR_VER}-testing-rc2"
 
 DAHDI_VERSION="3.2.0"
 DAHLIN_SRC_NAME="dahdi-linux-current.tar.gz"
@@ -2045,12 +2046,21 @@ get_source() {
 	rm -f $EFF_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
 		if [ "$PREFER_RELEASE_CANDIDATES" = "1" ]; then
-			EFF_SOURCE_NAME=$AST_RC_SOURCE_NAME
-			rm -f $EFF_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
+			# Delete any previous release candidates
+			rm -f $AST_RC_SOURCE_NAME.tar.gz $AST_RC_SOURCE_NAME2.tar.gz # the name itself doesn't guarantee that the version is the same
 			$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_RC_SOURCE_NAME.tar.gz
-			if [ $? -ne 0 ]; then
+			if [ ! -f $AST_RC_SOURCE_NAME.tar.gz ]; then
+				# XXX This is a workaround for the -testing tarballs including the rc name (which wasn't the intent)
+				# Look for a 2nd RC if there is one.
+				# Very rarely there may be a 3rd one, and this is not yet handled here.
+				AST_RC_SOURCE_NAME="$AST_RC_SOURCE_NAME2"
+				$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_RC_SOURCE_NAME.tar.gz
+			fi
+			if [ ! -f $AST_RC_SOURCE_NAME.tar.gz ]; then
 				printf "No release candidate is currently available, installing latest stable version instead\n"
 				PREFER_RELEASE_CANDIDATES=0
+			else
+				EFF_SOURCE_NAME=$AST_RC_SOURCE_NAME
 			fi
 		fi
 		if [ "$PREFER_RELEASE_CANDIDATES" = "0" ]; then
@@ -2115,7 +2125,10 @@ get_source() {
 		minor=`echo $ver | cut -d'.' -f2`
 		patch=`echo $ver | cut -d'.' -f3`
 		AST_MM_VER=`printf "%02d%02d%02d" "$major" "$minor" "$patch"`
-		printf "Asterisk MMmmPP: %s\n", "$AST_MM_VER"
+		printf "Asterisk MMmmPP: %s\n" "$AST_MM_VER"
+	fi
+	if [ "$AST_SRC_DIR" = "" ]; then
+		die "No Asterisk source directory available, aborting..."
 	fi
 	printf "%s\n" "Installing production version $AST_SRC_DIR..."
 	if [ "$AST_ALT_VER" != "git" ]; then
