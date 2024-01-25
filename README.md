@@ -10,6 +10,7 @@ PhreakScript installs:
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
    - DAHDI/wanpipe/LibPRI compilation fixes
    - Native coin detection and blue boxing support
+   - Class 4 and Class 5 coin trunk support
    - Real time dial pulsing support
    - Automatic dialplan context to digit map generation
    - Broadworks compatible device feature key synchronization (PJSIP)
@@ -50,6 +51,7 @@ PhreakScript installs:
       - ``WaitForSignal``
       - ``WaitForDeposit``
       - ``CoinDisposition``
+      - ``ACTS``
       - ``SendCWCID``
       - ``DAHDIMonitor``
       - ``DialSpeedTest``
