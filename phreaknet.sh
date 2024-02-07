@@ -220,6 +220,7 @@ FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 FILE_NAME=$( basename $0 ) # grr... why is realpath not in the POSIX standard?
 FILE_PATH="$FILE_DIR/$FILE_NAME"
 PATCH_DIR=https://docs.phreaknet.org/script
+OS=$(uname -s)
 OS_DIST_INFO="(lsb_release -ds || cat /etc/*release || uname -om ) 2>/dev/null | head -n1 | cut -d'=' -f2"
 OS_DIST_INFO=$(eval "$OS_DIST_INFO" | tr -d '"')
 PAC_MAN="apt-get"
@@ -292,6 +293,11 @@ die() {
 	exit 1
 }
 
+if [ "$OS" != 'Linux' -a "$OS" != 'NetBSD' -a "$OS" != 'OpenBSD' -a "$OS" != 'FreeBSD' -a "$OS" != 'DragonFly' ]; then
+	die "Your OS ($OS) is definitely not supported... aborting."
+	exit 1
+fi
+
 if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	PAC_MAN="pkg"
 	AST_SOURCE_PARENT_DIR="/usr/local/src"
@@ -300,11 +306,29 @@ if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 elif [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
 	PAC_MAN="yum"
 	WGET="wget -q" # --show-progress not supported by yum/Sangoma Linux?
+elif [ -f /etc/redhat-release ]; then
+	PAC_MAN="yum"
+elif [ ! -f /etc/debian_version ]; then # Default is Debian
+	echoerr "Support for this platform ($OS_DIST_INFO) is limited... use at your own risk..."
+
+	# Try to automatically detect the right package manager, at least...
+	if ! which "yum" > /dev/null; then
+		PAC_MAN="yum"
+	elif ! which "dnf" > /dev/null; then
+		PAC_MAN="dnf"
+	elif ! which "pkg" > /dev/null; then
+		PAC_MAN="pkg"
+		AST_SOURCE_PARENT_DIR="/usr/local/src"
+	elif which "apt-get" > /dev/null; then # apt-get is default, so check last
+		echoerr "Failed to automatically determine your package manager... script will likely fail"
+	fi
 fi
 
 phreakscript_info() {
 	printf "%s" "Hostname: "
 	hostname
+	printf "OS: %s\n" "$OS"
+	printf "Dist Info: "
 	echo $OS_DIST_INFO
 	uname -a
 	echo "Package Manager: $PAC_MAN"
@@ -316,7 +340,7 @@ phreakscript_info() {
 	printf "%s" "PhreakScript "
 	grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2
 	echo "https://github.com/InterLinked1/phreakscript"
-	echo "(C) 2021-2023 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
+	echo "(C) 2021-2024 PhreakNet - https://portal.phreaknet.org https://docs.phreaknet.org"
 	echo "To report bugs or request feature additions, please report at https://issues.interlinked.us (also see https://docs.phreaknet.org/#contributions) and/or post to the PhreakNet mailing list: https://groups.io/g/phreaknet" | fold -s -w 120
 }
 
@@ -600,6 +624,10 @@ install_prereq() {
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "yum" ]; then
 		yum install -y git patch
+		# Rocky Linux seems to be missing libedit-devel, and this package is "missing"
+		if [ "$OS_DIST_INFO" = "Rocky Linux release 8.9 (Green Obsidian)" ]; then
+			dnf --enablerepo=devel install -y libedit-devel
+		fi
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -f
 		pkg upgrade -y
@@ -1135,7 +1163,7 @@ linux_headers_info() {
 	ls -la /lib/modules/
 }
 
-linux_headers_install() {
+linux_headers_install_apt() {
 	# Special case for Raspberry Pi
 	grep -i Model /proc/cpuinfo | grep -q Raspberry
 	if [ $? -ne 0 ]; then
@@ -1161,12 +1189,26 @@ linux_headers_install() {
 
 install_dahdi() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y build-essential binutils-dev autoconf dh-autoreconf libusb-dev
+		apt-get install -y build-essential binutils-dev dh-autoreconf libusb-dev
 		apt-get install -y pkg-config m4 libtool automake autoconf git
-		linux_headers_install
+		linux_headers_install_apt
+	elif [ "$PAC_MAN" = "yum" ]; then
+		dnf install -y m4 libtool automake autoconf kernel-devel kernel-headers-$(uname -r)
+		dnf list installed | grep kernel-headers
 	else
 		echoerr "Unable to install potential DAHDI prerequisites"
+		sleep 2
 	fi
+
+	# Check that the kernel sources are really present
+	# /usr/src/linux-headers-* on Debian
+	# /usr/src/kernels on Rocky Linux
+	numkernheaders=$( ls /usr/src/linux-headers-* /usr/src/kernels/* 2>/dev/null | wc -w )
+	if [ "$numkernheaders" = "0" ]; then
+		echoerr "Kernel headers do not appear to be installed... compilation will likely fail"
+		sleep 2
+	fi
+
 	cd $AST_SOURCE_PARENT_DIR
 	# just in case, for some reason, these already existed... don't let them throw everything off:
 	rm -f dahdi-linux-current.tar.gz dahdi-tools-current.tar.gz $DAHLIN_SRC_NAME $DAHTOOL_SRC_NAME
@@ -1229,6 +1271,20 @@ install_dahdi() {
 		phreak_fuzzy_patch "dahdi_kern_61.diff"
 	fi
 
+	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
+	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
+	if [ "$KERN_VER_MM" = "4.18" ] && [ "$OS_DIST_2" = "Rocky Linux" ]; then
+		# See comments at bottom of: https://github.com/asterisk/dahdi-linux/issues/19
+		# We need to remove #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0) and #endif
+		# so that this macro takes effect unconditionally on these platforms (4.18 kernel)
+		printf "Detected older kernel that requires the netif_napi_add patch regardless...\n"
+		# This only appears once, so it's fine to play fast and loose with sed here...
+		# This will trigger a warning, but DAHDI Linux does not use -Werror so this is fine
+		# If it did, this path would need to #undef first before the #define
+		# /usr/src/dahdi-linux-3.3.0/include/dahdi/kernel.h:62: warning: "netif_napi_add" redefined
+		sed -i 's/KERNEL_VERSION(6, 1, 0)/KERNEL_VERSION(4, 18, 0)/g' include/dahdi/kernel.h
+	fi
+
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		# Real time dial pulsing (DAHDI to Asterisk)
@@ -1251,7 +1307,7 @@ install_dahdi() {
 		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
 	fi
 
-	make $DAHDI_CFLAGS
+	make -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
 		exit 1
@@ -1276,10 +1332,9 @@ install_dahdi() {
 		git_patch "hearpulsing-dahtool.patch" # hearpulsing
 	fi
 
-	# autoreconf -i
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
 	./configure
-	make $DAHDI_CFLAGS
+	make -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Tools compilation failed, aborting install"
 		exit 1
