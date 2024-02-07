@@ -1701,6 +1701,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	if [ -f main/logger.xml ]; then
 		asterisk_pr_unconditional 540 # critical linking fix for 21.1.0-rc1
 	fi
+	asterisk_pr_unconditional 568 # critical fix for Read, etc.
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then

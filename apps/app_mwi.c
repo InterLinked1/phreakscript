@@ -26,7 +26,6 @@
  */
 
 /*** MODULEINFO
-	<depend>pbx_spool</depend>
 	<support_level>extended</support_level>
  ***/
 

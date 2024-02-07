@@ -122,7 +122,9 @@
 				<variable name="CCSA_RESULT">
 					<para>Outcome of the CCSA call attempt</para>
 					<value name="SUCCESS">
-						Successfully completed call, either immediately, with an FRL upgrade, or after an Off Hook Queue
+						Successfully completed call, either immediately, with an FRL upgrade, or after an Off Hook Queue.
+						Keep in mind that you may still need to check the DIALSTATUS for call disposition,
+						if the far end provided a cause code instead of using in-band signaling.
 					</value>
 					<value name="CBQ">
 						Call was Call Back Queued due to no available preferred routes

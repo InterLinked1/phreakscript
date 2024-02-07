@@ -22,7 +22,7 @@
  *
  * \author Naveen Albert <asterisk@phreaknet.org>
  *
- * \ingroup resources
+ * \ingroup applications
  */
 
 /*** MODULEINFO

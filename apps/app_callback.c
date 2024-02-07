@@ -271,8 +271,7 @@ static int remote_endpoint_busy(const char *number, const char *remotedialcontex
 	struct ast_channel *chan;
 	char devstate[32];
 	int res = 0;
-	int len = strlen(remotedialcontext);
-	char queryread[len + 30];
+	char queryread[256];
 
 	snprintf(queryread, sizeof(queryread), "TEXT_QUERY(Local/%s@%s,%d)", number, remotedialcontext, timeout);
 	devstate[0] = '\0';
