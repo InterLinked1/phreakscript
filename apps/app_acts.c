@@ -82,6 +82,15 @@
 					<option name="i">
 						<para>Initial deposit, for the first 3 minutes, in cents.</para>
 					</option>
+					<option name="m">
+						<para>By default, the time spent prompting for deposits does not count against overtime credit.
+						However, there is a limited amount of time in which coins may be deposited. This is how
+						ACTS historically operated.</para>
+						<para>This option will allow you to instead have prompts count against credit (which makes billable
+						overtime exactly 60 minutes, as opposed to the default, which is closer to 80 seconds). It also
+						allows callers more time to deposit during overtime, since this duration is being deducted
+						from the call balance.</para>
+					</option>
 					<option name="o">
 						<para>Overtime deposit, per-minute, in cents.</para>
 					</option>
@@ -94,6 +103,14 @@
 					</option>
 					<option name="s">
 						<para>Detect single-frequency (2200 Hz) only coin denomination tones, rather than standard 1700 + 2200 Hz coin denomination tones.</para>
+					</option>
+					<option name="u">
+						<para>Allow uninterrupted post-paid overtime, where the caller signals when through by hook flashing.</para>
+						<para>If the caller hangs up without paying, the caller should be rung back (though this application will
+						not do that for you, but will set <literal>ACTS_RESULT</literal> to <literal>OVERTIME_SHORTAGE</literal> to indicate this needs to be done).</para>
+						<para>During overtime, this will override the 'f' option, if present.</para>
+						<note><para>Use of this option opens your system up to fradulent usage, since nothing prevents callers from
+						walking away after the call and not paying. Use of this mode is not recommended.</para></note>
 					</option>
 				</optionlist>
 			</parameter>
@@ -123,6 +140,9 @@
 					<value name="OVERTIME_EXPIRED">
 						Call terminated due to insufficient funds to continue overtime
 					</value>
+					<value name="OVERTIME_SHORTAGE">
+						Caller still owes money for past overtime minutes and must be rung back
+					</value>
 					<value name="BUSY">
 						Out of band busy
 					</value>
@@ -143,6 +163,11 @@
 				<variable name="ACTS_CREDIT_REQUIRED">
 					<para>This variable is only set on the operator channel, when dialed.</para>
 					<para>This contains the amount of money required to continue the call, in cents.</para>
+				</variable>
+				<variable name="ACTS_OVERTIME_SHORTAGE_AMOUNT">
+					<para>If caller hangs up without paying for postpaid overtime, the amount, in cents,
+					that the caller stil owes for the call. Only set if <literal>ACTS_RESULT</literal>
+					is <literal>OVERTIME_SHORTAGE</literal>.</para>
 				</variable>
 				<variable name="ACTS_IN_OVERTIME">
 					<para>This variable is only set on the operator channel, when dialed.</para>
@@ -201,6 +226,9 @@ struct acts_call {
 	unsigned int calleedisconnected:1;	/* Callee has hung up */
 	unsigned int ignorehangup:1; /* Ignore soft hangup */
 	unsigned int operatorpending:1;	/* Summoned an operator */
+	unsigned int strictminutes:1; /* Bill in 60-second increments exactly during overtime */
+	unsigned int postpaid:1; /* Collect overtime deposits after call */
+	unsigned int postpaidended:1; /* Postpaid session ended */
 	const char *result;
 	pthread_t opthread;
 	ast_mutex_t lock;
@@ -218,6 +246,8 @@ enum {
 	OPT_ALREADY_ATTACHED = (1 << 4),
 	OPT_RELAX = (1 << 5),
 	OPT_SF = (1 << 6),
+	OPT_STRICT_MINUTES = (1 << 7),
+	OPT_POST_PAID = (1 << 8),
 };
 
 enum {
@@ -233,10 +263,12 @@ AST_APP_OPTIONS(app_opts,{
 	AST_APP_OPTION('a', OPT_ALREADY_ATTACHED),
 	AST_APP_OPTION_ARG('f', OPT_FLASH_FOR_OPERATOR, OPT_ARG_FLASH_FOR_OPERATOR),
 	AST_APP_OPTION_ARG('i', OPT_INITIAL_DEPOSIT, OPT_ARG_INITIAL_DEPOSIT),
+	AST_APP_OPTION('m', OPT_STRICT_MINUTES),
 	AST_APP_OPTION_ARG('o', OPT_OVERTIME_DEPOSIT, OPT_ARG_OVERTIME_DEPOSIT),
 	AST_APP_OPTION_ARG('p', OPT_INITIAL_PERIOD, OPT_ARG_INITIAL_PERIOD),
 	AST_APP_OPTION('r', OPT_RELAX),
 	AST_APP_OPTION('s', OPT_SF),
+	AST_APP_OPTION('u', OPT_POST_PAID),
 });
 
 static const char *acts_app = "ACTS";
@@ -252,19 +284,23 @@ static int coin_disposition(struct acts_call *acts, enum coin_disposition disp)
 {
 	switch (disp) {
 	case COIN_COLLECT:
+		ast_debug(3, "Sending coin collect on %s (collecting %d cents)\n", ast_channel_name(acts->chan), acts->hopper);
 		acts->collected += acts->hopper;
 		acts->hopper = 0;
 		return ast_pbx_exec_application(acts->chan, "CoinDisposition", "collect");
 	case COIN_RETURN:
+		ast_debug(3, "Sending coin return on %s (returning %d cents)\n", ast_channel_name(acts->chan), acts->hopper);
 		acts->hopper = 0;
 		return ast_pbx_exec_application(acts->chan, "CoinDisposition", "return");
 	case OPERATOR_ATTACHED:
 		ast_assert(!acts->attached);
 		acts->attached = 1;
+		ast_debug(3, "Putting %s into operator attached mode\n", ast_channel_name(acts->chan));
 		return ast_pbx_exec_application(acts->chan, "CoinDisposition", "attached");
 	case OPERATOR_RELEASED:
 		ast_assert(acts->attached);
 		acts->attached = 0;
+		ast_debug(3, "Putting %s into operator released mode\n", ast_channel_name(acts->chan));
 		return ast_pbx_exec_application(acts->chan, "CoinDisposition", "released");
 	}
 	__builtin_unreachable();
@@ -285,7 +321,8 @@ static int start_coin_detect(struct acts_call *acts, int required, int overtime)
 			"r" /* Receive direction only */
 			"%s%s)",
 			acts->relax ? "l" : "",
-			"d(4)" /* Delay completion after min. deposit satisfied if overtime deposits allowed */
+			"f" /* Round 15 and 20 up to 25 */
+			"d(1)" /* Minimal delay to allow overtime deposits from the same coin going over, to prevent cutoff right at the initial deposit */
 		);
 	} else {
 		snprintf(args, sizeof(args), "COIN_DETECT("
@@ -294,6 +331,8 @@ static int start_coin_detect(struct acts_call *acts, int required, int overtime)
 			"%s%s)",
 			required,
 			acts->relax ? "l" : "",
+			"f" /* Round 15 and 20 up to 25 */
+			"d(1)" /* Minimal delay to allow overtime deposits from the same coin going over, to prevent cutoff right at the initial deposit */
 			"g(NONEXISTENT_CONTEXT,s,1)" /* Dummy label to trigger channel hangup when satisfied */
 		);
 	}
@@ -315,7 +354,7 @@ static int stop_coin_detect(struct acts_call *acts)
 	return ast_func_write(acts->chan, "COIN_DETECT(x)", "");
 }
 
-/*! \note This SHOULD only be called by the thread that owns acts->chan */
+/*! \note This SHOULD only be called by the thread that owns acts->chan (but in practice, doesn't really matter) */
 static int get_current_deposit(struct acts_call *acts)
 {
 	char buf[256] = "";
@@ -336,7 +375,14 @@ static int acts_play_prompt(struct acts_call *acts, const char *file)
 	snprintf(filename, sizeof(filename), "%s/%s", acts->audiodir, file);
 	/* If we're in overtime, prompts play on achan.
 	 * For initial deposit, directly on chan. */
-	return ast_stream_and_wait(acts->answertime ? acts->achan : acts->chan, filename, "");
+	return ast_stream_and_wait(acts->answertime && !acts->postpaidended ? acts->achan : acts->chan, filename, "");
+}
+
+static int play_standard_prompt(struct acts_call *acts, const char *file)
+{
+	/* If we're in overtime, prompts play on achan.
+	 * For initial deposit, directly on chan. */
+	return ast_stream_and_wait(acts->answertime && !acts->postpaidended ? acts->achan : acts->chan, file, "");
 }
 
 static int acts_say_money(struct acts_call *acts, int amount)
@@ -380,12 +426,58 @@ static int acts_say_money(struct acts_call *acts, int amount)
 	return res;
 }
 
-static int play_prompts(struct acts_call *acts, int required, int overtime, int i)
+static inline void update_deposited(struct acts_call *acts, int required, int *restrict left)
+{
+	int left2;
+
+	/* Right before we actually ask for an amount,
+	 * query the amount in case money was depositing
+	 * while we were saying "please deposit".
+	 *
+	 * However, if it's less than 5 cents (zero, or negative),
+	 * prompt for the stale amount anyways. */
+	left2 = required - get_current_deposit(acts);
+	if (left2 > 0) {
+		if (left2 != *left) {
+			ast_debug(3, "Sneaky! Caller deposited money during the intro prompts...\n");
+		}
+		*left = left2;
+	}
+}
+
+static int play_prompts(struct acts_call *acts, int required, int overtime, int i, int overtime_mins)
 {
 	int res = 0;
 	int left;
 
 	left = required - acts->hopper;
+
+	/*
+	 * ACTS prompt phrasing examples (not all prompts follow in this example)
+	 *
+	 * -- Initial period
+	 *
+	 * Round 0: 80 cents please... [1 second pause] please deposit 80 cents for the first 3 minutes
+	 * Round 1: Please deposit 15 cents more.
+	 * Outro: Thank you. You have 5 cents credit towards overtime.
+	 *
+	 * -- Overtime
+	 *
+	 * Round 0: 20 cents please... please deposit 20 cents for the next 1 minute
+	 * Outro: Thank you.
+	 *
+	 * Round 0: 15 cents please... please deposit 15 cents for the next 1 minute
+	 * Outro: Thank you. You have 10 cents credit toward overtime.
+	 *
+	 * Round 0: 5 cents please... You have 10 cents credit. Please deposit 5 cents more for the next 1 minute.
+	 * Outro: Thank you.
+	 *
+	 * Round 0: Please deposit 15 cents for the next 1 minute
+	 * [ 8 seconds of no coins deposited ]
+	 * Round 1: Please deposit 15 cents
+	 * [ 10 seconds of no coins deposited ]
+	 * [ Call disconnected ]
+	 */
 
 	if (left <= 0) {
 		/* If not in overtime, no further deposits are allowed, so break immediately.
@@ -395,78 +487,118 @@ static int play_prompts(struct acts_call *acts, int required, int overtime, int 
 			return res;
 		}
 	} else {
-		int left2;
+		char minutes[16];
 		/* Only play alert tone for overtime,
 		 * and only the first time we prompt */
+		int credit = overtime ? acts->overtimedeposit + acts->credit : 0;
+
 		if (!i && overtime) {
 			res = acts_play_prompt(acts, "tone");
 		}
+
+		if (!i) {
+			/* <Amount> please */
+			if (!res) {
+				res = acts_say_money(acts, left);
+			}
+			if (!res) {
+				res = acts_play_prompt(acts, "please");
+			}
+			if (!res) {
+				res = play_standard_prompt(acts, "silence/1");
+			}
+
+			if (!res && overtime) {
+				/* Back calculate how much was over-deposited previously for the current interval,
+				 * and announce the credit.
+				 *
+				 * Say overtime deposit is 40c and called deposited 50c originally.
+				 * Obviously, the credit is 10c.
+				 * We calculate as follows:
+				 * - acts->credit would be 10 -> -30
+				 * - -30 + 40 = 10.
+				 */
+				if (credit > 0) {
+					res = acts_play_prompt(acts, "you-have");
+					if (!res) {
+						res = acts_say_money(acts, credit);
+					}
+					if (!res) {
+						res = acts_play_prompt(acts, "credit");
+					}
+					if (!res) {
+						res = play_standard_prompt(acts, "silence/1");
+					}
+				}
+			}
+		}
+
+		/* Please deposit <amount> for <duration> */
 		if (!res) {
 			res = acts_play_prompt(acts, "please-deposit");
 		}
-		if (res) {
-			return res;
+		if (!res) {
+			update_deposited(acts, required, &left);
+			res = acts_say_money(acts, left);
 		}
 
-		/* Right before we actually ask for an amount,
-		 * query the amount in case money was depositing
-		 * while we were saying "please deposit".
-		 *
-		 * However, if it's less than 5 cents (zero, or negative),
-		 * prompt for the stale amount anyways. */
-		left2 = required - get_current_deposit(acts);
-		if (left2 > 0) {
-			if (left2 != left) {
-				ast_debug(3, "Sneaky! Caller deposited money during the intro prompts...\n");
-			}
-			left = left2;
-		}
-
-		res = acts_say_money(acts, left);
 		if (res) {
 			return res;
 		}
 
 		/* If we're really all paid up,
 		 * don't continue with these warning prompts. */
-		if (acts->overtimedeposit && left2 > 0) {
-			if (overtime) {
-				res = acts_play_prompt(acts, "for-the-next");
+		update_deposited(acts, required, &left);
+		if (left <= 0) {
+			return 0;
+		}
+
+		if (left < required) { /* Partial deposit */
+			res = acts_play_prompt(acts, "more");
+		} else if (!i) { /* First announcement */
+			snprintf(minutes, sizeof(minutes), "%d", overtime_mins ? overtime_mins : overtime ? 1 : (acts->initialperiod / 60));
+
+			if (credit > 0) {
+				res = acts_play_prompt(acts, "more");
+			}
+
+			if (overtime || acts->overtimedeposit) {
 				if (!res) {
-					res = acts_play_prompt(acts, "minute");
-				}
-				if (i >= 2) { /* Only warn once caller starts running out of time */
-					if (!res) {
-						res = acts_play_prompt(acts, "or-your-call");
-					}
-					if (!res) {
-						res = acts_play_prompt(acts, "will-be-disconnected");
-					}
-				}
-			} else {
-				res = acts_play_prompt(acts, "for-the-first");
-				if (!res) {
-					/* Initial deposit interval is 3 minutes */
-					res = acts_play_prompt(acts, "3");
+					res = acts_play_prompt(acts, overtime_mins ? "for-the-past" : overtime ? "for-the-next" : "for-the-first");
 				}
 				if (!res) {
-					res = acts_play_prompt(acts, "minutes");
+					res = acts_play_prompt(acts, minutes);
+				}
+				if (!res) {
+					/* It really does say "for the next 1 minute", not "for the next minute" */
+					res = acts_play_prompt(acts, (overtime || acts->initialperiod == 60) && (!overtime_mins || overtime_mins == 1) ? "minute" : "minutes");
 				}
 			}
+		} /* else, nothing deposited yet, don't add any qualifier after */
+
+#if 0
+		if (overtime && i > 1) { /* Only warn once caller starts running out of time */
+			if (!res) {
+				res = acts_play_prompt(acts, "or-your-call");
+			}
+			if (!res) {
+				res = acts_play_prompt(acts, "will-be-disconnected");
+			}
 		}
+#endif
 	}
 
 	if (!res) {
-		res = ast_safe_sleep(acts->answertime ? acts->achan : acts->chan, 5000);
+		res = ast_safe_sleep(acts->answertime && !acts->postpaidended ? acts->achan : acts->chan, 5000);
 	}
 
 	return res;
 }
 
-static int play_outro(struct acts_call *acts, int required, int overtime)
+static int play_outro(struct acts_call *acts, int required, int credit_allowed)
 {
 	int res = acts_play_prompt(acts, "thank-you");
-	if (!res && overtime && acts->hopper > required) {
+	if (!res && credit_allowed && acts->hopper > required) {
 		int credit = acts->hopper - required;
 		res = acts_play_prompt(acts, "you-have");
 		if (!res) {
@@ -481,16 +613,15 @@ static int play_outro(struct acts_call *acts, int required, int overtime)
 
 #define INTERNALLY_REDIRECTED() ((ast_channel_softhangup_internal_flag(acts->chan) & AST_SOFTHANGUP_ASYNCGOTO) && !strcmp(ast_channel_context(acts->chan), "NONEXISTENT_CONTEXT"))
 
-static int play_prompts_helper(struct acts_call *acts, int required, int overtime)
+static int play_prompts_helper(struct acts_call *acts, int required, int overtime, int overtime_mins)
 {
 	int res, i = 0;
-	/* Must be less than a minute, for overtime deposits */
-#define ABSOLUTE_OVERTIME_CALLBACK_MAX_ITERATIONS 5
-	int num_iterations = 4;
+#define ABSOLUTE_OVERTIME_CALLBACK_MAX_ITERATIONS 3
 	int deposit_delta = 0;
+	int num_iterations = overtime ? 2 : 4;
 
 	ast_debug(1, "Round %d before: %d/%d cents deposited\n", i, 0, required);
-	for (; i < num_iterations; i++) {
+	for (; overtime_mins || i < num_iterations; i++) {
 		int amt_start, amt_end;
 		int prompt_this_round = 1;
 
@@ -519,14 +650,14 @@ static int play_prompts_helper(struct acts_call *acts, int required, int overtim
 		 * After some time passes and no further deposits have been made,
 		 * if we are still owed money, then reprompt.
 		 */
-		if (deposit_delta) {
+		if (!overtime_mins && deposit_delta) {
 			if (overtime) {
 				/* We have less than a minute total when in overtime,
 				 * no matter how much needs to be deposited, or how
 				 * slowly the caller is depositing.
 				 * We can relax a little if the caller starts depositing,
 				 * but only to a certain extent. */
-				if (num_iterations < ABSOLUTE_OVERTIME_CALLBACK_MAX_ITERATIONS) {
+				if (acts->strictminutes && num_iterations < ABSOLUTE_OVERTIME_CALLBACK_MAX_ITERATIONS) {
 					num_iterations++;
 					prompt_this_round = 0;
 				} else {
@@ -542,9 +673,14 @@ static int play_prompts_helper(struct acts_call *acts, int required, int overtim
 		}
 
 		if (prompt_this_round) {
-			res = play_prompts(acts, required, overtime, i);
+			res = play_prompts(acts, required, overtime, i, overtime_mins);
 		} else {
-			res = ast_safe_sleep(acts->answertime ? acts->achan : acts->chan, 5000);
+			res = ast_safe_sleep(acts->answertime && !acts->postpaidended ? acts->achan : acts->chan, 3000);
+			amt_end = get_current_deposit(acts);
+			if (amt_end >= required) {
+				break;
+			}
+			res = ast_safe_sleep(acts->answertime && !acts->postpaidended ? acts->achan : acts->chan, 2000);
 		}
 
 		amt_end = get_current_deposit(acts);
@@ -556,40 +692,21 @@ static int play_prompts_helper(struct acts_call *acts, int required, int overtim
 		 * In overtime, it's more complicated since the caller
 		 * can prepay beyond the requirement.
 		 */
-		if (amt_end >= required) {
-			if (!overtime) {
-				/* If this is for the initial period,
-				 * we're done as soon as we get the required deposit. */
-				break;
-			} else {
-				/* If overtime, break if we've been idle for an iteration. */
-				if (!deposit_delta) {
-					break;
-				}
-			}
+		if (res || amt_end >= required) {
+			/* We're done as soon as we get the required deposit. */
+			break;
 		}
 	}
 	return res;
 }
 
-static int get_initial_deposit(struct acts_call *acts, int required)
+static int initial_deposit_helper(struct acts_call *acts, int required, int overtime_mins)
 {
 	int res = -1;
 	char context[AST_MAX_CONTEXT], exten[AST_MAX_EXTENSION];
 	int pri;
 	int fake_goto = 0;
 	struct ast_silence_generator *silgen = NULL;
-
-	if (!acts->arrivedattached) {
-		/* Put the phone in Operator Attached mode. */
-		if (coin_disposition(acts, OPERATOR_ATTACHED)) {
-			return -1;
-		}
-
-		if (ast_safe_sleep(acts->chan, 1000)) {
-			goto cleanup;
-		}
-	}
 
 	/* Preserve our original context, exten, pri,
 	 * since ast_explicit_goto will be called by the coin detector,
@@ -614,7 +731,7 @@ static int get_initial_deposit(struct acts_call *acts, int required)
 	silgen = ast_channel_start_silence_generator(acts->chan);
 
 	/* Run the deposit announcements synchronously until we get interrupted. */
-	res = play_prompts_helper(acts, required, 0);
+	res = play_prompts_helper(acts, required, 0, overtime_mins);
 
 	if (INTERNALLY_REDIRECTED()) {
 		/* If async goto happened due to meeting deposit requirement, that's not a real hangup */
@@ -628,11 +745,13 @@ static int get_initial_deposit(struct acts_call *acts, int required)
 
 	/* Record and store how much money is in the hopper right now,
 	 * before we destroy the detector */
-	if (get_current_deposit(acts) < required) {
-		/* Couldn't have been INTERNALLY_REDIRECTED() if this is the case, so need to run that logic on this path */
-		ast_verb(4, "Insufficient deposit, disconnecting...\n");
-		res = 1;
-		acts->result = "INSUFFICIENT_INITIAL";
+	if (get_current_deposit(acts) < required) { /* must call get_current_deposit() no matter what */
+		if (!overtime_mins) {
+			/* Couldn't have been INTERNALLY_REDIRECTED() if this is the case, so need to run that logic on this path */
+			ast_verb(4, "Insufficient deposit, disconnecting...\n");
+			res = 1;
+			acts->result = "INSUFFICIENT_INITIAL";
+		}
 	}
 
 	/* Destroy coin tone detector */
@@ -661,7 +780,7 @@ static int get_initial_deposit(struct acts_call *acts, int required)
 	}
 
 	if (!res) {
-		res = play_outro(acts, required, 0);
+		res = play_outro(acts, required, overtime_mins ? 0 : 1);
 		if (res) {
 			ast_debug(5, "play_outro returned %d\n", res);
 		}
@@ -673,6 +792,33 @@ cleanup:
 	return res;
 }
 
+static int get_initial_deposit(struct acts_call *acts, int required)
+{
+	if (!acts->arrivedattached) {
+		/* Put the phone in Operator Attached mode. */
+		if (coin_disposition(acts, OPERATOR_ATTACHED)) {
+			return -1;
+		}
+
+		if (ast_safe_sleep(acts->chan, 1000)) {
+			coin_disposition(acts, OPERATOR_RELEASED);
+			return -1;
+		}
+	}
+
+	return initial_deposit_helper(acts, required, 0);
+}
+
+static int post_pay_collect(struct acts_call *acts, int overtime_mins)
+{
+	int required = -acts->credit;
+
+	if (coin_disposition(acts, OPERATOR_ATTACHED)) {
+		return -1;
+	}
+	return initial_deposit_helper(acts, required, overtime_mins);
+}
+
 static void *async_announcements(void *varg)
 {
 	int res = 0;
@@ -680,12 +826,12 @@ static void *async_announcements(void *varg)
 
 	/* Play the prompts on this channel,
 	 * and they'll go over the unreal chan pair into the bridge. */
-	res = play_prompts_helper(acts, -acts->credit, 1);
+	res = play_prompts_helper(acts, -acts->credit, 1, 0);
 
 	if (!res) {
 		if (acts->hopper >= -acts->credit) {
 			/* If we got enough funds, acknowledge that.
-			 * If we fell short, the call is being disconnect now,
+			 * If we fell short, the call is being disconnected now,
 			 * so don't play anything further. */
 			res = play_outro(acts, -acts->credit, 1);
 		}
@@ -707,6 +853,36 @@ static void *async_announcements(void *varg)
 	/* XXX Should ref the channels before doing this? */
 	ast_debug(3, "Kicking %s from bridge momentarily to signal overtime collection is over\n", ast_channel_name(acts->chan));
 	ast_bridge_remove(acts->bridge, acts->chan);
+	return NULL;
+}
+
+static void *async_signal_announcements(void *varg)
+{
+	int res;
+	char minutes[16];
+	struct acts_call *acts = varg;
+
+	snprintf(minutes, sizeof(minutes), "%d", acts->initialperiod / 60);
+
+	res = acts_play_prompt(acts, "tone");
+	if (!res) {
+		res = acts_play_prompt(acts, minutes);
+	}
+	if (!res) {
+		/* It really does say "for the next 1 minute", not "for the next minute" */
+		res = acts_play_prompt(acts, acts->initialperiod == 60 ? "minute" : "minutes");
+	}
+	if (!res) {
+		res = acts_play_prompt(acts, "has-ended");
+	}
+	if (!res) {
+		res = play_standard_prompt(acts, "silence/1");
+	}
+	if (!res) {
+		res = acts_play_prompt(acts, "please-signal-when-through");
+	}
+
+	ast_bridge_remove(acts->bridge, acts->chan); /* Signal main thread that announcements are done */
 	return NULL;
 }
 
@@ -813,6 +989,51 @@ cleanup2:
 	set_gains(acts, 0); /* Back to normal */
 cleanup3:
 	res |= coin_disposition(acts, OPERATOR_RELEASED);
+	return res;
+}
+
+static int post_paid_announcement(struct acts_call *acts)
+{
+	int res = 0;
+	struct ast_channel *achan;
+	pthread_t prompt_thread;
+
+	set_gains(acts, 1);
+
+	/* Since we're still bridged, we can't run the prompts
+	 * directly on the channel. Instead, we need to
+	 * play the prompts into the bridge using another channel. */
+	achan = alloc_playback_chan(acts);
+	if (!achan) {
+		ast_log(LOG_ERROR, "Failed to allocate announcement channel\n");
+		goto cleanup2;
+	}
+	if (ast_unreal_channel_push_to_bridge(achan, acts->bridge, AST_BRIDGE_CHANNEL_FLAG_IMMOVABLE | AST_BRIDGE_CHANNEL_FLAG_LONELY)) {
+		ast_log(LOG_ERROR, "Failed to push announcement channel into bridge\n");
+		res = -1;
+		goto cleanup;
+	}
+
+	/* Start prompts on the announcement channel */
+	acts->overtime_index = 0;
+	acts->idle_intervals = 0;
+	acts->achan = achan;
+	if (ast_pthread_create(&prompt_thread, NULL, async_signal_announcements, acts)) {
+		ast_log(LOG_ERROR, "Failed to create announcement thread.\n");
+		res = -1;
+		goto cleanup;
+	}
+
+	res = bridge_with_timeout(acts, acts->bridge, 55, 1); /* Wait just shy of one minute, max */
+	pthread_join(prompt_thread, NULL); /* Wait for prompts to finish before continuing */
+
+	/* Clean up and return to the call */
+
+cleanup:
+	ast_hangup(achan);
+cleanup2:
+	acts->achan = NULL;
+	set_gains(acts, 0); /* Back to normal */
 	return res;
 }
 
@@ -1172,6 +1393,8 @@ static int set_timeout(struct ast_bridge_features *features, struct acts_call *a
 
 #define ABS(x) (x < 0 ? -x : x)
 
+#define ACTS_NO_TIMEOUT 999999
+
 static int bridge_with_timeout(struct acts_call *acts, struct ast_bridge *bridge, int timeout, int overtime)
 {
 	int res;
@@ -1204,10 +1427,14 @@ static int bridge_with_timeout(struct acts_call *acts, struct ast_bridge *bridge
 	}
 	timeout = ABS(timeout);
 
-	if (timeout) {
-		ast_verb(4, "ACTS call %s with %d:%02d credit remaining\n", overtime ? "resumed" : "answered", timeout / 60, timeout % 60);
+	if (acts->postpaid && timeout == ACTS_NO_TIMEOUT) {
+		ast_verb(4, "ACTS call %s, waiting for caller signal\n", overtime ? "resumed" : "answered");
 	} else {
-		ast_verb(4, "ACTS call %s with no hard time limit\n", overtime ? "resumed" : "answered");
+		if (timeout) {
+			ast_verb(4, "ACTS call %s with %d:%02d credit remaining\n", overtime ? "resumed" : "answered", timeout / 60, timeout % 60);
+		} else {
+			ast_verb(4, "ACTS call %s with no hard time limit\n", overtime ? "resumed" : "answered");
+		}
 	}
 	res = ast_bridge_join(bridge, acts->chan, NULL, &features, NULL, 0);
 	ast_bridge_features_cleanup(&features);
@@ -1330,7 +1557,11 @@ static struct ast_frame *caller_flash_cb(struct ast_channel *chan, struct ast_fr
 	}
 
 	ast_mutex_lock(&acts->lock);
-	if (acts->operatorpending) {
+	if (acts->postpaid && acts->overtime) {
+		/* Post-paid call, and caller just signalled, so end the call */
+		ast_verb(4, "Caller signalled through with call\n");
+		ast_bridge_remove(acts->bridge, acts->chan); /* Kick the caller */
+	} else if (acts->operatorpending) {
 		ast_verb(5, "Operator already attached, ignoring hook flash...\n");
 	} else {
 		ast_verb(4, "Caller signalled hook flash towards A.C.T.S., summoning operator\n");
@@ -1371,6 +1602,7 @@ static int acts_run(struct acts_call *acts)
 	int res;
 	struct ast_bridge_features *callee_features;
 	int framehook_id = -1;
+	int overtime_mins = 0;
 	struct ast_framehook_interface interface = {
 		.version = AST_FRAMEHOOK_INTERFACE_VERSION,
 		.event_cb = caller_flash_cb,
@@ -1494,75 +1726,120 @@ static int acts_run(struct acts_call *acts)
 	}
 
 	/* Overtime loop */
-	acts->credit = 0; /* This is zero-initialized, but just to be clear, no credit carries over from the initial period. */
-	acts->overtime = 1;
-	for (;;) {
-		int newtimeout;
-		time_t now, overtime_start;
-
-		/* Calculate amount required. */
-		acts->credit -= acts->overtimedeposit;
-		/* Not enough funds to continue without requiring another deposit */
-		ast_assert(acts->credit < 0);
+	if (acts->postpaid) {
+		time_t now, overtime_start, diff;
 
 		/* Collect whatever's in the hopper. */
-		res = coin_disposition(acts, COIN_COLLECT);
-		if (res) {
-			break;
-		}
-		/* Rejoin the bridge for 7 seconds.
-		 * However, coin collect itself takes a couple seconds,
-		 * so subtract off two from that since those seconds already passed. */
-		res = bridge_with_timeout(acts, acts->bridge, SECS_COLLECT_BEFORE_PROMPTING - 2, 1);
-		if (res) {
-			break;
-		}
+		do {
+			res = coin_disposition(acts, COIN_COLLECT);
+			if (res) {
+				break;
+			}
 
-		/* The next minute of overtime starts NOW,
-		 * not whenever the caller finishes paying for it. */
-		overtime_start = time(NULL);
-		res = get_overtime_deposit(acts);
-		if (res) {
-			break;
-		}
+			/* Rejoin the bridge for 7 seconds.
+			 * However, coin collect itself takes a couple seconds,
+			 * so subtract off two from that since those seconds already passed. */
+			res = bridge_with_timeout(acts, acts->bridge, SECS_COLLECT_BEFORE_PROMPTING - 2, 1);
+			if (res) {
+				break;
+			}
 
-		ast_mutex_lock(&acts->lock);
-		acts->credit += acts->hopper;
-		if (acts->credit < 0) {
-			/* If we're still underpaid,
-			 * disconnect the call. */
-			ast_verb(3, "Call automatically disconnected due to insufficient overtime funds\n");
-			acts->callerdisconnected = 1;
-			ast_mutex_unlock(&acts->lock);
-			acts->result = "OVERTIME_EXPIRED";
-			break;
-		}
-		ast_mutex_unlock(&acts->lock);
+			overtime_start = time(NULL);
+			res = post_paid_announcement(acts);
+			if (res) {
+				break;
+			}
 
-		now = time(NULL);
-		newtimeout = 60 - (now - overtime_start); /* Subtract out how long the caller took to deposit from the time left */
+			/* Start uninterrupted portion, which ends only when the caller flashes */
+			acts->overtime = 1;
+			res = bridge_with_timeout(acts, acts->bridge, ACTS_NO_TIMEOUT, 1); /* Rejoin call "indefinitely" */
+			now = time(NULL);
+			diff = now - overtime_start; /* Time elapsed during overtime */
 
-		/* If more was deposited than necessary,
-		 * specifically enough that we could go for at least 2 minutes on credit,
-		 * rather than exiting the bridge every 60 seconds to subtract
-		 * the overtime per minute and re-enter the bridge,
-		 * do some math now to simplify bridging operations. */
-		ast_debug(4, "Credit remaining: %d c, time remaining: %d s (hopper contains %d cents)\n", acts->credit, newtimeout, acts->hopper);
-		while (acts->credit >= acts->overtimedeposit) {
+			/* Caller flashed or hung up. Either way, disconnect the callee immediately,
+			 * and then collect what we're owed. */
+			overtime_mins = (int) ((diff + 59) / 60); /* Round up */
+			ast_verb(4, "%d minute%s (%lu second%s) elapsed during overtime\n", overtime_mins, ESS(overtime_mins), diff, ESS(diff));
+		} while (0);
+	} else {
+		for (;;) {
+			int newtimeout;
+			time_t now, overtime_start;
+
+			acts->overtime = 1;
+
+			/* Calculate amount required. */
 			acts->credit -= acts->overtimedeposit;
-			newtimeout += 60;
-			ast_debug(4, "Credit remaining: %d c, time remaining: %d s\n", acts->credit, newtimeout);
-		}
+			/* Not enough funds to continue without requiring another deposit */
+			ast_assert(acts->credit < 0);
 
-		if (newtimeout < SECS_COLLECT_BEFORE_PROMPTING + 1) {
-			/* Min timeout is 1. We really shouldn't allow this to happen since this would be fradulent.
-			 * Basically we'll just enter the bridge for a second, collect everything, and repeat the loop. */
-			ast_log(LOG_WARNING, "Caller took too long to deposit, changing timeout from %d to %d\n", newtimeout, SECS_COLLECT_BEFORE_PROMPTING + 1);
-			newtimeout = SECS_COLLECT_BEFORE_PROMPTING + 1;
-		}
-		acts->expiretime = now + newtimeout;
+			/* Collect whatever's in the hopper. */
+			res = coin_disposition(acts, COIN_COLLECT);
+			if (res) {
+				break;
+			}
+			/* Rejoin the bridge for 7 seconds.
+			 * However, coin collect itself takes a couple seconds,
+			 * so subtract off two from that since those seconds already passed. */
+			res = bridge_with_timeout(acts, acts->bridge, SECS_COLLECT_BEFORE_PROMPTING - 2, 1);
+			if (res) {
+				break;
+			}
 
-		res = bridge_with_timeout(acts, acts->bridge, newtimeout - SECS_COLLECT_BEFORE_PROMPTING, 1);
+			/* The next minute of overtime starts NOW,
+			 * not whenever the caller finishes paying for it. */
+			overtime_start = time(NULL);
+			res = get_overtime_deposit(acts);
+			if (res) {
+				break;
+			}
+
+			ast_mutex_lock(&acts->lock);
+			acts->credit += acts->hopper;
+			if (acts->credit < 0) {
+				/* If we're still underpaid,
+				 * disconnect the call. */
+				ast_verb(3, "Call automatically disconnected due to insufficient overtime funds\n");
+				acts->callerdisconnected = 1;
+				ast_mutex_unlock(&acts->lock);
+				acts->result = "OVERTIME_EXPIRED";
+
+				if (acts->hopper) {
+					res = coin_disposition(acts, COIN_RETURN);
+				}
+
+				break;
+			}
+			ast_mutex_unlock(&acts->lock);
+
+			now = time(NULL);
+
+			/* So, according to recordings from original ACTS systems, the time spent prompting did not actually eat into the next overtime period.
+			 * If this were done, it wouldn't make sense to allow callers to "extend" their initial period time, either. */
+			newtimeout = acts->strictminutes ? 60 - (now - overtime_start) : 60; /* Subtract out how long the caller took to deposit from the time left */
+
+			/* If more was deposited than necessary,
+			 * specifically enough that we could go for at least 2 minutes on credit,
+			 * rather than exiting the bridge every 60 seconds to subtract
+			 * the overtime per minute and re-enter the bridge,
+			 * do some math now to simplify bridging operations. */
+			ast_debug(4, "Credit remaining: %d c, time remaining: %d s (hopper contains %d cents)\n", acts->credit, newtimeout, acts->hopper);
+			while (acts->credit >= acts->overtimedeposit) {
+				acts->credit -= acts->overtimedeposit;
+				newtimeout += 60;
+				ast_debug(4, "Credit remaining: %d c, time remaining: %d s\n", acts->credit, newtimeout);
+			}
+
+			if (newtimeout < SECS_COLLECT_BEFORE_PROMPTING + 1) {
+				/* Min timeout is 1. We really shouldn't allow this to happen since this would be fradulent.
+				 * Basically we'll just enter the bridge for a second, collect everything, and repeat the loop. */
+				ast_log(LOG_WARNING, "Caller took too long to deposit, changing timeout from %d to %d\n", newtimeout, SECS_COLLECT_BEFORE_PROMPTING + 1);
+				newtimeout = SECS_COLLECT_BEFORE_PROMPTING + 1;
+			}
+			acts->expiretime = now + newtimeout;
+
+			res = bridge_with_timeout(acts, acts->bridge, newtimeout - SECS_COLLECT_BEFORE_PROMPTING, 1);
+		}
 	}
 
 	if (acts->callerdisconnected && !acts->result && res < 0) {
@@ -1613,6 +1890,26 @@ cleanup:
 
 	/* At this point, opchan should be completely done with the bridge */
 	ast_debug(3, "Finished cleaning up ACTS call\n");
+
+	if (overtime_mins) {
+		/* Calculate amount required. */
+		acts->credit -= acts->overtimedeposit * overtime_mins;
+		acts->postpaidended = 1;
+		res = post_pay_collect(acts, overtime_mins);
+		acts->credit += acts->hopper;
+		if (acts->credit < 0) {
+			/* The caller hung up without paying all (or some) of what's owed.
+			 * Caller needs to be rung back to collect that, though this application
+			 * does not handle that... for one, this channel needs to terminate
+			 * cleanly before that can be done, so that's out of scope for this app. */
+			char buf[15];
+			snprintf(buf, sizeof(buf), "%d", -acts->credit);
+			pbx_builtin_setvar_helper(acts->chan, "ACTS_OVERTIME_SHORTAGE_AMOUNT", buf);
+			acts->result = "OVERTIME_SHORTAGE";
+			ast_verb(3, "Caller hung up without paying overtime shortage and will need to be rung back...\n");
+		}
+	}
+
 	return res;
 }
 
@@ -1678,7 +1975,7 @@ static int acts_exec(struct ast_channel *chan, const char *data)
 		}
 		if (ast_test_flag(&flags, OPT_INITIAL_PERIOD) && !ast_strlen_zero(opt_args[OPT_ARG_INITIAL_PERIOD])) {
 			acts.initialperiod = atoi(opt_args[OPT_ARG_INITIAL_PERIOD]);
-			if (acts.initialperiod < 10) {
+			if (acts.initialperiod < 60 || acts.initialperiod % 60) {
 				ast_log(LOG_ERROR, "Invalid initial period: %d seconds\n", acts.initialperiod);
 				goto invalid;
 			}
@@ -1696,6 +1993,8 @@ static int acts_exec(struct ast_channel *chan, const char *data)
 		acts.attached = acts.arrivedattached;
 		acts.relax = ast_test_flag(&flags, OPT_RELAX) ? 1 : 0;
 		acts.sf = ast_test_flag(&flags, OPT_SF) ? 1 : 0;
+		acts.strictminutes = ast_test_flag(&flags, OPT_STRICT_MINUTES) ? 1 : 0;
+		acts.postpaid = ast_test_flag(&flags, OPT_POST_PAID) ? 1 : 0;
 	}
 
 	acts.chan = chan;

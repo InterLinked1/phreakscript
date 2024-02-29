@@ -578,6 +578,7 @@ static int detect_callback(struct ast_audiohook *audiohook, struct ast_channel *
 			} else {
 				di->txcount += difference;
 			}
+			now += difference;
 		}
 		ast_verb(3, "%d cents just deposited (%d total so far)\n", 5 * di->debouncedhits, 5 * now);
 		di->debouncedhits = 0;
