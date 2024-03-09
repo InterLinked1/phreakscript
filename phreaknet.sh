@@ -1631,6 +1631,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "apps/app_tonetest.c"
 	phreak_tree_module "apps/app_verify.c"
 	phreak_tree_module "apps/app_wakeupcall.c"
+	phreak_tree_module "apps/app_wrappers.c"
 
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
