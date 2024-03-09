@@ -1,16 +1,8 @@
 diff --git a/channels/chan_dahdi.c b/channels/chan_dahdi.c
-index ad7a8e5e54..acd76dd2c5 100644
+index e6c41e51e9..3baabb0872 100644
 --- a/channels/chan_dahdi.c
 +++ b/channels/chan_dahdi.c
-@@ -952,6 +952,7 @@ static struct dahdi_chan_conf dahdi_chan_conf_default(void)
- 			.mohsuggest = "",
- 			.parkinglot = "",
- 			.transfertobusy = 1,
-+			.realtimepulsing = 0,
- 
- 			.ani_info_digits = 2,
- 			.ani_wink_time = 1000,
-@@ -2441,6 +2442,12 @@ static enum analog_event dahdievent_to_analogevent(int event)
+@@ -2573,6 +2573,12 @@ static enum analog_event dahdievent_to_analogevent(int event)
  	case DAHDI_EVENT_PULSE_START:
  		res = ANALOG_EVENT_PULSE_START;
  		break;
@@ -23,7 +15,7 @@ index ad7a8e5e54..acd76dd2c5 100644
  	case DAHDI_EVENT_POLARITY:
  		res = ANALOG_EVENT_POLARITY;
  		break;
-@@ -7463,6 +7470,10 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -7778,6 +7784,10 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  		if (!ast_channel_pbx(ast))
  			tone_zone_play_tone(p->subs[idx].dfd, -1);
  		break;
@@ -34,36 +26,11 @@ index ad7a8e5e54..acd76dd2c5 100644
  	case DAHDI_EVENT_DIALCOMPLETE:
  		/* DAHDI has completed dialing all digits sent using DAHDI_DIAL. */
  #if defined(HAVE_PRI)
-@@ -12597,6 +12608,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
- #endif
- 		tmp->immediate = conf->chan.immediate;
- 		tmp->transfertobusy = conf->chan.transfertobusy;
-+		tmp->realtimepulsing = conf->chan.realtimepulsing;
- 		if (chan_sig & __DAHDI_SIG_FXS) {
- 			tmp->mwimonitor_fsk = conf->chan.mwimonitor_fsk;
- 			tmp->mwimonitor_neon = conf->chan.mwimonitor_neon;
-@@ -12930,6 +12942,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
- 				analog_p->threewaycalling = conf->chan.threewaycalling;
- 				analog_p->transfer = conf->chan.transfer;
- 				analog_p->transfertobusy = conf->chan.transfertobusy;
-+				analog_p->realtimepulsing = conf->chan.realtimepulsing;
- 				analog_p->use_callerid = tmp->use_callerid;
- 				analog_p->usedistinctiveringdetection = tmp->usedistinctiveringdetection;
- 				analog_p->use_smdi = tmp->use_smdi;
-@@ -18121,6 +18134,8 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct
- 			confp->chan.immediate = ast_true(v->value);
- 		} else if (!strcasecmp(v->name, "transfertobusy")) {
- 			confp->chan.transfertobusy = ast_true(v->value);
-+		} else if (!strcasecmp(v->name, "realtimepulsing")) {
-+			confp->chan.realtimepulsing = ast_true(v->value);
- 		} else if (!strcasecmp(v->name, "mwimonitor")) {
- 			confp->chan.mwimonitor_neon = 0;
- 			confp->chan.mwimonitor_fsk = 0;
 diff --git a/channels/chan_dahdi.h b/channels/chan_dahdi.h
-index de813f21bf..6681526b82 100644
+index b7955cdddf..23d0691f24 100644
 --- a/channels/chan_dahdi.h
 +++ b/channels/chan_dahdi.h
-@@ -332,6 +332,11 @@ struct dahdi_pvt {
+@@ -354,6 +354,11 @@ struct dahdi_pvt {
  	unsigned int pulse:1;
  	/*! \brief TRUE if a pulsed digit was detected. (Pulse dial phone detected) */
  	unsigned int pulsedial:1;
@@ -76,10 +43,10 @@ index de813f21bf..6681526b82 100644
  	/*!
  	 * \brief TRUE if caller ID is restricted.
 diff --git a/channels/chan_iax2.c b/channels/chan_iax2.c
-index ff235af205..811fa37f0c 100644
+index cbf4ab4479..e72917d126 100644
 --- a/channels/chan_iax2.c
 +++ b/channels/chan_iax2.c
-@@ -1385,6 +1385,7 @@ static int iax2_is_control_frame_allowed(int subtype)
+@@ -1438,6 +1438,7 @@ static int iax2_is_control_frame_allowed(int subtype)
  	case AST_CONTROL_TAKEOFFHOOK:
  	case AST_CONTROL_OFFHOOK:
  	case AST_CONTROL_CONGESTION:
@@ -88,7 +55,7 @@ index ff235af205..811fa37f0c 100644
  	case AST_CONTROL_WINK:
  	case AST_CONTROL_OPTION:
 diff --git a/channels/sig_analog.c b/channels/sig_analog.c
-index 64f1114fde..1f3991cf23 100644
+index 7ebb06239f..1cd63365c6 100644
 --- a/channels/sig_analog.c
 +++ b/channels/sig_analog.c
 @@ -290,6 +290,12 @@ static char *analog_event2str(enum analog_event event)
@@ -104,7 +71,7 @@ index 64f1114fde..1f3991cf23 100644
  	case ANALOG_EVENT_POLARITY:
  		res = "ANALOG_EVENT_POLARITY";
  		break;
-@@ -2822,10 +2828,30 @@ static struct ast_frame *__analog_handle_event(struct analog_pvt *p, struct ast_
+@@ -2874,10 +2880,30 @@ static struct ast_frame *__analog_handle_event(struct analog_pvt *p, struct ast_
  		break;
  #endif
  	case ANALOG_EVENT_PULSE_START:
@@ -136,7 +103,7 @@ index 64f1114fde..1f3991cf23 100644
  		if (p->inalarm) {
  			break;
 diff --git a/channels/sig_analog.h b/channels/sig_analog.h
-index 488be3662e..58a2aa4780 100644
+index 81043f39a5..02b1a4de17 100644
 --- a/channels/sig_analog.h
 +++ b/channels/sig_analog.h
 @@ -88,6 +88,8 @@ enum analog_event {
@@ -148,7 +115,7 @@ index 488be3662e..58a2aa4780 100644
  	ANALOG_EVENT_POLARITY,
  	ANALOG_EVENT_RINGBEGIN,
  	ANALOG_EVENT_EC_DISABLED,
-@@ -273,6 +275,13 @@ struct analog_pvt {
+@@ -280,6 +282,13 @@ struct analog_pvt {
  	struct analog_dialoperation dop;
  	int onhooktime;							/*< Time the interface went on-hook. */
  	int fxsoffhookstate;					/*< TRUE if the FXS port is off-hook */
@@ -162,19 +129,19 @@ index 488be3662e..58a2aa4780 100644
  	/*! \brief -1 = unknown, 0 = no messages, 1 = new messages available */
  	int msgstate;
  
-@@ -291,6 +300,7 @@ struct analog_pvt {
+@@ -300,6 +309,7 @@ struct analog_pvt {
  	unsigned int permcallwaiting:1;			/*!< TRUE if call waiting is enabled. (Configured option) */
  	unsigned int permhidecallerid:1;		/*!< Whether to hide our outgoing caller ID or not */
  	unsigned int pulse:1;
 +	unsigned int realtimepulsing:1;
  	unsigned int threewaycalling:1;
+ 	unsigned int threewaysilenthold:1;		/*!< Whether to time out a three-way dial tone to silence */
  	unsigned int transfer:1;
- 	unsigned int transfertobusy:1;			/*!< allow flash-transfers to busy channels */
 diff --git a/funcs/func_frame_drop.c b/funcs/func_frame_drop.c
-index c19c56680c..472dc6c389 100644
+index 522685cbd0..ee2c8781d3 100644
 --- a/funcs/func_frame_drop.c
 +++ b/funcs/func_frame_drop.c
-@@ -72,6 +72,7 @@
+@@ -77,6 +77,7 @@
  					<enum name = "TAKEOFFHOOK" />
  					<enum name = "OFFHOOK" />
  					<enum name = "CONGESTION" />
@@ -182,7 +149,7 @@ index c19c56680c..472dc6c389 100644
  					<enum name = "FLASH" />
  					<enum name = "WINK" />
  					<enum name = "PROGRESS" />
-@@ -123,6 +124,7 @@ static struct {
+@@ -134,6 +135,7 @@ static struct {
  	{ AST_CONTROL_TAKEOFFHOOK,   ",TAKEOFFHOOK," },
  	{ AST_CONTROL_OFFHOOK,   ",OFFHOOK," },
  	{ AST_CONTROL_CONGESTION,   ",CONGESTION," },
@@ -191,10 +158,10 @@ index c19c56680c..472dc6c389 100644
  	{ AST_CONTROL_WINK,   ",WINK," },
  	{ AST_CONTROL_PROGRESS,   ",PROGRESS," },
 diff --git a/funcs/func_frame_trace.c b/funcs/func_frame_trace.c
-index b62bae9dee..640ea8ce24 100644
+index 67345ef9e1..97ef1f7516 100644
 --- a/funcs/func_frame_trace.c
 +++ b/funcs/func_frame_trace.c
-@@ -259,6 +259,9 @@ static void print_frame(struct ast_frame *frame)
+@@ -266,6 +266,9 @@ static void print_frame(struct ast_frame *frame)
  		case AST_CONTROL_CONGESTION:
  			ast_verbose("SubClass: CONGESTION\n");
  			break;
@@ -205,7 +172,7 @@ index b62bae9dee..640ea8ce24 100644
  			ast_verbose("SubClass: FLASH\n");
  			break;
 diff --git a/include/asterisk/frame.h b/include/asterisk/frame.h
-index 6c6fafd1cf..fd0eeed399 100644
+index 78e369c642..41f328c7ca 100644
 --- a/include/asterisk/frame.h
 +++ b/include/asterisk/frame.h
 @@ -312,6 +312,7 @@ enum ast_control_frame_type {
@@ -217,10 +184,10 @@ index 6c6fafd1cf..fd0eeed399 100644
  	/*
  	 * WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING
 diff --git a/main/channel.c b/main/channel.c
-index 8e1c62946b..c04fc97e93 100644
+index 122f6e55a3..a98e635d95 100644
 --- a/main/channel.c
 +++ b/main/channel.c
-@@ -3322,6 +3322,7 @@ int ast_waitfordigit_full(struct ast_channel *c, int timeout_ms, const char *bre
+@@ -3321,6 +3321,7 @@ int ast_waitfordigit_full(struct ast_channel *c, int timeout_ms, const char *bre
  				case AST_CONTROL_HOLD:
  				case AST_CONTROL_UNHOLD:
  				case AST_CONTROL_FLASH:
@@ -228,7 +195,7 @@ index 8e1c62946b..c04fc97e93 100644
  				case -1:
  					/* Unimportant */
  					break;
-@@ -4330,6 +4331,7 @@ static int attribute_const is_visible_indication(enum ast_control_frame_type con
+@@ -4294,6 +4295,7 @@ static int attribute_const is_visible_indication(enum ast_control_frame_type con
  	case AST_CONTROL_OPTION:
  	case AST_CONTROL_WINK:
  	case AST_CONTROL_FLASH:
@@ -236,7 +203,7 @@ index 8e1c62946b..c04fc97e93 100644
  	case AST_CONTROL_OFFHOOK:
  	case AST_CONTROL_TAKEOFFHOOK:
  	case AST_CONTROL_ANSWER:
-@@ -4631,6 +4633,7 @@ static int indicate_data_internal(struct ast_channel *chan, int _condition, cons
+@@ -4595,6 +4597,7 @@ static int indicate_data_internal(struct ast_channel *chan, int _condition, cons
  	case AST_CONTROL_OPTION:
  	case AST_CONTROL_WINK:
  	case AST_CONTROL_FLASH:

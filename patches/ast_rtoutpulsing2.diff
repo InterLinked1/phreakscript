@@ -1,0 +1,37 @@
+diff --git a/channels/chan_dahdi.c b/channels/chan_dahdi.c
+index 3baabb0872..81feb3ad0b 100644
+--- a/channels/chan_dahdi.c
++++ b/channels/chan_dahdi.c
+@@ -1050,6 +1050,7 @@ static struct dahdi_chan_conf dahdi_chan_conf_default(void)
+ 			.mohsuggest = "",
+ 			.parkinglot = "",
+ 			.transfertobusy = 1,
++			.realtimepulsing = 0,
+ 			.dialmode = 0,
+ 
+ 			.ani_info_digits = 2,
+@@ -12958,6 +12959,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 		tmp->immediate = conf->chan.immediate;
+ 		tmp->immediatering = conf->chan.immediatering;
+ 		tmp->transfertobusy = conf->chan.transfertobusy;
++		tmp->realtimepulsing = conf->chan.realtimepulsing;
+ 		tmp->dialmode = conf->chan.dialmode;
+ 		if (chan_sig & __DAHDI_SIG_FXS) {
+ 			tmp->mwimonitor_fsk = conf->chan.mwimonitor_fsk;
+@@ -13298,6 +13300,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 				analog_p->threewaycalling = conf->chan.threewaycalling;
+ 				analog_p->transfer = conf->chan.transfer;
+ 				analog_p->transfertobusy = conf->chan.transfertobusy;
++				analog_p->realtimepulsing = conf->chan.realtimepulsing;
+ 				analog_p->dialmode = conf->chan.dialmode;
+ 				analog_p->use_callerid = tmp->use_callerid;
+ 				analog_p->usedistinctiveringdetection = tmp->usedistinctiveringdetection;
+@@ -18588,6 +18591,8 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct
+ 			confp->chan.immediatering = ast_true(v->value);
+ 		} else if (!strcasecmp(v->name, "transfertobusy")) {
+ 			confp->chan.transfertobusy = ast_true(v->value);
++		} else if (!strcasecmp(v->name, "realtimepulsing")) {
++			confp->chan.realtimepulsing = ast_true(v->value);
+ 		} else if (!strcasecmp(v->name, "dialmode")) {
+ 			if (!strcasecmp(v->value, "pulse")) {
+ 				confp->chan.dialmode = ANALOG_DIALMODE_PULSE;

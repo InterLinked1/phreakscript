@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.1 (2024-01-12)
+# v1.1.2 (2024-03-09)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:'
+# 2024-03-09 1.1.2 Asterisk: fix broken patches that no longer applied
 # 2024-01-12 1.1.1 Asterisk: target Asterisk 21.1.0-rc1, fix 'phreaknet restart' command
 # 2023-10-26 1.1.0 Asterisk/DAHDI: target Asterisk 21, DAHDI 3.3.0-rc1
 # 2023-09-27 1.0.5 DAHDI: restore tor2 and pciradio drivers, PhreakScript: pull update script from GitHub
@@ -265,7 +266,8 @@ DEBUG_LEVEL=0
 FREEPBX_GUI=0
 GENERIC_HEADERS=0
 EXTERNAL_CODECS=0
-RTPULSING=0 # XXX: Change to 1 as soon as we can
+RTPULSING=1
+HEARPULSING=1
 HAVE_COMPATIBLE_SPANDSP=1
 
 handler() {
@@ -1297,7 +1299,9 @@ install_dahdi() {
 		# Therefore, fallback to using patch, manually, for it.
 		phreak_fuzzy_patch "kewl2.diff"
 		# hearpulsing
-		git_patch "hearpulsing-dahlin.diff"
+		if [ "$HEARPULSING" = "1" ]; then
+			git_patch "hearpulsing-dahlin.diff"
+		fi
 	else
 		echoerr "Skipping DAHDI Linux feature patches..."
 	fi
@@ -1330,7 +1334,9 @@ install_dahdi() {
 
 	# hearpulsing
 	if [ "$EXTRA_FEATURES" = "1" ]; then
-		git_patch "hearpulsing-dahtool.patch" # hearpulsing
+		if [ "$HEARPULSING" = "1" ]; then
+			git_patch "hearpulsing-dahtool.patch" # hearpulsing
+		fi
 	fi
 
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
@@ -1687,8 +1693,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
-	# No longer cleanly patches
-	#git_patch "hearpulsing-ast.diff" # DAHDI hearpulsing
+	if [ "$HEARPULSING" = "1" ]; then
+		git_patch "hearpulsing-ast.diff" # DAHDI hearpulsing
+	fi
 
 	if [ "$WEAK_TLS" = "1" ]; then
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only beneficial for older ATAs that require older TLS protocols.
@@ -1719,8 +1726,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	asterisk_pr_unconditional 414 # IAX2 loopback warning
 
 	if [ "$RTPULSING" = "1" ]; then
-		# XXX Temporarily disabled because it causes a patch conflict in chan_dahdi, line 938. We'll get this fixed soon.
-		git_patch "ast_rtoutpulsing.diff" # chan_dahdi: add rtoutpulsing
+		# Patches split up to make it easier to selectively redo the 2nd one if a patch conflict occurs and the patch needs to be rebased.
+		git_patch "ast_rtoutpulsing1.diff" # chan_dahdi: add rtoutpulsing
+		git_patch "ast_rtoutpulsing2.diff" # chan_dahdi: add rtoutpulsing
 	fi
 
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
@@ -2495,7 +2503,6 @@ elif [ "$cmd" = "experimental" ]; then
 elif [ "$cmd" = "install" ]; then
 	preinstall_warn=0
 
-	# XXX: Warnings so we don't forget to fix these:
 	if [ "$RTPULSING" != "1" ]; then
 		echoerr "Real time pusling is not compatible or has been disabled for this build."
 		sleep 1

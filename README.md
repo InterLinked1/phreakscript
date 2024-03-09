@@ -12,6 +12,7 @@ PhreakScript installs:
    - Native coin detection and blue boxing support
    - Class 4 and Class 5 coin trunk support
    - Real time dial pulsing support
+   - "Hearpulsing" patches
    - Automatic dialplan context to digit map generation
    - Broadworks compatible device feature key synchronization (PJSIP)
    - Broadworks compatible Shared Call Appearances (PJSIP)
