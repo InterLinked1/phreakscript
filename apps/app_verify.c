@@ -786,6 +786,7 @@ static int resolve_verify_request(struct ast_channel *chan, char *url, struct as
 		}
 		ast_debug(1, "curl result is: %s\n", ast_str_buffer(strbuf));
 	} else { /* ENUM */
+		int res;
 		AST_DECLARE_APP_ARGS(args,
 			AST_APP_ARG(number);
 			AST_APP_ARG(tech);
@@ -821,7 +822,13 @@ static int resolve_verify_request(struct ast_channel *chan, char *url, struct as
 				strncat(num, tmp, sizeof(num) - strlen(num) - 1);
 			}
 		}
-		ast_get_enum(chan, num, dest, sizeof(dest), tech, sizeof(tech), args.zone, args.options, record, NULL);
+		res = ast_get_enum(chan, num, dest, sizeof(dest), tech, sizeof(tech), args.zone, args.options, record, NULL);
+		if (res < 0) {
+			return -1;
+		} else if (!res) {
+			ast_log(LOG_WARNING, "ENUM lookup failed for ast_get_enum(%s,%s,%s,%s,%u)\n", num, dest, args.zone, args.options, record);
+			return -1;
+		}
 		ast_debug(1, "ENUM lookup: %s\n", dest);
 		p = strchr(dest, ':');
 		if (p && strcasecmp(tech, "ALL") && !strchr(args.options, 'u')) {
@@ -1464,6 +1471,14 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			}
 			vresult = viaverify ? remote_result : code_good;
 			success = 1;
+		} else if (!strcmp(peerip, "127.0.0.1")) {
+			if (viaverify) {
+				ast_debug(1, "Upstream node is loopback, trusting its assignment of '%s'\n", remote_result);
+			} else {
+				ast_debug(1, "Upstream node is loopback\n");
+			}
+			vresult = viaverify ? remote_result : code_good;
+			success = 1;
 		} else {
 			vresult = viaverify ? code_spoof : code_fail;
 		}
@@ -2065,6 +2080,7 @@ static int unload_module(void)
 
 	AST_RWLIST_UNLOCK(&verifys);
 
+	ast_mutex_destroy(&ss_lock);
 	return 0;
 }
 
@@ -2085,6 +2101,7 @@ static int load_module(void)
 	ast_mutex_init(&ss_lock);
 
 	if (reload_verify(0)) {
+		ast_mutex_destroy(&ss_lock);
 		return AST_MODULE_LOAD_DECLINE;
 	}
 

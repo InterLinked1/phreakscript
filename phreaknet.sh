@@ -857,6 +857,7 @@ run_testsuite_tests() {
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
 	# run manually for good measure, and so we get the full output
+	apt-get install -y python3.11-venv
 	./setupVenv.sh
 
 	run_testsuite_test "apps/assert"
@@ -1699,10 +1700,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
 
 	## Unmerged patches: remove once merged
-	if [ -f main/logger.xml ]; then
-		asterisk_pr_unconditional 540 # critical linking fix for 21.1.0-rc1
-	fi
-	asterisk_pr_unconditional 568 # critical fix for Read, etc.
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then

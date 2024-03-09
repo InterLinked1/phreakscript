@@ -27,7 +27,7 @@
 	<depend>res_crypto</depend>
 	<depend>curl</depend>
 	<depend>pbx_config</depend>
-	<depend>app_verify</depend>
+	<use type="module">app_verify</use>
 	<support_level>extended</support_level>
  ***/
 
@@ -2256,5 +2256,5 @@ AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, "PhreakNet Enhancement
 	.unload = unload_module,
 	.reload = reload_module,
 	.load_pri = AST_MODPRI_CDR_DRIVER,
-	.requires = "cdr,pbx_config,app_verify",
+	.requires = "cdr,pbx_config",
 );
