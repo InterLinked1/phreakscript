@@ -334,6 +334,9 @@ directories if necessary.
 **-v**, **--version**
 : Specific version of Asterisk to install (M.m.b e.g. 18.8.0). Also, see **--vanilla**.
 
+**--wanpipe**
+: Also install the Wanpipe drivers, needed for Sangoma cards
+
 The following options may be used with the **sounds** command.
 
 **--boilerplate**

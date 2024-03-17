@@ -58,7 +58,7 @@ jobs:
           wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           chmod +x phreaknet.sh
           ./phreaknet.sh make
-          phreaknet install -d -s -t
+          phreaknet install -d -s -t --drivers --wanpipe
           phreaknet runtests
   debian-stable-asterisk-latest-unpatched:
     runs-on: ubuntu-latest

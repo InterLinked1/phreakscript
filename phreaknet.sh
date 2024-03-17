@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.2 (2024-03-09)
+# v1.1.3 (2024-03-17)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -12,7 +12,8 @@
 # phreaknet update
 # phreaknet install
 
-## Begin Change Log:'
+## Begin Change Log:
+# 2024-03-17 1.1.3 DAHDI: Only build wanpipe if requested
 # 2024-03-09 1.1.2 Asterisk: fix broken patches that no longer applied
 # 2024-01-12 1.1.1 Asterisk: target Asterisk 21.1.0-rc1, fix 'phreaknet restart' command
 # 2023-10-26 1.1.0 Asterisk/DAHDI: target Asterisk 21, DAHDI 3.3.0-rc1
@@ -244,6 +245,7 @@ SIP_CISCO=0
 CHAN_SCCP=0
 CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
+DAHDI_WANPIPE=0 # wanpipe only needed for Sangoma cards
 DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
@@ -1403,7 +1405,9 @@ install_dahdi() {
 	make && make install
 
 	# Wanpipe
-	install_wanpipe
+	if [ "$DAHDI_WANPIPE" = "1" ]; then
+		install_wanpipe
+	fi
 
 	service dahdi restart
 }
@@ -1437,7 +1441,12 @@ install_wanpipe() {
 	done
 
 	cd $AST_SOURCE_PARENT_DIR
-	wget https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+	# Sangoma clearly doesn't know how to run a web server, since their server keeps going down.
+	# Pull tarball from Wayback Machine if Sangoma's is unresponsive
+	wget --tries=1 https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+	if [ $? -ne 0 ]; then
+		wget https://web.archive.org/web/20240103031741/https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+	fi
 	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	WANPIPE_DIR=`tar -tzf $WANPIPE_SOURCE_NAME.tgz | head -1 | cut -f1 -d"/"`
 	cd ${WANPIPE_DIR}
@@ -2261,7 +2270,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -2312,6 +2321,7 @@ while true; do
 		--manselect ) MANUAL_MENUSELECT=1; shift ;;
 		--minimal ) ENHANCED_INSTALL=0; shift ;;
 		--vanilla ) EXTRA_FEATURES=0; shift ;;
+		--wanpipe ) DAHDI_WANPIPE=1; shift ;;
 		# -- means the end of the arguments; drop this, and break out of the while loop
 		--) shift; break ;;
 		# If invalid options were passed, then getopt should have reported an error,
