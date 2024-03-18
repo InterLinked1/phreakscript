@@ -1815,7 +1815,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
 
-	if [ "$CHAN_DAHDI" = "1" ]; then
+	if [ -d /etc/dahdi ]; then
 		phreak_tree_module "apps/app_loopdisconnect.c"
 		if [ "$RTPULSING" = "1" ]; then
 			phreak_tree_module "res/res_dialpulse.c"
@@ -2487,16 +2487,27 @@ fi
 
 if which curl > /dev/null; then # only execute if we have curl
 	self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
-	upstream=`curl --silent https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh | grep -m1 "# v" | cut -d'v' -f2`
-
-	if [ "$self" != "$upstream" ] && [ "$cmd" != "update" ]; then
-		# Pull from GitHub here for version check for a) speed and b) stability reasons
-		# In this case, it's possible that our version number could actually be ahead of master, since we update from the dev upstream. We need to compare the versions, not merely check if they differ.
-		# Don't throw a warning if only the development tip is ahead of the master branch. But if master is ahead of us, then warn.
-		morerecent=`printf "%s\n%s" "$self" "$upstream" | sort | tail -1`
-		if [ "${morerecent}" != "${self}" ]; then
-			echoerr "WARNING: PhreakScript is out of date (most recent stable version is $upstream) - run 'phreaknet update' to update"
-			sleep 0.5
+	# Only download the first few lines of the file, to get the latest version number, and only check every so often
+	recent=$( find /tmp/phreaknet_upstream_version.txt -mmin -720 2>/dev/null | wc -l )
+	if [ "$recent" != "1" ]; then
+		printf " *** Checking if a more recent version is available..."
+		curl --silent https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh -r 0-210 > /tmp/phreaknet_upstream_version.txt
+		# Compare current version with latest upstream version
+		upstream=`grep -m1 "# v" /tmp/phreaknet_upstream_version.txt | cut -d'v' -f2`
+		if [ "$self" != "$upstream" ] && [ "$cmd" != "update" ]; then
+			# Pull from GitHub here for version check for a) speed and b) stability reasons
+			# In this case, it's possible that our version number could actually be ahead of master, since we update from the dev upstream. We need to compare the versions, not merely check if they differ.
+			# Don't throw a warning if only the development tip is ahead of the master branch. But if master is ahead of us, then warn.
+			morerecent=`printf "%s\n%s" "$self" "$upstream" | sort | tail -1`
+			if [ "${morerecent}" != "${self}" ]; then
+				printf " YES\n"
+				echoerr "WARNING: PhreakScript is out of date (most recent stable version is $upstream) - run 'phreaknet update' to update"
+				sleep 0.5
+			else
+				printf " NO (AHEAD)\n"
+			fi
+		else
+			printf " NO\n"
 		fi
 	fi
 fi
