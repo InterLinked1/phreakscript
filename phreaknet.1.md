@@ -148,8 +148,11 @@ the best Asterisk and DAHDI experience.
 **disable-swap**
 : Disable and deallocate temporary swap file
 
+**start**
+: Fully start DAHDI, wanpipe, and Asterisk
+
 **restart**
-: Fully restart DAHDI and Asterisk
+: Fully restart DAHDI, wanpipe, and Asterisk
 
 **kill**
 : Forcibly kill Asterisk

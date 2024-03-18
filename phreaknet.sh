@@ -349,7 +349,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install source experimental dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update astpr patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
+	echo "about help version examples info wizard make man mancached install source experimental dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update astpr patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap start restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
 	exit 0
 fi
 
@@ -405,7 +405,8 @@ Commands:
    topdisk            Show top files taking up disk space
    enable-swap        Temporarily allocate and enable swap file
    disable-swap       Disable and deallocate temporary swap file
-   restart            Fully restart DAHDI and Asterisk
+   start              Fully start DAHDI, wanpipe, and Asterisk
+   restart            Fully restart DAHDI, wanpipe, and Asterisk
    kill               Forcibly kill Asterisk
    forcerestart       Forcibly restart Asterisk
    ban                Manually ban an IP address using iptables
@@ -507,6 +508,149 @@ ast_kill() {
 	else
 		echog "Successfully killed Asterisk ($pid)"
 	fi
+}
+
+start_wanpipe() {
+	if which wanrouter > /dev/null; then
+		printf "Starting wanpipe\n"
+		service wanrouter start
+		if [ $? -ne 0 ]; then
+			wanrouter start
+		fi
+		wanrouter status
+	fi
+}
+
+stop_wanpipe() {
+	if which wanrouter > /dev/null; then
+		service wanrouter status
+		if [ $? -eq 0 ]; then
+			printf "Stopping wanpipe spans\n"
+			if ! wanrouter stop all; then # stop all T1 spans on wanpipe
+				die "Failed to stop wanpipe spans"
+			elif ! service wanrouter stop; then # stop wanpipe service
+				die "Failed to stop wanrouter"
+			elif ! modprobe -r dahdi_echocan_mg2; then # remove DAHDI echocan
+				die "Failed to remove DAHDI echocan"
+			fi
+		else
+			wanrouter status
+			if [ $? -eq 0 ]; then
+				printf "Unsure if wanpipe is in use, stopping it just to be sure...\n"
+				wanrouter stop all
+				if [ $? -ne 0 ]; then
+					die "Failed to stop wanpipe, aborting to prevent potential system crash - please manually stop wanpipe and rerun"
+				fi
+			fi
+		fi
+		wanrouter status | grep "stopped"
+		if [ $? -ne 0 ]; then
+			die "Could not verify wanpipe is really stopped... to prevent system instability, please manually stop it and rerun"
+		fi
+	else
+		printf "wanpipe not present on this system, no need to stop it\n"
+	fi
+}
+
+# Completely restart wanpipe, DAHDI (and any DAHDI drivers), and Asterisk
+# This is surprisingly complicated, and can be dangerous if done incorrectly
+restart_telephony() {
+	service asterisk stop # stop Asterisk
+	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+	if [ "$astpid" != "" ]; then
+		# if that didn't work, kill it manually
+		kill -9 $astpid
+		printf "Killed Asterisk process %s\n" "$astpid"
+	else
+		printf "Asterisk not currently running...\n"
+	fi
+	lsmod | grep dahdi
+	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
+	printf "Current drivers: --- %s ---\n", "$curdrivers"
+	stop_wanpipe
+	service dahdi status
+	# WARNING WARNING WARNING
+	# It seems that on a system where wanpipe is in use,
+	# stopping DAHDI without ensuring wanpipe is really stopped
+	# will lead to the system crashing
+	# Noticed this since wanpipe wasn't registered as a service,
+	# so "service wanpipe status" wouldn't work, even though wanpipe was installed.
+	# This is why there are now checks above to ensure wanrouter is stopped before stopping DAHDI.
+	# Also noted here: https://sangomakb.atlassian.net/wiki/spaces/TC/pages/53772451/Driver+Debugging
+	if [ $? -eq 0 ]; then
+		printf "Stopping DAHDI...\n"
+		if ! service dahdi stop; then
+			printf "Returned %d\n" $?
+			die "Failed to stop DAHDI"
+		elif ! modprobe -r dahdi; then
+			die "Failed to remove DAHDI from kernel"
+		elif ! service dahdi stop; then # do it again, just to be sure
+			die "Failed to stop DAHDI the second time"
+		fi
+		printf "DAHDI shutdown complete\n"
+	else
+		printf "DAHDI is not running, skipping...\n"
+	fi
+	printf "Starting DAHDI...\n"
+	start_wanpipe
+	modprobe dahdi
+	# e.g. modprobe wcte13xp
+	echo "$curdrivers" | tr ',' '\n' | xargs -i sh -c 'echo Starting driver: {}; modprobe {}'
+	if ! service dahdi start; then
+		die "DAHDI failed to start"
+	fi
+	if ! dahdi_cfg; then # reload configs for all spans
+		# I've noticed before the case where the order of the modprobes seems to matter
+		# For example, with wcte13xp on span 1 and wctdm on span 2,
+		# it loads fine if wcte13xp is loaded before wctdm, but not vice versa
+		# Reversing the order has a good chance of making it work on "simple" systems
+		# that only have a couple cards. More than that, and if it's failing here,
+		# you might need to debug the modprobe order manually.
+		printf "First initialization attempt failed, retrying modprobes in reverse order...\n"
+		# WARNING As above, need to ensure wanpipe is STOPPED before we attempt to stop DAHDI
+		# And yes, from testing, it really is necessary to do service dahdi restart,
+		# before we trying modprobing the modules again
+		stop_wanpipe
+		service dahdi restart
+		modprobe dahdi
+		start_wanpipe
+		printf "Previously loaded drivers: %s\n", "$curdrivers"
+		# Reverse the order of the driver modprobes
+		echo "$curdrivers" | tr ',' '\n' | tac | xargs -i sh -c 'echo Starting driver: {}; modprobe {}'
+		dahdi_cfg
+		if [ $? -ne 0 ]; then
+			dahdi_hardware
+			die "DAHDI failed to initialize... please try manually modprobe'ing the drivers."
+		fi
+	fi
+	printf "DAHDI is now running normally...\n"
+	service asterisk start
+	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+	printf "Asterisk now running on pid %s\n" "$astpid"
+}
+
+# Mainly intended to start the telephony drivers on bootup, since this doesn't always happen automatically
+start_telephony() {
+	# sed: Each one ends in - or +, need to ignore that
+	service dahdi start
+	modprobe dahdi
+	start_wanpipe
+	for driver in $( dahdi_hardware | awk '{print $2}'  | tr ',' '\n' | sed 's/.$//' ) ; do
+		printf "Starting driver: %s\n" "$driver"
+		modprobe $driver
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to start driver $driver"
+		fi
+	done
+	dahdi_cfg
+	if [ $? -ne 0 ]; then
+		lsdahdi
+		die "DAHDI initialization failed... check to ensure all your spans are online and in the expected order"
+	fi
+	# Asterisk likely starts automatically, but reload anything DAHDI related
+	service asterisk start
+	/sbin/rasterisk -x "module refresh chan_dahdi"
+	printf "Telephony initialization completed\n"
 }
 
 assert_root() {
@@ -3450,67 +3594,9 @@ elif [ "$cmd" = "forcerestart" ]; then
 		echog "Successfully started Asterisk again."
 	fi
 elif [ "$cmd" = "restart" ]; then
-	service asterisk stop # stop Asterisk
-	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | cut -d' ' -f2 )
-	if [ "$astpid" != "" ]; then
-		# if that didn't work, kill it manually
-		kill -9 $astpid
-		printf "Killed Asterisk process %s\n" "$astpid"
-	fi
-	lsmod | grep dahdi
-	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
-	printf "Current drivers: --- %s ---\n", "$curdrivers"
-	if which wanrouter > /dev/null; then
-		service wanpipe status
-		if [ $? -eq 0 ]; then
-			printf "Stopping wanpipe spans\n"
-			if ! wanrouter stop all; then # stop all T1 spans on wanpipe
-				die "Failed to stop wanpipe spans"
-			elif ! service wanrouter stop; then # stop wanpipe service
-				die "Failed to stop wanrouter"
-			elif ! modprobe -r dahdi_echocan_mg2; then # remove DAHDI echocan
-				die "Failed to remove DAHDI echocan"
-			fi
-		fi
-	else
-		printf "wanpipe is not running, skipping...\n"
-	fi
-	service dahdi status
-	if [ $? -eq 0 ]; then
-		printf "Stopping DAHDI...\n" # XXX extraneous comma in output???
-		if ! service dahdi stop; then
-			printf "Returned %d\n" $?
-			die "Failed to stop DAHDI"
-		elif ! modprobe -r dahdi; then
-			die "Failed to remove DAHDI from kernel"
-		elif ! service dahdi stop; then # do it again, just to be sure
-			die "Failed to stop DAHDI the second time"
-		fi
-		printf "DAHDI shutdown complete\n"
-	else
-		printf "DAHDI is not running, skipping...\n"
-	fi
-	sleep 1
-	printf "Starting DAHDI...\n"
-	if which wanrouter > /dev/null; then
-		printf "Starting wanpipe\n"
-		service wanrouter start
-		wanrouter status
-	fi
-	modprobe dahdi
-	# e.g. modprobe wcte13xp
-	echo "$curdrivers" | tr ',' '\n' | xargs -i sh -c 'echo Starting driver: {}; modprobe {}'
-	if ! service dahdi start; then
-		die "DAHDI failed to start"
-	fi
-	sleep 1
-	if ! dahdi_cfg; then # reload configs for all spans
-		die "DAHDI failed to start"
-	fi
-	printf "DAHDI is now running normally...\n"
-	service asterisk start
-	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | cut -d' ' -f2 )
-	printf "Asterisk now running on pid %s\n" "$astpid"
+	restart_telephony
+elif [ "$cmd" = "start" ]; then
+	start_telephony
 elif [ "$cmd" = "edit" ]; then
 	exec nano $FILE_PATH
 elif [ "$cmd" = "validate" ]; then
