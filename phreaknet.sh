@@ -1349,6 +1349,17 @@ install_dahdi() {
 		sleep 2
 	fi
 
+	# Requests to downloads.digium.com usually use IPv4, but sometimes use IPv6
+	# This is problematic on GitHub Action Runners, which have IPv6 disabled,
+	# and won't let you enable it
+	IPV6_DISABLED=0
+	if which sysctl > /dev/null; then
+		# See https://github.com/asterisk/asterisk-ci-actions/blob/main/SetupUbuntuRunner/action.yml
+		printf "IPv6 Disabled: "
+		sysctl net.ipv6.conf.all.disable_ipv6
+		IPV6_DISABLED=$( sysctl net.ipv6.conf.all.disable_ipv6 | cut -d '=' -f2 | xargs | tr -d '\n' )
+	fi
+
 	# Check that the kernel sources are really present
 	# /usr/src/linux-headers-* on Debian
 	# /usr/src/kernels on Rocky Linux
@@ -1456,6 +1467,14 @@ install_dahdi() {
 	if [ "`uname -m`" = "armv7l" ] || [ "`uname -m`" = "i386" ] || [ "`uname -m`" = "i686" ]; then
 		echoerr "Not compiling XPP driver for 32-bit"
 		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
+	fi
+
+	# If IPv6 is disabled, force wget downloads to use the IPv4 address
+	# Could also use --prefer-family, but is IPv6 is disabled, we have to use IPv4 anyways
+	if [ "$IPV6_DISABLED" = "1" ]; then
+		echoerr "IPv6 is disabled, forcing driver downloads to use only IPv4..."
+		sed -i 's/WGET_ARGS:=--continue/WGET_ARGS:=--inet4-only --continue/g' drivers/dahdi/firmware/Makefile
+		grep "WGET" drivers/dahdi/firmware/Makefile
 	fi
 
 	make -j$(nproc) $DAHDI_CFLAGS
@@ -2490,7 +2509,7 @@ if which curl > /dev/null; then # only execute if we have curl
 	# Only download the first few lines of the file, to get the latest version number, and only check every so often
 	recent=$( find /tmp/phreaknet_upstream_version.txt -mmin -720 2>/dev/null | wc -l )
 	if [ "$recent" != "1" ]; then
-		printf " *** Checking if a more recent version is available..."
+		printf " *** Checking if a higher numbered version is available..."
 		curl --silent https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh -r 0-210 > /tmp/phreaknet_upstream_version.txt
 		# Compare current version with latest upstream version
 		upstream=`grep -m1 "# v" /tmp/phreaknet_upstream_version.txt | cut -d'v' -f2`

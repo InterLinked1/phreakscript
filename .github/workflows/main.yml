@@ -26,7 +26,7 @@ jobs:
         run: |
           cd /usr/src
           sudo apt-get update -y
-          sudo apt-get install -y wget
+          sudo apt-get install -y wget procps
           sudo wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           sudo chmod +x phreaknet.sh
           sudo ./phreaknet.sh make
@@ -40,7 +40,7 @@ jobs:
         run: |
           cd /usr/src/
           apt-get update -y
-          apt-get install -y wget
+          apt-get install -y wget procps
           wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           chmod +x phreaknet.sh
           ./phreaknet.sh make
@@ -54,7 +54,7 @@ jobs:
         run: |
           cd /usr/src
           apt-get update -y
-          apt-get install -y wget
+          apt-get install -y wget procps
           wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           chmod +x phreaknet.sh
           ./phreaknet.sh make
@@ -68,7 +68,7 @@ jobs:
         run: |
           cd /usr/src
           apt-get update -y
-          apt-get install -y wget
+          apt-get install -y wget procps
           wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           chmod +x phreaknet.sh
           ./phreaknet.sh make
