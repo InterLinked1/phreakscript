@@ -6,6 +6,7 @@ PhreakScript installs:
 - Asterisk 21.2.0 (latest standard release[1] of Asterisk)
 - DAHDI Linux 3.3.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.3.0 (with optional DAHDI install flag)
+- wanpipe 7.0.38 (with optional wanpipe install flag)
 - many additional features and stability improvements
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma
    - DAHDI/wanpipe/LibPRI compilation fixes
@@ -52,6 +53,8 @@ PhreakScript installs:
       - ``WaitForSignal``
       - ``WaitForDeposit``
       - ``CoinDisposition``
+      - ``LocalCoinDisposition``
+      - ``CoinCall``
       - ``ACTS``
       - ``SendCWCID``
       - ``DAHDIMonitor``

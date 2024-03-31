@@ -126,10 +126,13 @@
 				<variable name="ACTS_RESULT">
 					<para>This is the result of the call.</para>
 					<value name="CALLER_HANGUP">
-						Caller hung up
+						Call was answered and caller hung up
+					</value>
+					<value name="CALLER_ABORT">
+						Caller hung up before call was answered
 					</value>
 					<value name="CALLEE_HANGUP">
-						Callee hung up
+						Call was answered and callee hung up
 					</value>
 					<value name="NOANSWER">
 						Callee hung up without far end supervision
@@ -156,6 +159,16 @@
 						Invalid arguments.
 					</value>
 				</variable>
+				<variable name="ACTS_FINAL_DISPOSITION">
+					<para>This indicates whether any coins in the hopper at call completition should be collected or returned.</para>
+					<para>This is intended as a convenience variable - <literal>ACTS_RESULT</literal> provides more granularity.</para>
+					<value name="COLLECT">
+						Any coins in the hopper should be collected
+					</value>
+					<value name="RETURN">
+						Any coins in the hopper should be returned
+					</value>
+				</variable>
 				<variable name="ACTS_COLLECTED">
 					<para>The total amount of money, in cents, collected into the coin vault for this call.</para>
 					<para>This variable is only set if <literal>ACTS_RESULT</literal> is not <literal>INVALID</literal>.</para>
@@ -180,6 +193,8 @@
 			</variablelist>
 		</description>
 		<see-also>
+			<ref type="application">CoinCall</ref>
+			<ref type="application">LocalCoinDisposition</ref>
 			<ref type="application">CoinDisposition</ref>
 			<ref type="application">WaitForDeposit</ref>
 			<ref type="function">COIN_DETECT</ref>
@@ -230,6 +245,7 @@ struct acts_call {
 	unsigned int postpaid:1; /* Collect overtime deposits after call */
 	unsigned int postpaidended:1; /* Postpaid session ended */
 	const char *result;
+	const char *finaldisp;
 	pthread_t opthread;
 	ast_mutex_t lock;
 	AST_RWLIST_ENTRY(acts_call) entry;
@@ -751,6 +767,7 @@ static int initial_deposit_helper(struct acts_call *acts, int required, int over
 			ast_verb(4, "Insufficient deposit, disconnecting...\n");
 			res = 1;
 			acts->result = "INSUFFICIENT_INITIAL";
+			acts->finaldisp = "RETURN";
 		}
 	}
 
@@ -888,7 +905,6 @@ static void *async_signal_announcements(void *varg)
 
 static int set_gains(struct acts_call *acts, int lopsided)
 {
-	/* XXX Should probably get/ref the channel rather than using directly */
 	ast_channel_lock(acts->ochan);
 	ast_func_write(acts->ochan, "VOLUME(RX)", lopsided ? "-3" : "0");
 	ast_channel_unlock(acts->ochan);
@@ -1079,6 +1095,7 @@ static int wait_for_answer(struct acts_call *acts)
 				DISCONNECT_FAR_END();
 				ast_verb(4, "Outgoing channel disconnected before answer\n");
 				acts->result = "NOANSWER";
+				acts->finaldisp = "RETURN";
 				return 1;
 			}
 			switch (f->frametype) {
@@ -1095,12 +1112,14 @@ static int wait_for_answer(struct acts_call *acts)
 					DISCONNECT_FAR_END();
 					res = 1;
 					acts->result = "BUSY";
+					acts->finaldisp = "RETURN";
 					break;
 				case AST_CONTROL_CONGESTION:
 					ast_verb(3, "%s is circuit-busy\n", ast_channel_name(acts->ochan));
 					DISCONNECT_FAR_END();
 					res = 1;
 					acts->result = "CONGESTION";
+					acts->finaldisp = "RETURN";
 					break;
 				case AST_CONTROL_PROGRESS:
 				case AST_CONTROL_PROCEEDING:
@@ -1158,8 +1177,9 @@ static int wait_for_answer(struct acts_call *acts)
 			struct ast_frame *f = ast_read(acts->chan);
 			if (!f || (f->frametype == AST_FRAME_CONTROL && f->subclass.integer == AST_CONTROL_HANGUP)) {
 				/* Caller cancelled call */
-				ast_verb(4, "Caller %s hung up\n", ast_channel_name(acts->chan));
-				acts->result = "CALLER_HANGUP";
+				ast_verb(4, "Caller %s hung up prior to answer\n", ast_channel_name(acts->chan));
+				acts->result = "CALLER_ABORT";
+				acts->finaldisp = "RETURN";
 				if (f) {
 					ast_frfree(f);
 				}
@@ -1803,6 +1823,7 @@ static int acts_run(struct acts_call *acts)
 				acts->callerdisconnected = 1;
 				ast_mutex_unlock(&acts->lock);
 				acts->result = "OVERTIME_EXPIRED";
+				acts->result = "RETURN"; /* Return deposit call is being cut off */
 
 				if (acts->hopper) {
 					res = coin_disposition(acts, COIN_RETURN);
@@ -1847,6 +1868,17 @@ static int acts_run(struct acts_call *acts)
 	}
 
 cleanup:
+	if (!acts->finaldisp) {
+		/* Defaults, if not overridden.
+		 * If time is up, then we already collected what we're owed,
+		 * and more time hasn't been granted yet, so return any partial deposit.
+		 * Otherwise, collect, before we release (or instruct the Class 5 office to). */
+		if (time(NULL) >= acts->expiretime) {
+			acts->finaldisp = "RETURN";
+		} else {
+			acts->finaldisp = "COLLECT";
+		}
+	}
 	ast_mutex_lock(&acts->lock);
 	if (framehook_id >= 0 && ast_framehook_detach(acts->chan, framehook_id)) {
 		ast_log(LOG_WARNING, "Failed to remove framehook from channel %s\n", ast_channel_name(acts->chan));
@@ -1906,6 +1938,7 @@ cleanup:
 			snprintf(buf, sizeof(buf), "%d", -acts->credit);
 			pbx_builtin_setvar_helper(acts->chan, "ACTS_OVERTIME_SHORTAGE_AMOUNT", buf);
 			acts->result = "OVERTIME_SHORTAGE";
+			acts->finaldisp = "COLLECT";
 			ast_verb(3, "Caller hung up without paying overtime shortage and will need to be rung back...\n");
 		}
 	}
@@ -2024,9 +2057,11 @@ static int acts_exec(struct ast_channel *chan, const char *data)
 
 	if (acts.result) {
 		pbx_builtin_setvar_helper(chan, "ACTS_RESULT", acts.result);
+		pbx_builtin_setvar_helper(chan, "ACTS_FINAL_DISPOSITION", acts.finaldisp);
 	} else {
 		ast_log(LOG_WARNING, "Missing internal result disposition... assuming failure\n");
 		pbx_builtin_setvar_helper(chan, "ACTS_RESULT", "FAILURE");
+		pbx_builtin_setvar_helper(chan, "ACTS_FINAL_DISPOSITION", "RETURN"); /* Fail safe to return, but this shouldn't happen */
 	}
 
 	if (res > 0) {

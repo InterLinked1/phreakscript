@@ -122,6 +122,7 @@
 			to signal Class 5 offices, not directly by Class 5 offices.</para></note>
 		</description>
 		<see-also>
+			<ref type="application">LocalCoinDisposition</ref>
 			<ref type="application">WaitForDeposit</ref>
 			<ref type="function">COIN_DETECT</ref>
 			<ref type="function">COIN_EIS</ref>
