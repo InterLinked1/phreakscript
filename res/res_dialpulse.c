@@ -69,6 +69,13 @@
 			</parameter>
 			<parameter name="options">
 				<optionlist>
+					<option name="d">
+						<para>Diagnostics mode. This will not wait for 10 pulses,
+						but only until pulses are no longer detected, and then
+						report the number of pulses and other statistics.</para>
+						<para>Useful if you are troubleshooting faulty dials
+						or known-good dials with faulty equipment.</para>
+					</option>
 					<option name="t">
 						<para>Automatically play the appropriate tone depending on
 						the outcome of the test. If the dial is slow, the caller
@@ -118,6 +125,10 @@
 					<para>The break percentage of a dial.</para>
 					<para>Only set if the test is performed on an FXS channel using DAHDI.</para>
 				</variable>
+				<variable name="DIALPULSECOUNT">
+					<para>The actual number of dial pulses received during the test.</para>
+					<para>Normally this will be 10, but may be fewer if running in diagnostics mode.</para>
+				</variable>
 			</variablelist>
 		</description>
 	</application>
@@ -125,20 +136,24 @@
 
 enum read_option_flags {
 	OPT_TONE = (1 << 0),
+	OPT_READJUSTMENT = (1 << 1),
+	OPT_DIAGNOSTICS = (1 << 2),
 };
 
 AST_APP_OPTIONS(dspeed_app_options, {
+	AST_APP_OPTION('d', OPT_DIAGNOSTICS),
+	AST_APP_OPTION('r', OPT_READJUSTMENT),
 	AST_APP_OPTION('t', OPT_TONE),
 });
 
 static const char *dspeed_name = "DialSpeedTest";
 
-static int dspeed_test(struct ast_channel *chan, int timeout)
+static int dspeed_test(struct ast_channel *chan, int timeout, int *restrict pulsecount, int diagnostics)
 {
 	struct ast_frame *frame = NULL;
-	struct timeval start;
+	struct timeval start, lastpulse;
 	int remaining_time = timeout;
-	int pulses_read = 0, res = 0;
+	int res = 0;
 	struct timespec begin, end;
 
 	start = ast_tvnow();
@@ -149,6 +164,13 @@ static int dspeed_test(struct ast_channel *chan, int timeout)
 			if (remaining_time <= 0) {
 				break;
 			}
+		} else if (diagnostics && *pulsecount > 1 && ast_remaining_ms(lastpulse, 800) <= 0) {
+			/* 800 milliseconds since we received the last dial pulse...
+			 * safe to say that there probably aren't more coming, stop the test.
+			 * We need at least 2 dial pulses to measure any sort of timings,
+			 * so don't stop after just 1. */
+			ast_verb(5, "Dial pulse test timed out (%d pulses received)\n", *pulsecount);
+			break;
 		}
 		if (ast_waitfor(chan, 1000) > 0) {
 			frame = ast_read(chan);
@@ -157,11 +179,15 @@ static int dspeed_test(struct ast_channel *chan, int timeout)
 				res = -1;
 				break;
 			} else if (frame->frametype == AST_FRAME_CONTROL && frame->subclass.integer == AST_CONTROL_PULSE) {
-				if (++pulses_read == 1) {
+				if (++(*pulsecount) == 1) {
+					ast_debug(3, "Starting pulse timer now\n");
 					begin = ast_tsnow(); /* start the pulse timer */
 				}
-				ast_debug(2, "Dial pulse speed test: pulse %d\n", pulses_read);
-				if (pulses_read == 10) {
+				ast_debug(2, "Dial pulse speed test: pulse %d\n", *pulsecount);
+				end = ast_tsnow();
+				lastpulse = ast_tvnow();
+				if (*pulsecount == 10) {
+					ast_frfree(frame);
 					break;
 				}
 			}
@@ -170,8 +196,7 @@ static int dspeed_test(struct ast_channel *chan, int timeout)
 			res = -1;
 		}
 	}
-	if (pulses_read) {
-		end = ast_tsnow();
+	if (*pulsecount) {
 		res = ((end.tv_sec * 1000 + end.tv_nsec / 1000000) - (begin.tv_sec * 1000 + begin.tv_nsec / 1000000));
 	}
 	return res;
@@ -182,7 +207,9 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 	double tosec;
 	struct ast_flags flags = {0};
 	char *file = NULL, *argcopy = NULL;
-	int res, to = 0, pps = 0, tone = 0;
+	int tone = 0, readjust = 0, diagnostics = 0;
+	int res, to = 0, pps = 0;
+	int pulsecount = 0;
 
 	AST_DECLARE_APP_ARGS(arglist,
 		AST_APP_ARG(file);
@@ -196,9 +223,9 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 
 	if (!ast_strlen_zero(arglist.options)) {
 		ast_app_parse_options(dspeed_app_options, &flags, NULL, arglist.options);
-		if (ast_test_flag(&flags, OPT_TONE)) {
-			tone = 1;
-		}
+		tone = ast_test_flag(&flags, OPT_TONE) ? 1 : 0;
+		readjust = ast_test_flag(&flags, OPT_READJUSTMENT) ? 1 : 0;
+		diagnostics = ast_test_flag(&flags, OPT_DIAGNOSTICS) ? 1 : 0;
 	}
 	if (!ast_strlen_zero(arglist.timeout)) {
 		tosec = atof(arglist.timeout);
@@ -238,7 +265,7 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 		ast_streamfile(chan, file, ast_channel_language(chan));
 	}
 
-	res = dspeed_test(chan, to);
+	res = dspeed_test(chan, to, &pulsecount, diagnostics);
 	if (ast_strlen_zero(file)) {
 		ast_playtones_stop(chan);
 	} else {
@@ -250,14 +277,14 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 	} else if (!res) {
 		pbx_builtin_setvar_helper(chan, "DIALPULSERESULT", "TIMEOUT");
 	} else if (res > 0) {
-#define BUFFER_LEN 8
+#define BUFFER_LEN 11
 		const char *result;
 		char buf[BUFFER_LEN];
 		double dialpps;
 		struct ast_tone_zone_sound *ts = NULL;
 
 		if (!pps) { /* try to determine whether this is a 10 pps or 20 pps dial */
-			pps = res < 650 ? 20 : 10; /* if it took less than 650 ms for 10 pulses, assume it's a 20 pps dial */
+			pps = res < 650 && pulsecount == 10 ? 20 : 10; /* if it took less than 650 ms for 10 pulses, assume it's a 20 pps dial */
 		}
 
 		/*
@@ -276,17 +303,21 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 		 *
 		 * So, whether it's 10 or 20 pps, x = 9000.
 		 */
-		dialpps = 9000.0 / res; /* 10 pps = (10000 - 1000) / elapsed time */
-		snprintf(buf, BUFFER_LEN, "%.3f", dialpps);
+		dialpps = (1000.0 * (pulsecount - 1)) / res; /* 10 pps = (10000 - 1000) / elapsed time */
+		ast_debug(3, "pulsecount: %d, dialpps = %f/%d\n", pulsecount, (1000.0 * (pulsecount - 1)), res);
+		snprintf(buf, sizeof(buf), "%.3f", dialpps);
 		pbx_builtin_setvar_helper(chan, "DIALPULSESPEED", buf);
 
+		snprintf(buf, sizeof(buf), "%d", pulsecount);
+		pbx_builtin_setvar_helper(chan, "DIALPULSECOUNT", buf);
+
 		/* These timings (8-11 and 9.5-10.5, for 10pps dials) are found in a number of telephone documents. */
-		if (dialpps < pps - 2) {
+		if (dialpps < pps - (readjust ? 0.5 : 2)) {
 			result = "SLOW";
 			if (tone) {
 				ts = ast_get_indication_tone(ast_channel_zone(chan), "busy");
 			}
-		} else if (dialpps > pps + 1) {
+		} else if (dialpps > (pps + (readjust ? 0.5 : 1))) {
 			result = "FAST";
 			if (tone) {
 				ts = ast_get_indication_tone(ast_channel_zone(chan), "congestion");
@@ -301,7 +332,7 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 			}
 		}
 
-		ast_verb(3, "Dial speed was %.3f pps (%s) (took %d ms for %d pps test)", dialpps, result, res, pps);
+		ast_verb(3, "Dial speed was %.3f pps (%s) (took %d ms for %d pps test, %d pulses)", dialpps, result, res, pps, pulsecount);
 		pbx_builtin_setvar_helper(chan, "DIALPULSERESULT", result);
 
 #ifdef HAVE_DAHDI
@@ -341,9 +372,9 @@ static int dspeed_exec(struct ast_channel *chan, const char *data)
 
 					ast_verb(3, "Dial make/break ratio is %.3f%% make, %.3f%% break\n", makeratio, breakratio);
 
-					snprintf(pct, 4, "%d", (int) round(makeratio));
+					snprintf(pct, sizeof(pct), "%d", (int) round(makeratio));
 					pbx_builtin_setvar_helper(chan, "DIALPULSEPERCENTMAKE", pct);
-					snprintf(pct, 4, "%d", (int) round(breakratio));
+					snprintf(pct, sizeof(pct), "%d", (int) round(breakratio));
 					pbx_builtin_setvar_helper(chan, "DIALPULSEPERCENTBREAK", pct);
 				} else {
 					ast_log(LOG_WARNING, "No make/break ratio information available\n");
