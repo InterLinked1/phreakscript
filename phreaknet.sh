@@ -554,15 +554,23 @@ stop_wanpipe() {
 
 # Completely restart wanpipe, DAHDI (and any DAHDI drivers), and Asterisk
 # This is surprisingly complicated, and can be dangerous if done incorrectly
+# $1 to restart without completely restarting Asterisk
 restart_telephony() {
-	service asterisk stop # stop Asterisk
-	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
-	if [ "$astpid" != "" ]; then
-		# if that didn't work, kill it manually
-		kill -9 $astpid
-		printf "Killed Asterisk process %s\n" "$astpid"
+	if [ "$1" = "1" ]; then
+		rasterisk -x "module unload chan_dahdi" | grep "Unloaded chan_dahdi"
+		if [ $? -ne 0 ]; then
+			die "chan_dahdi could not be unloaded"
+		fi
 	else
-		printf "Asterisk not currently running...\n"
+		service asterisk stop # stop Asterisk
+		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+		if [ "$astpid" != "" ]; then
+			# if that didn't work, kill it manually
+			kill -9 $astpid
+			printf "Killed Asterisk process %s\n" "$astpid"
+		else
+			printf "Asterisk not currently running...\n"
+		fi
 	fi
 	lsmod | grep dahdi
 	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
@@ -624,9 +632,13 @@ restart_telephony() {
 		fi
 	fi
 	printf "DAHDI is now running normally...\n"
-	service asterisk start
-	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
-	printf "Asterisk now running on pid %s\n" "$astpid"
+	if [ "$1" = "1" ]; then
+		rasterisk -x "module load chan_dahdi"
+	else
+		service asterisk start
+		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+		printf "Asterisk now running on pid %s\n" "$astpid"
+	fi
 }
 
 # Mainly intended to start the telephony drivers on bootup, since this doesn't always happen automatically
@@ -3624,7 +3636,12 @@ elif [ "$cmd" = "forcerestart" ]; then
 		echog "Successfully started Asterisk again."
 	fi
 elif [ "$cmd" = "restart" ]; then
-	restart_telephony
+	# not really forcing install of anything, but to use the --force flag
+	if [ "$FORCE_INSTALL" = "1" ]; then
+		restart_telephony 0
+	else
+		restart_telephony 1
+	fi
 elif [ "$cmd" = "start" ]; then
 	start_telephony
 elif [ "$cmd" = "edit" ]; then
