@@ -475,6 +475,7 @@ Options:
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
+       --generic      install: Use generic kernel headers that do not match the installed kernel version
        --extcodecs    install: Specify this if any external codecs are being or will be installed
        --freepbx      install: Install FreePBX GUI (not recommended)
        --manselect    install: Manually run menuselect yourself
@@ -784,6 +785,13 @@ install_prereq() {
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "yum" ]; then
 		yum install -y git patch
+		# Stop on RHEL systems without an active subscription
+		if ! which git > /dev/null; then
+			if [ -f /etc/redhat-release ]; then
+				echoerr "Subscription required to use RHEL package manager"
+			fi
+			die "Git does not appear to be installed"
+		fi
 		# Rocky Linux seems to be missing libedit-devel, and this package is "missing"
 		if [ "$OS_DIST_INFO" = "Rocky Linux release 8.9 (Green Obsidian)" ]; then
 			dnf --enablerepo=devel install -y libedit-devel
@@ -1354,8 +1362,10 @@ install_dahdi() {
 		apt-get install -y pkg-config m4 libtool automake autoconf git
 		linux_headers_install_apt
 	elif [ "$PAC_MAN" = "yum" ]; then
-		dnf install -y m4 libtool automake autoconf kernel-devel kernel-headers-$(uname -r)
+		dnf install -y m4 libtool automake autoconf kernel-devel kernel-headers
+		#dnf install -y kernel-headers-$(uname -r)
 		dnf list installed | grep kernel-headers
+		rpm -qa | grep kernel
 	else
 		echoerr "Unable to install potential DAHDI prerequisites"
 		sleep 2
@@ -1413,13 +1423,18 @@ install_dahdi() {
 		exit 2
 	fi
 
-	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as oppose to bundled)
+	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as opposed to bundled)
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
 
 	DAHDI_CFLAGS=""
 	if [ "$GENERIC_HEADERS" = "1" ]; then
-		ls -la /lib/modules/
-		hdrver=`ls /lib/modules`
+		if [ -f /etc/redhat-release ]; then
+			ls /usr/src/kernels
+			hdrver=`ls /usr/src/kernels`
+		else
+			ls -la /lib/modules/
+			hdrver=`ls /lib/modules`
+		fi
 		DAHDI_CFLAGS="KVERS=$hdrver" # overwrite from exact match with uname -r to whatever we happen to have
 		printf "We do NOT have an exact kernel match: %s\n" "$hdrver"
 	else
@@ -2411,6 +2426,9 @@ get_source() {
 		ENHANCED_CHAN_SIP=1 # chan_sip isn't present anymore, we need to readd it ourselves (if we're going to build chan_sip at all)
 	fi
 	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
+		if [ ! -f channels/chan_sip.c ]; then
+			die "chan_sip is not present in this source, please add the --sip option"
+		fi
 		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
 		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/$CISCO_CM_SIP.patch" -O /tmp/$CISCO_CM_SIP.patch
 		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
@@ -2446,7 +2464,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -2490,6 +2508,7 @@ while true; do
 		--extcodecs ) EXTERNAL_CODECS=1; shift ;;
 		--fast ) FAST_COMPILE=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
+		--generic ) GENERIC_HEADERS=1; shift ;;
 		--lightweight ) LIGHTWEIGHT=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
@@ -3045,6 +3064,11 @@ elif [ "$cmd" = "install" ]; then
 		if [ $? -eq 0 ]; then
 			git fetch
 			git pull
+			if [ $AST_MAJOR_VER -ge 21 ]; then
+				# Remove macros, or it won't even compile
+				$WGET "https://github.com/chan-sccp/chan-sccp/commit/3c90b6447b17639c52b47ed61cfb154b15ee84ec.patch"
+				git apply "3c90b6447b17639c52b47ed61cfb154b15ee84ec.patch"
+			fi
 			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
 			make -j$(nproc) && make install && make reload
 			if [ $? -ne 0 ]; then

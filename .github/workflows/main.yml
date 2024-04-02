@@ -30,8 +30,8 @@ jobs:
           sudo wget https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh
           sudo chmod +x phreaknet.sh
           sudo ./phreaknet.sh make
-          sudo phreaknet install -d -s -t
-          sudo phreaknet runtests
+          sudo phreaknet install -d -s --devmode
+          # Skip tests on Ubuntu, since it takes the longest, and runtime doesn't vary by platform
   debian-stable-asterisk-lts:
     runs-on: ubuntu-latest
     container: debian:12
