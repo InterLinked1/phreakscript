@@ -52,6 +52,7 @@
 #include "asterisk/strings.h"
 #include "asterisk/musiconhold.h"
 #include "asterisk/format_cache.h"
+#include "asterisk/devicestate.h"
 
 /*** DOCUMENTATION
 	<application name="CCSA" language="en_US">
@@ -134,6 +135,9 @@
 					</value>
 					<value name="NO_ROUTES">
 						No routes available for CCSA destination
+					</value>
+					<value name="UNROUTABLE">
+						Destination cannot be reached using any routes
 					</value>
 					<value name="UNAUTHORIZED">
 						Not authorized for the available CCSA routes
@@ -276,6 +280,7 @@
 					<synopsis>Threshold of queued priority 3 calls at which it is unlikely an additional call would be able to queue successfully at priority 3 without timing out.</synopsis>
 					<description>
 						<para>If this threshold of queued priority 3 calls is exceeded, additional calls will not be allowed to Off Hook Queue until queued priority 3 calls drop below this threshold again.</para>
+						<para>To completely disable queuing against this route, specify a negative value (e.g. <literal>-1</literal>). This is useful when dealing with virtual routes against which queuing does not make sense, such as IP-based (e.g. SIP) trunks.</para>
 					</description>
 				</configOption>
 				<configOption name="limit" default="0">
@@ -310,6 +315,12 @@
 						<para>When using individual analog lines or trunks, Asterisk may see them as "BUSY" if the facility itself is already in use, and any actual called number busy status is conveyed purely in-band. In contrast, this is not the case with most kinds of IP trunks, such as IAX2 or SIP.</para>
 						<para>In order to properly determine if a call succeeded over the facility and was actually busy, or if the call could not be completed using the facility at all, this option is required to indicate how BUSY should be treated.</para>
 						<para>By default, when set to no, BUSY is treated as a successful call outcome, and alternate routing will stop at this point (appropriate for IP trunking). For analog trunking, you will probably want to set this to yes, so that if BUSY is received, alternate routing will continue using other routes.</para>
+					</description>
+				</configOption>
+				<configOption name="devstate">
+					<synopsis>Aggregate device state for trunk group</synopsis>
+					<description>
+						<para>If specified, a list of devices whose aggregate device state will be used to determine the current status of the trunk group (whether idle or in use).</para>
 					</description>
 				</configOption>
 				<configOption name="time">
@@ -468,6 +479,7 @@ struct route {
 	char facility[AST_MAX_CONTEXT];		/*!< Facility Name */
 	enum facility_type factype;			/*!< Facility Type */
 	char dialstr[PATH_MAX];				/*!< Dial string */
+	char *devstate;						/*!< Device state */
 	unsigned int threshold;				/*!< Threshold at which facility is "saturated" */
 	unsigned int limit;					/*!< Concurrent call limit */
 	unsigned int frl:3;					/*!< Minimum Facility Restriction Level required */
@@ -956,6 +968,22 @@ static int route_num_priority3_calls(const char *route)
 	return pri3calls;
 }
 
+static int route_has_any_calls(const char *route)
+{
+	struct ccsa_call *call;
+
+	AST_RWLIST_RDLOCK(&calls);
+	AST_LIST_TRAVERSE(&calls, call, entry) {
+		if (!strcmp(route, call->route)) {
+			AST_RWLIST_UNLOCK(&calls);
+			return 1;
+		}
+	}
+	AST_RWLIST_UNLOCK(&calls);
+
+	return 0;
+}
+
 static int cbq_calls_pending(const char *caller)
 {
 	struct ccsa_call *call;
@@ -1079,10 +1107,8 @@ static int store_dtmf(struct ast_channel *chan)
 	return 0;
 }
 
-static int route_permits_ohq(const char *route)
+static int route_permits_ohq_locked(struct route *f, time_t elapsed, int is_simulation)
 {
-	int threshold = 0;
-	struct route *f;
 	/* Nortel 553-2751-101 4.00, Off-Hook Queuing availability:
 	 * Each trunk route has a threshold value that indicates the maximum number of priority 3 calls
 	 * that can be queued against it before OHQ timeout becomes a high probability.
@@ -1090,22 +1116,127 @@ static int route_permits_ohq(const char *route)
 	 * threshold value for each eligible trunk route in the initial set of routes.
 	 * If at least one of the trunk routes has a count less than or equal to the threshold value,
 	 * the call is allowed to perform OHQ against all OHQ eligible routes. */
-	int pri3calls = route_num_priority3_calls(route);
-	AST_RWLIST_RDLOCK(&routes);
-	f = find_route(route, 0);
-	threshold = f ? f->threshold : 0;
-	if (!ast_strlen_zero(f->time) && time_matches(f->time)) {
-		f = NULL; /* Route time restrictions not satisfied, so OHQ not permitted either */
-	}
-	AST_RWLIST_UNLOCK(&routes);
-	/* Would've already thrown a warning about this route not existing if it didn't, so don't do it again. */
-	if (!f) {
+	int pri3calls;
+
+	/* XXX If the route currently has no calls, it may not make sense to queue.
+	 * For example, if we tried route 0 and the call failed, but route 0 was
+	 * using a trunk group with 0 calls, then there is no point in off-hook
+	 * queuing on route 0, since it wasn't in use in the first place,
+	 * so off-hooking queuing on it won't accomplish anything.
+	 *
+	 * Note that routes do not correspond 1:1 to trunk groups,
+	 * so to determine if the underlying trunk group is currently saturated or not,
+	 * we need to be able to determine the "device state" of the trunk group. */
+	if (!f->limit) {
+		/* If there is no limit, then this is a "virtual" trunk group, essentially,
+		 * i.e. there is no hard cap on allowed calls. Common for enterprise SIP trunking. */
+		ast_debug(6, "Facility %s does not have a defined capacity, won't queue against it\n", f->name);
 		return 0;
 	}
-	if (pri3calls > threshold) {
+
+	if (f->threshold < 0) {
+		/* Queuing explicitly disabled */
+		ast_debug(6, "Facility %s queuing disabled\n", f->name);
+		return 0;
+	}
+
+	if (!ast_strlen_zero(f->time) && time_matches(f->time)) {
+		ast_debug(6, "Facility %s skipped due to time restrictions\n", f->name);
+		return 0; /* Route time restrictions not satisfied, so OHQ not permitted either */
+	}
+
+	pri3calls = route_num_priority3_calls(f->name);
+	if (pri3calls > f->threshold) {
+		ast_debug(6, "Facility %s skipped (too many priority 3 calls queued: %d)\n", f->name, pri3calls);
 		return 0; /* So many queued calls already that it's unlikely OHQ call will succeed in queue before timing out */
 	}
+
+	/* Only check current call status if not in simulation */
+	if (!is_simulation) {
+		if (f->devstate) {
+			/* Even if there is a call limit, like for analog trunk groups with a fixed number of circuits,
+			 * if the entire trunk group is idle, it is still inappropriate to queue against it,
+			 * since the trunk group isn't currently saturated.
+			 *
+			 * However, there is no way to automatically determine ourselves if the trunk group is completely
+			 * saturated in this case. Multiple routes could use certain circuits, and those circuits could
+			 * also be used outside of this module, so we can't just calculate the device state.
+			 * In this case, it would make sense to lookup an "aggregate device state" for the entire trunk group,
+			 * and only if that comes back as "all trunks in the trunk group are busy" would queuing make sense.
+			 * Conversely, if no trunks are busy, then queuing also doesn't make sense. */
+			enum ast_device_state devstate = ast_device_state(f->devstate);
+			switch (devstate) {
+			case AST_DEVICE_NOT_INUSE:
+				/* The entire trunk group is currently "idle",
+				 * so if a previous attempt to use this route just now failed,
+				 * why try it again?
+				 * It's important that we bound this based on the time to do the
+				 * first pass of all the routes. Otherwise, a facility might have
+				 * been busy on the first attempt but might be free now.
+				 *
+				 * XXX A more reliable way to do this would be keep track
+				 * of the device state associated with each route as we attempt using
+				 * it the first time. If it was NOTINUSE, then that means we should
+				 * NOT try it the second pass, no matter what.
+				 * The logic here just assumes if not very much time has elapsed since
+				 * the first pass, the state now will be whatever it was a moment ago,
+				 * but technically it's the older state that we want here.
+				 * Because some calls could technically still clear in the same second,
+				 * there is a slight chance some calls could've queued that will now be excluded.
+				 * Beyond 1 second, the chance of a race condition is too great to do this.*/
+				if (elapsed < 1) {
+					ast_debug(6, "Facility %s skipped (trunk group isn't in use now and probably wasn't on last attempt)\n", f->name);
+					return 0;
+				}
+				/* Fall through */
+			default:
+				/* Okay to queue against, or at least, these don't preclude queuing */
+				break;
+			}
+		}
+
+		if (!route_has_any_calls(f->name)) {
+			/* The only way that off-hook queuing will end successfully is if there is a call currently
+			 * in the queue that ends, which will write to the alertpipe and wake up a call
+			 * to go ahead and try again.
+			 * If there aren't any calls, even if the trunk group has capacity, there isn't anything
+			 * to wake us up, so it won't work anyways, so don't queue for no reason.
+			 *
+			 * XXX In the future, the option could be added to "poll" the device state periodically to retry
+			 * the call attempt, which would better handle facilities used outside of this application. */
+			ast_debug(6, "Facility %s skipped (doesn't have any calls currently, so nothing to wait for)\n", f->name);
+			return 0;
+		}
+	}
+
 	return 1;
+}
+
+static int route_permits_ohq(const char *route, time_t elapsed, int is_simulation)
+{
+	struct route *f;
+	int can_queue;
+
+	AST_RWLIST_RDLOCK(&routes);
+	f = find_route(route, 0);
+	if (!f) {
+		/* Would've already thrown a warning about this route not existing if it didn't, so don't do it again. */
+		can_queue = 0;
+	} else {
+		can_queue = route_permits_ohq_locked(f, elapsed, is_simulation);
+	}
+	AST_RWLIST_UNLOCK(&routes);
+
+	return can_queue;
+}
+
+static int route_permits_cbq(const char *route)
+{
+	int permitted;
+	AST_RWLIST_RDLOCK(&routes);
+	permitted = route_has_any_calls(route);
+	AST_RWLIST_UNLOCK(&routes);
+	return permitted;
 }
 
 static int off_hook_queue(struct ast_channel *chan, struct ccsa_call *call, int ohq)
@@ -1313,13 +1444,9 @@ static void *call_back_queue(void *data)
 					int advanced = 0;
 
 					newroute = ast_strdup(call->nextroute);
-					if (!newroute) {
-						ast_log(LOG_WARNING, "strdup failed\n");
-					} else {
+					if (newroute) {
 						newfacility = ast_strdup(next_facility);
-						if (!newfacility) {
-							ast_log(LOG_WARNING, "strdup failed\n");
-						} else {
+						if (newfacility) {
 							AST_RWLIST_WRLOCK(&calls);
 							/* Make sure we're still in the list, too. */
 							AST_LIST_TRAVERSE(&calls, ecall, entry) {
@@ -1740,6 +1867,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 	char *auth_sub_context = NULL;
 	char *callback_caller_context = NULL, *callback_dest_context = NULL;
 	unsigned int queue_promo_timer, route_advance_timer;
+	time_t start;
 
 	AST_RWLIST_RDLOCK(&ccsas);
 	c = find_ccsa(ccsa, 0);
@@ -1831,6 +1959,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 
 	ast_assert(chan || fd >= 0);
 	ccsa_log(chan, fd, "Beginning CCSA call\n");
+	start = time(NULL);
 
 	routes = ast_strdupa(faclist);
 	while ((route = strsep(&routes, "|"))) {
@@ -1890,7 +2019,6 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 		ast_log(LOG_WARNING, "Invalid MLPP preemption capability: %c\n", isprint(preempt) ? preempt : '?');
 	} else {
 		/* Now, try preempting an existing call before we queue. */
-
 		try_preempt = preempt;
 		ccsa_log(chan, fd, "Trying to preempt calls < '%c'\n", preempt);
 		routes = ast_strdupa(faclist);
@@ -1948,6 +2076,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 
 	if (ohq) { /* Off Hook Queue takes precedence over Call Back Queue, if permitted: anyone can OHQ, unlike CBQ */
 		int eligible = 0;
+		time_t elapsed;
 		/* Start off by trying to off hook queue on non-MER routes */
 		/* To be eligible for OHQ, at least 1 trunk route must have a call count <= threshold,
 		 * then all routes are eligible for OHQ. */
@@ -1956,8 +2085,9 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 		have_mer = 0;
 
 		routes = ast_strdupa(faclist);
+		elapsed = time(NULL) - start;
 		while ((route = strsep(&routes, "|"))) {
-			if (route_permits_ohq(route)) {
+			if (route_permits_ohq(route, elapsed, fd != -1)) {
 				eligible = 1;
 				break; /* No need to check any more */
 			}
@@ -2100,6 +2230,21 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 		 * Nortel Meridian has people just overloads *66 for this.
 		 * Our motto is "the BSPs are always right" :)
 		 */
+
+		if (fd == -1) {
+			/* If not simulation, ensure we can actually CBQ */
+			routes = ast_strdupa(faclist);
+			while ((route = strsep(&routes, "|"))) {
+				if (route_permits_cbq(route)) {
+					break; /* No need to check any more */
+				}
+			}
+			if (!route) {
+				ast_debug(3, "Call ineligible for Call Back Queue\n");
+				ccsa_set_result_val(chan, "UNROUTABLE");
+				return 0;
+			}
+		}
 
 		if (!chan) {
 			ccsa_log(chan, fd, "Call Back Queue treatment\n");
@@ -2888,6 +3033,8 @@ static int ccsa_reload(int reload)
 					f->threshold = atoi(var->value);
 				} else if (!strcasecmp(var->name, "limit") && !ast_strlen_zero(var->value)) {
 					f->limit = atoi(var->value);
+				} else if (!strcasecmp(var->name, "devstate")) {
+					f->devstate = ast_strdup(var->value);
 				} else {
 					ast_log(LOG_WARNING, "Unknown keyword in profile '%s': %s at line %d of %s\n", var->name, var->name, var->lineno, CONFIG_FILE);
 				}
@@ -3003,6 +3150,9 @@ static int unload_module(void)
 
 	AST_RWLIST_WRLOCK(&routes);
 	while ((f = AST_RWLIST_REMOVE_HEAD(&routes, entry))) {
+		if (f->devstate) {
+			ast_free(f->devstate);
+		}
 		ast_free(f);
 	}
 	AST_RWLIST_UNLOCK(&routes);
