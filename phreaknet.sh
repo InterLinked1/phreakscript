@@ -1106,7 +1106,16 @@ install_testsuite_itself() {
 	fi
 	cd testsuite
 
+	# Apply patch if needed to fix SIPP compilation and python3 detection
+	grep "3.5.2" contrib/scripts/install_prereq
+	$WGET https://patch-diff.githubusercontent.com/raw/asterisk/testsuite/pull/48.patch
+	git apply 48.patch
+
 	./contrib/scripts/install_prereq install
+	if [ $? -ne 0 ]; then
+		die "Failed to install test suite"
+	fi
+
 	# In theory, the below is not necessary:
 	pip3 install pyyaml
 	pip3 install twisted
@@ -1148,6 +1157,7 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 		return 1
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	# Ensure we're compiled with dev mode, or recompile in dev mode if needed
 	configure_devmode
 	make
 	make install
@@ -2343,7 +2353,7 @@ get_source() {
 			git reset --hard origin/master
 			cd ..
 		else
-			git clone "https://github.com/asterisk/asterisk"
+			git clone --depth=1 "https://github.com/asterisk/asterisk"
 			mv asterisk asterisk-git
 		fi
 		if [ $? -ne 0 ]; then
@@ -2367,7 +2377,7 @@ get_source() {
 		exit 1
 	fi
 	if [ "$CHAN_SCCP" = "1" ]; then
-		git clone https://github.com/chan-sccp/chan-sccp.git chan-sccp
+		git clone --depth=1 https://github.com/chan-sccp/chan-sccp.git chan-sccp
 	fi
 
 	if [ "$AST_ALT_VER" = "git" ]; then
