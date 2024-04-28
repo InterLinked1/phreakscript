@@ -62,6 +62,7 @@
 		<syntax>
 			<parameter name="exten" required="true">
 				<para>Destination to be called over CCSA (typically a 7 digit on-net or 11-digit off-net number).</para>
+				<para>This will be made available as the variable <literal>CCSA_EXTEN</literal>, which can be used in configuration.</para>
 			</parameter>
 			<parameter name="ccsa" required="true">
 				<para>CCSA profile to use for call.</para>
@@ -89,6 +90,17 @@
 						<para>The caller will not be allowed to use routes with a minimum FRL exceeding this FRL, unless an
 						authorization code is provided that has an FRL of at least the FRL required by the facility.</para>
 					</option>
+					<option name="i">
+						<para>Force outgoing Caller ID to this value.</para>
+						<para>This can be used to set the Caller ID on any outgoing attempts to a specific value.
+						To always set the Caller ID to a specific value for a given route, the 'f' Dial option should
+						instead be included in the <literal>dialstr</literal>configuration option.</para>
+						<para>This option is mainly useful when the outgoing Caller ID for certain calls will sometimes,
+						but not always, be forced to a particular value, avoiding the need to define two routes,
+						one with the f option and one without.</para>
+						<para>This option is incompatible with including a URL in the <literal>dialstr</literal> option,
+						since this will simply append the f option to the dial string for each route.</para>
+					</option>
 					<option name="m">
 						<para>Music on hold class for use with Off Hook Queuing.</para>
 					</option>
@@ -107,6 +119,12 @@
 						<para>MLPP preemption/priority capabilities for the call (e.g. those used in AUTOVON).</para>
 						<para>Should be A (Flash Override), B (Flash), C (Immediate), or D (Priority), if specified.</para>
 						<para>Default is no MLPP priority (Routine).</para>
+					</option>
+					<option name="u">
+						<para>Disable FRL upgrades for this call. Normally, FRL may be upgraded if <literal>frl_allow_upgrade</literal>
+						is set to yes. However, on certain calls, particularly for users without authorization codes,
+						it may be pointless to allow for an FRL upgrade mid-call, in which case this can be disabled, and all routes
+						with an FRL exceeding the callers will be silently skipped.</para>
 					</option>
 				</optionlist>
 			</parameter>
@@ -173,6 +191,15 @@
 					<para>Hence, if TCM is required on an outgoing call, the dial string for a route should contain
 					the TCM as the last routing digit as appropriate.</para>
 				</variable>
+				<variable name="CCSA_EXTEN">
+					<para>The provided extension argument will be used to set this variable, which can then be used
+					in configuration for the <literal>dialstr</literal> setting. Don't provide this as the extension
+					argument itself!</para>
+				</variable>
+				<variable name="CCSA_CHANNEL">
+					<para>Will be set to the current channel name, with inheritance, so that spawned channels can refer to it,
+					if needed, for setting CDR variables.</para>
+				</variable>
 			</variablelist>
 		</description>
 	</application>
@@ -197,6 +224,16 @@
 					<synopsis>CDR field in which to store the effective (upgraded) FRL</synopsis>
 					<description>
 						<para>If provided, this (custom) CDR field will be filled with the effective (upgraded) FRL used for a call.</para>
+					</description>
+				</configOption>
+				<configOption name="cdrvar_aiod">
+					<synopsis>CDR field in which to store the Automatic Identified Outward Dialing number, if overridden</synopsis>
+					<description>
+						<para>If provided, this (custom) CDR field will be filled with the AIOD of a call, if overridden.
+						This includes if the <literal>aiod</literal> option is set for a route or if the <literal>i</literal>
+						option is used at runtime.</para>
+						<para>This option is incompatible with including a URL in the <literal>dialstr</literal> option,
+						since this will simply append the f option to the dial string for each route.</para>
 					</description>
 				</configOption>
 				<configOption name="cdrvar_mlpp">
@@ -274,6 +311,20 @@
 						<para>This should include any extension modification necessary, such as appending and truncating
 						digits, outpulsing (MF, SF, DTMF, etc.), modifying the outgoing Caller ID to a suitable Caller ID
 						for the facility, etc. The CCSA module does not inherently do any of this for you.</para>
+					</description>
+				</configOption>
+				<configOption name="aiod">
+					<synopsis>Override the Automatic Identified Outward Dialing</synopsis>
+					<description>
+						<para>Set the outgoing Caller ID on all calls using this route to this value, by default.
+						This is useful if all calls using a particular facility are expected to have a certain number,
+						as opposed to inheriting the caller's number, or for routes where the outgoing number
+						cannot be set dynamically, such as a POTS line. In that case, you can set this to whatever
+						the outgoing number will be, so that your CDRs can reflect that in the appropriate field.</para>
+						<para>This functionality can also be accomplished by including the <literal>f</literal> dial option
+						in the <literal>dialstr</literal> setting.
+						However, this option will also set the <literal>cdrvar_aiod</literal> CDR variable to this value.</para>
+						<para>This option can be overridden at runtime using the <literal>i</literal> option to <literal>CCSA</literal>.</para>
 					</description>
 				</configOption>
 				<configOption name="threshold" default="0">
@@ -367,6 +418,8 @@
 					<synopsis>FRL Upgrades Allowed</synopsis>
 					<description>
 						<para>Whether callers can upgrade the FRL (Facility Restriction Level) for a call using an authorization code.</para>
+						<para>The <literal>dialrecall</literal> indications frequencies are used by default for this prompt.
+						This can be overridden, if desired, by defining the <literal>authcodeprompt</literal> indication in <literal>indications.conf</literal>.</para>
 					</description>
 				</configOption>
 				<configOption name="auth_code_remote_allowed" default="no">
@@ -451,6 +504,7 @@ enum facility_type {
 static char cdrvar_frl[AST_MAX_CONTEXT];
 static char cdrvar_frl_req[AST_MAX_CONTEXT];
 static char cdrvar_frl_eff[AST_MAX_CONTEXT];
+static char cdrvar_aiod[AST_MAX_CONTEXT];
 static char cdrvar_mlpp[AST_MAX_CONTEXT];
 static char cdrvar_authcode[AST_MAX_CONTEXT];
 static char cdrvar_facility[AST_MAX_CONTEXT];
@@ -465,6 +519,7 @@ static void reset_cdr_var_names(void)
 	CHRARRAY_ZERO(cdrvar_frl);
 	CHRARRAY_ZERO(cdrvar_frl_req);
 	CHRARRAY_ZERO(cdrvar_frl_eff);
+	CHRARRAY_ZERO(cdrvar_aiod);
 	CHRARRAY_ZERO(cdrvar_mlpp);
 	CHRARRAY_ZERO(cdrvar_authcode);
 	CHRARRAY_ZERO(cdrvar_facility);
@@ -479,6 +534,7 @@ struct route {
 	char facility[AST_MAX_CONTEXT];		/*!< Facility Name */
 	enum facility_type factype;			/*!< Facility Type */
 	char dialstr[PATH_MAX];				/*!< Dial string */
+	char aiod[AST_MAX_CONTEXT];			/*!< AIOD override */
 	char *devstate;						/*!< Device state */
 	unsigned int threshold;				/*!< Threshold at which facility is "saturated" */
 	unsigned int limit;					/*!< Concurrent call limit */
@@ -1518,7 +1574,7 @@ static int get_auth_code(struct ast_channel *chan, char *buf, size_t len)
 	 * This "PIN prompt tone" is 800/300/800 on/off/on of appx. 345+440 Hz (according to Audacity spectrum plot)
 	 * However, the striking closeness to dial tone (350+440), plus the documentation of RDT,
 	 * makes me suspect maybe it was 350+440 for 800/300/800, as opposed to 345+440 (recording could've had distortion).
-	 * In fact, I'm quite positive it is 350+444.
+	 * In fact, I'm quite positive it is 350+440.
 	 */
 	ts = ast_get_indication_tone(ast_channel_zone(chan), "authcodeprompt"); /* Doesn't exist by default. */
 	if (!ts) {
@@ -1644,13 +1700,26 @@ static int set_tcm(struct ast_channel *chan, int frl)
 
 #define ccsa_set_result_val(chan, disp) if (chan) pbx_builtin_setvar_helper(chan, "CCSA_RESULT", disp)
 
-static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *have_mer, char try_preempt, const char *exten, const char *route, int *callerfrl, int *frl_upgraded, int mer_tone, int frl_allow_upgrade, int auth_code_remote_allowed, int remote, const char *auth_sub_context)
+static int comma_count(const char *s)
+{
+	int c = 0;
+	while (*s) {
+		if (*s == ',') {
+			c++;
+		}
+		s++;
+	}
+	return c;
+}
+
+static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *have_mer, char try_preempt, const char *exten, const char *route, int *callerfrl, int *frl_upgraded, int mer_tone, int frl_allow_upgrade, int auth_code_remote_allowed, int remote, const char *auth_sub_context, const char *outgoing_clid)
 {
 	int res;
 	struct route *f;
-	char dialstr[PATH_MAX];
+	char dialstr[PATH_MAX + 84]; /* Minimum needed to avoid snprintf truncation warnings */
 	char time[PATH_MAX];
 	char facility[AST_MAX_CONTEXT];
+	const char *aiod;
 	int frl, mer, busyiscongestion, limit;
 
 	dialstr[0] = time[0] = '\0';
@@ -1666,14 +1735,24 @@ static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *
 	mer = f->mer;
 	busyiscongestion = f->busyiscongestion;
 	limit = f->limit;
-	ast_copy_string(dialstr, f->dialstr, sizeof(dialstr));
+
 	ast_copy_string(time, f->time, sizeof(time));
 	ast_copy_string(facility, f->facility, sizeof(facility));
 	AST_RWLIST_UNLOCK(&routes);
 
-	if (ast_strlen_zero(dialstr)) {
+	if (ast_strlen_zero(f->dialstr)) {
 		ast_log(LOG_WARNING, "Route %s has no dial string?\n", route);
 		return FACILITY_DISP_FAILURE;
+	}
+	aiod = S_OR(outgoing_clid, f->aiod);
+	if (!ast_strlen_zero(aiod)) {
+		int commas = comma_count(f->dialstr);
+		/* This is concatenated to the dial string, so it is assumed a URL is not present in the dialstr */
+		cdr_set_var(chan, cdrvar_aiod, aiod);
+		snprintf(dialstr, sizeof(dialstr), "%s%s%sf(%s)", f->dialstr, commas <= 0 ? "," : "", commas <= 1 ? "," : "", aiod);
+	} else {
+		cdr_set_var(chan, cdrvar_aiod, ""); /* Reset in case it was already set */
+		ast_copy_string(dialstr, f->dialstr, sizeof(dialstr));
 	}
 
 	ast_debug(4, "Route %s: Limit: %d, FRL: %d, MER: %d, Busy Is Cong.: %d, DSTR: %s, Time: %s\n", route, limit, frl, mer, busyiscongestion, dialstr, time);
@@ -1690,7 +1769,7 @@ static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *
 		cdr_set_var(chan, cdrvar_route, route);
 	}
 
-	if (frl > *callerfrl && *frl_upgraded == -2) { /* If FRL upgraded allowed (and haven't done yet), prompt for authorization code. Otherwise, skip. */
+	if (frl > *callerfrl && *frl_upgraded == -2) { /* If FRL upgrade allowed (and haven't done yet), prompt for authorization code. Otherwise, skip. */
 		*frl_upgraded = -1; /* At this point, mark that we've tried, at least, as we shouldn't prompt for authorization code more than once. */
 		cdr_set_var_int(chan, cdrvar_frl_req, frl);
 		cdr_set_var_int(chan, cdrvar_frl, *callerfrl);
@@ -1801,6 +1880,7 @@ static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *
 			ast_log(LOG_ERROR, "Failed to add call to call list, aborting\n");
 			return FACILITY_DISP_FAILURE;
 		}
+		pbx_builtin_setvar_helper(chan, "CCSA_EXTEN", exten);
 		res = ast_pbx_exec_application(chan, "Dial", dialstr); /* This performs variable substitution, so we're good. */
 		preempted = call->preempted;
 		call_free(call, 1); /* Pop from call queue */
@@ -1853,7 +1933,8 @@ static enum facility_disp ccsa_try_route(struct ast_channel *chan, int fd, int *
 /*! \param chan Channel, if running for real */
 /*! \param fd CLI fd, if simulating */
 /*! \param exten Destination, if running for real */
-static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const char *ccsa, const char *faclist, const char *musicclass, int remote, int cbq, int ohq, int priority, char preempt, int callerfrl)
+static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const char *ccsa, const char *faclist, const char *musicclass, int remote, int cbq, int ohq, int priority, char preempt,
+	int callerfrl, int no_frl_upgrade, const char *outgoing_clid)
 {
 	enum facility_disp fres;
 	char *route, *routes;
@@ -1890,6 +1971,9 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 	}
 	if (remote && auth_code_remote_allowed) {
 		frl_allow_upgrade = 0; /* If upgrades not allowed for remote access, don't allow FRL upgrades */
+	}
+	if (no_frl_upgrade) {
+		frl_allow_upgrade = 0;
 	}
 
 	extension_len = c->extension_len;
@@ -1968,7 +2052,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 			continue; /* Allow for empty routes so that using IFTIME in dialplan resolving to empty route is OK. */
 		}
 		total_attempted++;
-		fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context);
+		fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context, outgoing_clid);
 		switch (fres) {
 		case FACILITY_DISP_HANGUP:
 			return -1;
@@ -2027,7 +2111,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 				continue; /* Allow for empty facilities so that using IFTIME in dialplan resolving to empty route is OK. */
 			}
 			total_attempted++;
-			fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context);
+			fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context, outgoing_clid);
 			switch (fres) {
 			case FACILITY_DISP_HANGUP:
 				return -1;
@@ -2149,7 +2233,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 				}
 				if (res) {
 					/* Hopefully, we didn't lose our spot just now due to a race condition... */
-					fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context);
+					fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context, outgoing_clid);
 					switch (fres) {
 					case FACILITY_DISP_HANGUP:
 						return -1;
@@ -2183,7 +2267,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 					continue; /* Allow for empty facilities so that using IFTIME in dialplan resolving to empty route is OK. */
 				}
 				total_attempted++;
-				fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context);
+				fres = ccsa_try_route(chan, fd, &have_mer, try_preempt, exten, route, &callerfrl, &frl_upgraded, mer_tone, frl_allow_upgrade, auth_code_remote_allowed, remote, auth_sub_context, outgoing_clid);
 				switch (fres) {
 				case FACILITY_DISP_HANGUP:
 					return -1;
@@ -2346,6 +2430,8 @@ enum {
 	OPT_MUSICCLASS = 	(1 << 4),	/* Music On Hold */
 	OPT_FRL =			(1 << 5),	/* Facility Restriction Level */
 	OPT_REMOTE_ACCESS =	(1 << 6),	/* Remote Access */
+	OPT_FORCE_CALLERID = (1 << 7),	/* Force outgoing Caller ID */
+	OPT_NO_FRL_UPGRADE = (1 << 8),	/* Disallow FRL upgrades */
 };
 
 enum {
@@ -2355,6 +2441,7 @@ enum {
 	OPT_ARG_PREEMPT,
 	OPT_ARG_MUSICCLASS,
 	OPT_ARG_FRL,
+	OPT_ARG_FORCE_CALLERID,
 	/* note: this entry _MUST_ be the last one in the enum */
 	OPT_ARG_ARRAY_SIZE,
 };
@@ -2363,10 +2450,12 @@ AST_APP_OPTIONS(app_opts,{
 	AST_APP_OPTION('a', OPT_REMOTE_ACCESS),
 	AST_APP_OPTION_ARG('c', OPT_CBQ, OPT_ARG_CBQ),
 	AST_APP_OPTION_ARG('f', OPT_FRL, OPT_ARG_FRL),
+	AST_APP_OPTION_ARG('i', OPT_FORCE_CALLERID, OPT_ARG_FORCE_CALLERID),
 	AST_APP_OPTION_ARG('m', OPT_MUSICCLASS, OPT_ARG_MUSICCLASS),
 	AST_APP_OPTION_ARG('o', OPT_OHQ, OPT_ARG_OHQ),
 	AST_APP_OPTION_ARG('p', OPT_PRIORITY, OPT_ARG_PRIORITY),
 	AST_APP_OPTION_ARG('r', OPT_PREEMPT, OPT_ARG_PREEMPT),
+	AST_APP_OPTION('u', OPT_NO_FRL_UPGRADE),
 });
 
 #define CCSA_ARG_REQUIRE(var, name) { \
@@ -2394,6 +2483,8 @@ static int ccsa_exec(struct ast_channel *chan, const char *data)
 	int remote = 0, priority = 1, callerfrl = 0;
 	const char *faclist;
 	const char *musicclass = NULL;
+	const char *outgoing_clid = NULL;
+	int no_frl_upgrade = 0;
 
 	CCSA_ARG_REQUIRE(data, "an argument");
 
@@ -2447,12 +2538,16 @@ static int ccsa_exec(struct ast_channel *chan, const char *data)
 				callerfrl = 0;
 			}
 		}
+		if (ast_test_flag(&opts, OPT_FORCE_CALLERID) && !ast_strlen_zero(opt_args[OPT_ARG_FORCE_CALLERID])) {
+			outgoing_clid = opt_args[OPT_ARG_FORCE_CALLERID];
+		}
 		if (ast_test_flag(&opts, OPT_PREEMPT) && !ast_strlen_zero(opt_args[OPT_ARG_PREEMPT])) {
 			preempt = *opt_args[OPT_ARG_PREEMPT];
 		}
 		if (ast_test_flag(&opts, OPT_MUSICCLASS) && !ast_strlen_zero(opt_args[OPT_ARG_MUSICCLASS])) {
 			musicclass = opt_args[OPT_ARG_MUSICCLASS];
 		}
+		no_frl_upgrade = ast_test_flag(&opts, OPT_NO_FRL_UPGRADE) ? 1 : 0;
 	}
 
 	res = 0;
@@ -2462,7 +2557,8 @@ initcleanup:
 		return -1;
 	}
 
-	return ccsa_run(chan, -1, args.exten, args.ccsa, faclist, musicclass, remote, cbq, ohq, priority, preempt, callerfrl);
+	pbx_builtin_setvar_helper(chan, "__CCSA_CHANNEL", ast_channel_name(chan));
+	return ccsa_run(chan, -1, args.exten, args.ccsa, faclist, musicclass, remote, cbq, ohq, priority, preempt, callerfrl, no_frl_upgrade, outgoing_clid);
 }
 
 static char *handle_simulate_route(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
@@ -2525,7 +2621,7 @@ static char *handle_simulate_route(struct ast_cli_entry *e, int cmd, struct ast_
 		return CLI_FAILURE;
 	}
 
-	ccsa_run(NULL, a->fd, NULL, a->argv[3], faclist, NULL, 0, cbq, ohq, 1, 0, callerfrl);
+	ccsa_run(NULL, a->fd, NULL, a->argv[3], faclist, NULL, 0, cbq, ohq, 1, 0, callerfrl, 0, NULL);
 
 	return CLI_SUCCESS;
 #undef FORMAT
@@ -2951,6 +3047,8 @@ static int ccsa_reload(int reload)
 					ast_copy_string(cdrvar_frl_req, var->value, sizeof(cdrvar_frl_req));
 				} else if (!strcasecmp(var->name, "cdrvar_frl_eff") && !ast_strlen_zero(var->value)) {
 					ast_copy_string(cdrvar_frl_eff, var->value, sizeof(cdrvar_frl_eff));
+				} else if (!strcasecmp(var->name, "cdrvar_aiod") && !ast_strlen_zero(var->value)) {
+					ast_copy_string(cdrvar_aiod, var->value, sizeof(cdrvar_aiod));
 				} else if (!strcasecmp(var->name, "cdrvar_mlpp") && !ast_strlen_zero(var->value)) {
 					ast_copy_string(cdrvar_mlpp, var->value, sizeof(cdrvar_mlpp));
 				} else if (!strcasecmp(var->name, "cdrvar_authcode") && !ast_strlen_zero(var->value)) {
@@ -3027,6 +3125,8 @@ static int ccsa_reload(int reload)
 					f->busyiscongestion = ast_true(var->value);
 				} else if (!strcasecmp(var->name, "frl") && !ast_strlen_zero(var->value)) {
 					f->frl = atoi(var->value);
+				} else if (!strcasecmp(var->name, "aiod") && !ast_strlen_zero(var->value)) {
+					ast_copy_string(f->aiod, var->value, sizeof(f->aiod));
 				} else if (!strcasecmp(var->name, "time") && !ast_strlen_zero(var->value)) {
 					ast_copy_string(f->time, var->value, sizeof(f->time));
 				} else if (!strcasecmp(var->name, "threshold") && !ast_strlen_zero(var->value)) {
