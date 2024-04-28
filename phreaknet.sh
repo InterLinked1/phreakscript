@@ -1373,6 +1373,13 @@ install_dahdi() {
 		linux_headers_install_apt
 	elif [ "$PAC_MAN" = "yum" ]; then
 		dnf install -y m4 libtool automake autoconf kernel-devel kernel-headers
+		dnf list installed 'kernel*'
+		if [ -f /etc/redhat-release ]; then
+			# https://access.redhat.com/discussions/4656371?tour=8
+			# Red Hat may install newer headers than the current system
+			dnf downgrade kernel-headers-$(uname -r)
+			ls -la /usr/src/kernels
+		fi
 		#dnf install -y kernel-headers-$(uname -r)
 		dnf list installed | grep kernel-headers
 		rpm -qa | grep kernel
@@ -1855,6 +1862,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_dtmf_flash.c"
 	phreak_tree_module "funcs/func_dtmf_trace.c"
+	phreak_tree_module "funcs/func_message_sub.c"
 	phreak_tree_module "funcs/func_nanpa.c"
 	phreak_tree_module "funcs/func_notchfilter.c"
 	phreak_tree_module "funcs/func_numpeer.c"

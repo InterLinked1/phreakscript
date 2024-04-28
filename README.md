@@ -89,6 +89,7 @@ PhreakScript installs:
       - ``DB_UNIQUE``
       - ``NANPA``
       - ``SIP_PARAMETER``
+      - ``MESSAGE_INTERCEPT_SUB``
       - ``GROUP_VAR`` (third-party)
       - ``GROUP_MATCH_LIST_START`` (third-party)
    - Miscellaneous improvements
