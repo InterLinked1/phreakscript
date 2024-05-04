@@ -468,6 +468,7 @@ Options:
        --debug        trace: Debug level (default is 0/OFF, max is 10)
        --boilerplate  sounds: Also install boilerplate sounds
        --audit        install: Audit package installation
+       --devmode      install: Compile with devmode enabled
        --experimental install: Install experimental features that may not be production ready
        --fast         install: Compile as fast as possible
        --lightweight  install: Only install basic, required modules for basic Asterisk functionality
