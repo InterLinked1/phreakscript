@@ -1829,6 +1829,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Add Standalone PhreakNet Modules
 	phreak_tree_module "apps/app_acts.c"
 	phreak_tree_module "apps/app_assert.c"
+	phreak_tree_module "apps/app_audichron.c"
 	phreak_tree_module "apps/app_callback.c"
 	phreak_tree_module "apps/app_callerid.c"
 	phreak_tree_module "apps/app_coin.c"

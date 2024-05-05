@@ -33,6 +33,7 @@ PhreakScript installs:
       - ``LoopPlayback``
       - ``RandomPlayback``
       - ``SayTelephoneNumber``
+      - ``Audichron``
       - ``FeatureProcess``
       - ``SelectiveFeature``
       - ``RemoteAccess``
