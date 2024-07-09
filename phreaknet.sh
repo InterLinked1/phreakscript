@@ -1661,22 +1661,8 @@ install_wanpipe() {
 	if [ $? -ne 0 ]; then
 		die "Failed to download/extract wanpipe"
 	fi
-	rm ${WANPIPE_SOURCE_NAME}.tgz
+	rm ${AST_SOURCE_PARENT_DIR}/${WANPIPE_SOURCE_NAME}.tgz
 	#phreak_fuzzy_patch "af_wanpipe.diff"
-
-	if [ ! -f "$MYINCLUDEDIR/linux/version.h" ]; then
-		echoerr "File $MYINCLUDEDIR/linux/version.h does not exist, trying to symlink file $MYINCLUDEDIR/generated/uapi/linux/version.h\n"
-		if [ -f "$MYINCLUDEDIR/generated/uapi/linux/version.h" ]; then
-			ln -s ${MYINCLUDEDIR}/generated/uapi/linux/version.h ${MYINCLUDEDIR}/linux/version.h
-			if [ $? -ne 0 ]; then
-				echoerr "symlink failed: wanpipe utilities may not be installed\n"
-			else
-				printf "symlink successful: created file $MYINCLUDEDIR/linux/version.h\n"
-			fi
-		else
-			echoerr "File $MYINCLUDEDIR/generated/uapi/linux/version.h does not exist, wanpipe utilities may not be installed\n"
-		fi
-	fi
 
 	./Setup dahdi --silent
 
