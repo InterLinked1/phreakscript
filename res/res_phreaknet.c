@@ -318,8 +318,8 @@ static struct ast_str *curl_get(const char *url, const char *data)
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_string_callback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &str);
 	curl_easy_setopt(curl, CURLOPT_URL, url);
-	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 1000L);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 8L);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_errbuf);
 
 	ast_debug(6, "cURL URL: %s\n", url);
