@@ -416,7 +416,7 @@ struct call_verify {
 	unsigned int blacklist_failopen:1;		/*!< Allow blacklist to fail open */
 };
 
-#define DEFAULT_CURL_TIMEOUT 5
+#define DEFAULT_CURL_TIMEOUT 8
 #define SUB_BUFLEN 1024
 
 static int curltimeout = DEFAULT_CURL_TIMEOUT;		/*!< Curl Timeout */
