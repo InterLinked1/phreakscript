@@ -1856,6 +1856,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
+	phreak_tree_module "configs/samples/res_alarmsystem.conf.sample" "1"
 
 	phreak_tree_module "funcs/func_dbchan.c"
 	phreak_tree_module "funcs/func_dtmf_flash.c"
@@ -1873,6 +1874,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
 	fi
 
+	phreak_tree_module "res/res_alarmsystem.c"
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
 	phreak_tree_module "res/res_msp.c"

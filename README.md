@@ -70,6 +70,9 @@ PhreakScript installs:
       - ``PhreakNetDial``
       - ``SIPAddParameter``
       - ``IRCSendMessage``
+      - ``AlarmSensor``
+      - ``AlarmKeypad``
+      - ``AlarmEventReceiver`` (not to be confused with ``AlarmReceiver``)
       - ``Softmodem`` (third-party, with compiler fixes and enhancements, including TDD modem)
       - ``TddRx``, ``TddTx`` (third-party)
    - Adds the following functions:
