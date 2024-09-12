@@ -120,9 +120,9 @@ static int msp_send(const struct ast_msg *msg, const char *destination, const ch
 	 * Send via UDP, since there's less overhead, and we don't care about the acknowledgment */
 	sfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sfd < 0) {
-        ast_log(LOG_ERROR, "ast_socket failed: %s\n", strerror(errno));
-        return -1;
-    }
+		ast_log(LOG_ERROR, "ast_socket failed: %s\n", strerror(errno));
+		return -1;
+	}
 
 	res = ast_sendto(sfd, buf, len, 0, &addr);
 	if (res <= 0) {
