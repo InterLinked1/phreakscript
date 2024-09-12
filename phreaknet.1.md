@@ -154,6 +154,9 @@ the best Asterisk and DAHDI experience.
 **restart**
 : Fully restart DAHDI, wanpipe, and Asterisk
 
+**stop**
+: Fully stop DAHDI, wanpipe, and Asterisk
+
 **kill**
 : Forcibly kill Asterisk
 

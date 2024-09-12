@@ -3,9 +3,9 @@ A utility to automate the installation, maintenance, and debugging of Asterisk/D
 
 PhreakScript installs:
 
-- Asterisk 21.2.0 (latest standard release[1] of Asterisk)
-- DAHDI Linux 3.3.0 (with optional DAHDI install flag)
-- DAHDI Tools 3.3.0 (with optional DAHDI install flag)
+- Asterisk 21.4.3 (latest standard release[1] of Asterisk)
+- DAHDI Linux 3.4.0 (with optional DAHDI install flag)
+- DAHDI Tools 3.4.0 (with optional DAHDI install flag)
 - wanpipe 7.0.38 (with optional wanpipe install flag)
 - many additional features and stability improvements
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma

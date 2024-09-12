@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # PhreakScript
-# (C) 2021-2023 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.3 (2024-03-17)
+# (C) 2021-2024 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
+# v1.1.4 (2024-09-11)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2024-09-11 1.1.4 DAHDI: Target DAHDI 3.4.0, update patches
 # 2024-03-17 1.1.3 DAHDI: Only build wanpipe if requested
 # 2024-03-09 1.1.2 Asterisk: fix broken patches that no longer applied
 # 2024-01-12 1.1.1 Asterisk: target Asterisk 21.1.0-rc1, fix 'phreaknet restart' command
@@ -196,21 +197,17 @@ AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
 AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing-rc1"
 AST_RC_SOURCE_NAME2="asterisk-${AST_DEFAULT_MAJOR_VER}-testing-rc2"
 
-DAHDI_VERSION="3.2.0"
+# DAHDI_MM_VER="${DAHDI_VERSION:0:1}${DAHDI_VERSION:2:1}" Requires bash
+DAHDI_MM_VER=34
+DAHDI_VERSION="3.4.0"
+#DAHLIN_SRC_NAME="dahdi-linux-${DAHDI_VERSION}.tar.gz"
+#DAHTOOL_SRC_NAME="dahdi-tools-${DAHDI_VERSION}.tar.gz"
+#DAHLIN_SRC_URL="https://github.com/asterisk/dahdi-linux/releases/download/v${DAHDI_VERSION}/${DAHLIN_SRC_NAME}"
+#DAHTOOL_SRC_URL="https://github.com/asterisk/dahdi-tools/releases/download/v${DAHDI_VERSION}/${DAHTOOL_SRC_NAME}"
 DAHLIN_SRC_NAME="dahdi-linux-current.tar.gz"
 DAHTOOL_SRC_NAME="dahdi-tools-current.tar.gz"
 DAHLIN_SRC_URL="http://downloads.asterisk.org/pub/telephony/dahdi-linux/dahdi-linux-current.tar.gz"
 DAHTOOL_SRC_URL="http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-tools-current.tar.gz"
-
-# Pull from GitHub for now, since 3.3.0 is only available there right now
-DAHDI_VERSION="3.3.0"
-DAHLIN_SRC_NAME="dahdi-linux-${DAHDI_VERSION}.tar.gz"
-DAHTOOL_SRC_NAME="dahdi-tools-${DAHDI_VERSION}.tar.gz"
-DAHLIN_SRC_URL="https://github.com/asterisk/dahdi-linux/releases/download/v${DAHDI_VERSION}/${DAHLIN_SRC_NAME}"
-DAHTOOL_SRC_URL="https://github.com/asterisk/dahdi-tools/releases/download/v${DAHDI_VERSION}/${DAHTOOL_SRC_NAME}"
-
-# DAHDI_MM_VER="${DAHDI_VERSION:0:1}${DAHDI_VERSION:2:1}" Requires bash
-DAHDI_MM_VER=33
 
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
 LIBSS7_VERSION="2.0.1"
@@ -349,7 +346,7 @@ phreakscript_info() {
 }
 
 if [ "$1" = "commandlist" ]; then
-	echo "about help version examples info wizard make man mancached install source experimental dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update astpr patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap start restart kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
+	echo "about help version examples info wizard make man mancached install source experimental dahdi odbc installts fail2ban apiban freepbx pulsar sounds boilerplate-sounds ulaw remsil uninstall uninstall-all bconfig config keygen keyperms update astpr patch genpatch alembic freedisk topdir topdisk enable-swap disable-swap start restart stop kill forcerestart ban applist funclist dialplanfiles validate trace paste iaxping pcap pcaps sngrep enable-backtraces backtrace backtrace-only rundump threads reftrace valgrind cppcheck docverify runtests runtest stresstest ccache fullpatch docgen mkdocs pubdocs edit"
 	exit 0
 fi
 
@@ -407,6 +404,7 @@ Commands:
    disable-swap       Disable and deallocate temporary swap file
    start              Fully start DAHDI, wanpipe, and Asterisk
    restart            Fully restart DAHDI, wanpipe, and Asterisk
+   stop               Fully stop DAHDI, wanpipe, and Asterisk
    kill               Forcibly kill Asterisk
    forcerestart       Forcibly restart Asterisk
    ban                Manually ban an IP address using iptables
@@ -554,25 +552,31 @@ stop_wanpipe() {
 	fi
 }
 
-# Completely restart wanpipe, DAHDI (and any DAHDI drivers), and Asterisk
-# This is surprisingly complicated, and can be dangerous if done incorrectly
-# $1 to restart without completely restarting Asterisk
-restart_telephony() {
-	if [ "$1" = "1" ]; then
-		rasterisk -x "module unload chan_dahdi" | grep "Unloaded chan_dahdi"
-		if [ $? -ne 0 ]; then
-			die "chan_dahdi could not be unloaded"
+stop_telephony() {
+	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+	if [ "$astpid" != "" ]; then
+		if [ "$1" = "1" ]; then
+			# Only need to unload chan_dahdi if it's loaded
+			rasterisk -x "module show like chan_dahdi" | grep "chan_dahdi"
+			if [ $? -eq 0 ]; then
+				rasterisk -x "module unload chan_dahdi" | grep "Unloaded chan_dahdi"
+				if [ $? -ne 0 ]; then
+					die "chan_dahdi could not be unloaded"
+				fi
+			fi
+		else
+			service asterisk stop # stop Asterisk
+			astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+			if [ "$astpid" != "" ]; then
+				# if that didn't work, kill it manually
+				kill -9 $astpid
+				printf "Killed Asterisk process %s\n" "$astpid"
+			else
+				printf "Asterisk not currently running...\n"
+			fi
 		fi
 	else
-		service asterisk stop # stop Asterisk
-		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
-		if [ "$astpid" != "" ]; then
-			# if that didn't work, kill it manually
-			kill -9 $astpid
-			printf "Killed Asterisk process %s\n" "$astpid"
-		else
-			printf "Asterisk not currently running...\n"
-		fi
+		printf "Asterisk not currently running...\n"
 	fi
 	lsmod | grep dahdi
 	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
@@ -601,6 +605,9 @@ restart_telephony() {
 	else
 		printf "DAHDI is not running, skipping...\n"
 	fi
+}
+
+restart_start_telephony() {
 	printf "Starting DAHDI...\n"
 	start_wanpipe
 	modprobe dahdi
@@ -630,7 +637,7 @@ restart_telephony() {
 		dahdi_cfg
 		if [ $? -ne 0 ]; then
 			dahdi_hardware
-			die "DAHDI failed to initialize... please try manually modprobe'ing the drivers."
+			die "DAHDI failed to initialize... please try manually modprobe'ing the drivers and rerunning dahdi_genconf and dahdi_cfg."
 		fi
 	fi
 	printf "DAHDI is now running normally...\n"
@@ -641,6 +648,14 @@ restart_telephony() {
 		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
 		printf "Asterisk now running on pid %s\n" "$astpid"
 	fi
+}
+
+# Completely restart wanpipe, DAHDI (and any DAHDI drivers), and Asterisk
+# This is surprisingly complicated, and can be dangerous if done incorrectly
+# $1 to restart without completely restarting Asterisk
+restart_telephony() {
+	stop_telephony "$1"
+	restart_start_telephony
 }
 
 # Mainly intended to start the telephony drivers on bootup, since this doesn't always happen automatically
@@ -1314,15 +1329,6 @@ dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	dahdi_undo $1 "devtype" "Remove struct devtype for unsupported drivers" "75620dd9ef6ac746745a1ecab4ef925a5b9e2988"
 	dahdi_undo $1 "wcb" "Remove support for all but wcb41xp wcb43xp and wcb23xp." "29cb229cd3f1d252872b7f1924b6e3be941f7ad3"
 	dahdi_undo $1 "wctdm" "Remove support for wctdm800, wcaex800, wctdm410, wcaex410." "a66e88e666229092a96d54e5873d4b3ae79b1ce3"
-	dahdi_undo $1 "wcte12xp" "Remove support for wcte12xp." "3697450317a7bd60bfa7031aad250085928d5c47"
-	dahdi_custom_patch "wcte12xp_base" "$1/drivers/dahdi/wcte12xp/base.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/wcte12xp_base.diff" # bug fix for case statement fallthrough
-	dahdi_custom_patch "wcte12xp_types" "$1/drivers/dahdi/wcte12xp/base.c" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/wcte12xp_types.diff" # bug fix for >= 5.16 stdbool.h
-	dahdi_undo $1 "wcte11xp" "Remove support for wcte11xp." "3748456d22122cf807b47d5cf6e2ff23183f440d"
-	if [ $DAHDI_MM_VER -lt 33 ]; then
-		dahdi_undo $1 "wctdm" "Remove support for wctdm." "04e759f9c5a6f76ed88bc6ba6446fb0c23c1ff55"
-	fi
-	dahdi_undo $1 "wct1xxp" "Remove support for wct1xxp." "dade6ac6154b58c4f5b6f178cc09de397359000b"
-	dahdi_undo $1 "wcfxo" "Remove support for wcfxo." "14198aee8532bbafed2ad1297177f8e0e0f13f50"
 
 	# The tor2 and pciradio patches do not revert cleanly on their own. We need to finish it off manually with additional patches:
 	dahdi_undo_force $1 "tor2" "Remove support for tor2." "60d058cc7a064b6e07889f76dd9514059c303e0f"
@@ -1609,7 +1615,8 @@ install_dahdi() {
 	wget https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz
 	tar -zxvf ${LIBSS7_VERSION}.tar.gz
 	rm ${LIBSS7_VERSION}.tar.gz
-	cd ${LIBSS7_VERSION}
+	ls -la
+	cd libss7-${LIBSS7_VERSION}
 	make && make install
 
 	# Wanpipe
@@ -1618,6 +1625,9 @@ install_dahdi() {
 	fi
 
 	service dahdi restart
+
+	# Completion message for users just running "phreaknet dahdi"
+	echog "DAHDI and friends have finished installing"
 }
 
 install_wanpipe() {
@@ -1865,6 +1875,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
+	phreak_tree_module "res/res_msp.c"
 	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
 
@@ -1929,8 +1940,16 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	# Unmerged patches
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
+
+	## WIP
 	asterisk_pr_unconditional 292 # GROUP VARs
 	asterisk_pr_unconditional 414 # IAX2 loopback warning
+
+	# Unmerged
+	asterisk_pr_unconditional 272 # Call Waiting Deluxe
+	asterisk_pr_unconditional 438 # Last Number Redial
+
+	### TODO: Include ASTERISK-30339 and ASTERISK-30374 once resubmitted on GitHub
 
 	if [ "$RTPULSING" = "1" ]; then
 		# Patches split up to make it easier to selectively redo the 2nd one if a patch conflict occurs and the patch needs to be rebased.
@@ -2759,6 +2778,11 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$PKG_AUDIT" = "1" ]; then
 		pkg_before=$( apt list --installed )
 	fi
+	# Install Pre-Reqs
+	printf "%s %d\n" "Starting installation with country code" $AST_CC
+	quell_mysql
+	printf "%s\n" "Installing prerequisites..."
+	install_prereq # This must be done before any other packages are installed since we'll skip package install checks if package manager was used recently.
 	if [ "$DEVMODE" = "1" ]; then
 		# Install the Linux headers if we can, but don't abort if we can't.
 		apt-get install -y linux-headers-`uname -r`
@@ -2784,11 +2808,6 @@ elif [ "$cmd" = "install" ]; then
 		fi
 	fi
 	cd $AST_SOURCE_PARENT_DIR
-	# Install Pre-Reqs
-	printf "%s %d\n" "Starting installation with country code" $AST_CC
-	quell_mysql
-	printf "%s\n" "Installing prerequisites..."
-	install_prereq
 	# Get DAHDI
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		if [ ! -d /etc/dahdi ] || [ "$FORCE_INSTALL" = "1" ]; then
@@ -3404,12 +3423,16 @@ elif [ "$cmd" = "config" ]; then
 	printf "%s: %s\n" "PhreakNet CLLI code" $PHREAKNET_CLLI
 	printf "%s\n" "InterLinked API key seems to be of valid format, not displaying for security reasons..."
 	install_boilerplate
-	## Inject user config (CLLI code, API key)
 	if [ "$inject" = "1" ]; then
+		## Inject user config (CLLI code, API key)
 		sed -i "s/abcdefghijklmnopqrstuvwxyz/$INTERLINKED_APIKEY/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
 		sed -i "s/WWWWXXYYZZZ/$PHREAKNET_CLLI/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
 		sed -i "s/5551111/$PHREAKNET_DISA/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
 		printf "Updated [globals] in %s/extensions.conf with dynamic variables. If globals are stored in a different file, manual updating is required." $AST_CONFIG_DIR
+		## Also update verify.conf
+		sed -i "s/HSTNTXMOCG0/$PHREAKNET_CLLI/g" $AST_CONFIG_DIR/verify.conf
+		sed -i "s/5551111/$PHREAKNET_DISA/g" $AST_CONFIG_DIR/verify.conf
+		printf "Updated %s/verify.conf" $AST_CONFIG_DIR
 	fi
 	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
 elif [ "$cmd" = "bconfig" ]; then
@@ -3673,6 +3696,13 @@ elif [ "$cmd" = "restart" ]; then
 		restart_telephony 0
 	else
 		restart_telephony 1
+	fi
+elif [ "$cmd" = "stop" ]; then
+	# not really forcing install of anything, but to use the --force flag
+	if [ "$FORCE_INSTALL" = "1" ]; then
+		stop_telephony 0
+	else
+		stop_telephony 1
 	fi
 elif [ "$cmd" = "start" ]; then
 	start_telephony
