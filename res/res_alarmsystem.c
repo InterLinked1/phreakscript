@@ -1648,6 +1648,13 @@ static void *client_thread(void *arg)
 		numfds++;
 	}
 
+	/* Wait until the PBX is fully booted, similar to "core waitfullybooted"
+	 * This is necessary because dialplan won't execute while the PBX is still booting,
+	 * and events, including EVENT_ALARM_OKAY, can trigger user callbacks which execute dialplan. */
+	while (!ast_test_flag(&ast_options, AST_OPT_FLAG_FULLY_BOOTED)) {
+		usleep(1000);
+	}
+
 	/* First send a ping to initialize UDP communication and see if the network is up.
 	 * This will generate the event but not actually process it until we start
 	 * executing the loop, at which time we'll service the alertpipe immediately. */
