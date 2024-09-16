@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2024 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.4 (2024-09-11)
+# v1.1.5 (2024-09-15)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2024-09-15 1.1.5 DAHDI: Massive overhaul to DAHDI stop/start/restart logic, fixes for manual span assignment
 # 2024-09-11 1.1.4 DAHDI: Target DAHDI 3.4.0, update patches
 # 2024-03-17 1.1.3 DAHDI: Only build wanpipe if requested
 # 2024-03-09 1.1.2 Asterisk: fix broken patches that no longer applied
@@ -444,6 +445,7 @@ Commands:
    applist            List Asterisk dialplan applications in current source
    funclist           List Asterisk dialplan functions in current source
    edit               Edit PhreakScript
+   touch              Show PhreakScript file path and last modification
 
 Options:
    -b, --backtraces   Enables getting backtraces
@@ -579,9 +581,12 @@ stop_telephony() {
 		printf "Asterisk not currently running...\n"
 	fi
 	lsmod | grep dahdi
-	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-`
+	curdrivers=`lsmod | grep "dahdi " | xargs | cut -d' ' -f4-` # Space intentionally included, add dahdi_vpmadt032_loader later manually
 	printf "Current drivers: --- %s ---\n", "$curdrivers"
 	stop_wanpipe
+	echo "$curdrivers" | tr ',' '\n' | xargs -i sh -c 'echo Stopping driver: {}; modprobe -r {}'
+	modprobe -r dahdi_vpmadt032_loader
+	modprobe -r dahdi_voicebus
 	service dahdi status
 	# WARNING WARNING WARNING
 	# It seems that on a system where wanpipe is in use,
@@ -604,49 +609,7 @@ stop_telephony() {
 		printf "DAHDI shutdown complete\n"
 	else
 		printf "DAHDI is not running, skipping...\n"
-	fi
-}
-
-restart_start_telephony() {
-	printf "Starting DAHDI...\n"
-	start_wanpipe
-	modprobe dahdi
-	# e.g. modprobe wcte13xp
-	echo "$curdrivers" | tr ',' '\n' | xargs -i sh -c 'echo Starting driver: {}; modprobe {}'
-	if ! service dahdi start; then
-		die "DAHDI failed to start"
-	fi
-	if ! dahdi_cfg; then # reload configs for all spans
-		# I've noticed before the case where the order of the modprobes seems to matter
-		# For example, with wcte13xp on span 1 and wctdm on span 2,
-		# it loads fine if wcte13xp is loaded before wctdm, but not vice versa
-		# Reversing the order has a good chance of making it work on "simple" systems
-		# that only have a couple cards. More than that, and if it's failing here,
-		# you might need to debug the modprobe order manually.
-		printf "First initialization attempt failed, retrying modprobes in reverse order...\n"
-		# WARNING As above, need to ensure wanpipe is STOPPED before we attempt to stop DAHDI
-		# And yes, from testing, it really is necessary to do service dahdi restart,
-		# before we trying modprobing the modules again
-		stop_wanpipe
-		service dahdi restart
-		modprobe dahdi
-		start_wanpipe
-		printf "Previously loaded drivers: %s\n", "$curdrivers"
-		# Reverse the order of the driver modprobes
-		echo "$curdrivers" | tr ',' '\n' | tac | xargs -i sh -c 'echo Starting driver: {}; modprobe {}'
-		dahdi_cfg
-		if [ $? -ne 0 ]; then
-			dahdi_hardware
-			die "DAHDI failed to initialize... please try manually modprobe'ing the drivers and rerunning dahdi_genconf and dahdi_cfg."
-		fi
-	fi
-	printf "DAHDI is now running normally...\n"
-	if [ "$1" = "1" ]; then
-		rasterisk -x "module load chan_dahdi"
-	else
-		service asterisk start
-		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
-		printf "Asterisk now running on pid %s\n" "$astpid"
+		modprobe -r dahdi # In case the service was already stopped but dahdi module was not yet unloaded
 	fi
 }
 
@@ -655,31 +618,103 @@ restart_start_telephony() {
 # $1 to restart without completely restarting Asterisk
 restart_telephony() {
 	stop_telephony "$1"
-	restart_start_telephony
+	start_telephony
 }
 
 # Mainly intended to start the telephony drivers on bootup, since this doesn't always happen automatically
 start_telephony() {
+	if [ ! -f /etc/udev/rules.d/dahdi.rules ]; then
+		echoerr "DAHDI udev rules are missing..."
+	fi
+
+	modprobe --first-time dahdi
+	if [ $? -ne 0 ]; then
+		echoerr "DAHDI is still running... stop these modules and try again"
+		lsmod | grep "dahdi" | xargs | cut -d' ' -f4- # No space in this grep
+		exit 1
+	fi
+	start_wanpipe # This can fail, if wanpipe isn't being used, and that's fine
+
+	printf "DAHDI hardware:\n"
+	dahdi_hardware # List DAHDI hardware. The dahdi module must first be running for this to work.
+
+	# Start drivers for any telephony cards, which is needed for span assignment
 	# sed: Each one ends in - or +, need to ignore that
-	service dahdi start
-	modprobe dahdi
-	start_wanpipe
 	for driver in $( dahdi_hardware | awk '{print $2}'  | tr ',' '\n' | sed 's/.$//' ) ; do
-		printf "Starting driver: %s\n" "$driver"
-		modprobe $driver
+		printf "Starting driver: %s... " "$driver"
+		modprobe --first-time $driver
 		if [ $? -ne 0 ]; then
-			echoerr "Failed to start driver $driver"
+			echoerr "\nFailed to start driver $driver"
+		else
+			printf "started!\n"
 		fi
 	done
-	dahdi_cfg
+
+	# Dump detected configuration since span stuff is VERY fickle and prone to breakage
+	printf "DAHDI module options: "
+	cat /etc/modprobe.d/dahdi.conf # Dump DAHDI module options
+	AUTO_ASSIGN_SPANS=$( cat /sys/module/dahdi/parameters/auto_assign_spans | tr -d '\n' )
+	printf "DAHDI span auto-assignment: %d\n" "$AUTO_ASSIGN_SPANS"
+	printf "Detected spans:\n"
+	dahdi_span_assignments list # List detected spans
+
+	# Get the spans assigned.
+	printf "Assigning DAHDI spans...\n"
+	dahdi_span_assignments remove
+	if [ "$AUTO_ASSIGN_SPANS" = "0" ]; then
+		printf "Manually assigning spans according to /etc/dahdi/assigned-spans.conf\n"
+		dahdi_span_assignments add
+	else
+		printf "Automatically assigning spans, ignoring /etc/dahdi/assigned-spans.conf\n"
+		num_spans=$( dahdi_span_assignments list | wc -l )
+		if [ $num_spans -gt 1 ]; then
+			echoerr "Detected that this machine has more than 1 DAHDI span.\nYou are HIGHLY ENCOURAGED to assign the span order explicitly in /etc/dahdi/assigned-spans.conf!"
+			echoerr "To do this, add 'options dahdi auto_assign_spans=0' to /etc/modprobe.d/dahdi.conf and run 'phreaknet restart'"
+			sleep 1
+		fi
+		dahdi_span_assignments auto
+	fi
+
+	# Run dahdi_genconf to validate that the spans are assigned properly.
+	# However, don't actually replace /etc/dahdi/system.conf, since that
+	# would overwrite span configuration and break the system setup...
+	# just use a temporary configuration file to catch it and compare.
+	printf "Generating DAHDI channel configuration and checking differences...\n"
+
+	# XXX BUGBUG There seems to be a bug where if (and even if?) dahdi_span_assignments auto is not run
+	# (even if we're manually assigning spans), dahdi_genconf will just hang.
+	# We can kill it and all the gubbins DAHDI spawns with "pkill dahdi",
+	# and then things seem to work.
+	if [ -f /etc/dahdi/system.conf ]; then
+		# Per the BUGBUG note above: If dahdi_genconf is still running after 2 seconds, kill it and proceed. Don't ask me to explain it, but it works...
+		DAHDI_CONF_FILE=/tmp/system.conf dahdi_genconf system & (sleep 2; ps -aux | grep "dahdi_genconf" | grep -v "grep" > /dev/null && pkill dahdi && echoerr "Forcibly killed dahdi_genconf")
+		# The second time around, it SHOULD work instantly and properly dump dahdi_genconf output into /tmp/system.conf
+		DAHDI_CONF_FILE=/tmp/system.conf dahdi_genconf system & (sleep 2; ps -aux | grep "dahdi_genconf" | grep -v "grep" > /dev/null && pkill dahdi && echoerr "Forcibly killed dahdi_genconf a second time???")
+		# This will show us what's different between the system.conf dahdi_genconf just wrote to /tmp/system.conf
+		# and the actual /etc/dahdi/system.conf
+		# There are likely to be a few changes, but there shouldn't be anything major if everything went well.
+		# If there's a big deviation, then manual intervention is likely required.
+		diff -U 0 /etc/dahdi/system.conf /tmp/system.conf # Output with no context, since basically every line is unique already
+	else
+		dahdi_genconf -vvvvv
+	fi
+
+	# Finally, run dahdi_cfg
+	printf "Applying DAHDI channel configuration...\n"
+	dahdi_cfg -v 2>/dev/null | grep "to configure" # Show number of channels that will be configured
 	if [ $? -ne 0 ]; then
 		lsdahdi
 		die "DAHDI initialization failed... check to ensure all your spans are online and in the expected order"
 	fi
-	# Asterisk likely starts automatically, but reload anything DAHDI related
-	service asterisk start
-	/sbin/rasterisk -x "module refresh chan_dahdi"
-	printf "Telephony initialization completed\n"
+	printf "DAHDI channel configuration applied successfully!\n"
+
+	# Finally, make sure the DAHDI service is running so that systemd can keep track of it...
+	service dahdi start
+
+	service asterisk start # Start Asterisk if it's not running already
+	/sbin/rasterisk -x "module load chan_dahdi" # Load chan_dahdi if Asterisk was already running
+	/sbin/rasterisk -x "dahdi show channels" # The ultimate test is what DAHDI channels actually show up in Asterisk
+	echog "Telephony initialization completed"
 }
 
 assert_root() {
@@ -1481,6 +1516,9 @@ install_dahdi() {
 		# Compiler fixes for 6.1+
 		phreak_fuzzy_patch "dahdi_kern_61.diff"
 	fi
+
+	# Merged in master, but not yet in a current release
+	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d932d9fbc8b3559829a76fffcedceb78d1fc1887.diff"
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -2695,7 +2733,7 @@ elif [ "$cmd" = "make" ]; then
 	# phreaknet install
 
 	assert_root
-	ln $FILE_PATH /usr/local/sbin/phreaknet
+	ln -nsf $FILE_PATH /usr/local/sbin/phreaknet
 	if [ $? -eq 0 ]; then
 		echo "PhreakScript added to path."
 	else
@@ -3710,6 +3748,9 @@ elif [ "$cmd" = "start" ]; then
 	start_telephony
 elif [ "$cmd" = "edit" ]; then
 	exec nano $FILE_PATH
+elif [ "$cmd" = "touch" ]; then
+	printf "%s: " "$FILE_PATH"
+	date -r $FILE_PATH
 elif [ "$cmd" = "validate" ]; then
 	run_rules
 elif [ "$cmd" = "trace" ]; then

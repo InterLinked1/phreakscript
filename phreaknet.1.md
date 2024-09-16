@@ -258,6 +258,9 @@ the best Asterisk and DAHDI experience.
 **edit**
 : Edit local PhreakScript source directly
 
+**touch**
+: Show PhreakScript file path and last modification
+
 # OPTIONS
 
 **-h**
