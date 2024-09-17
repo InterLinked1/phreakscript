@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2024 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.5 (2024-09-15)
+# v1.1.6 (2024-09-16)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2024-09-16 1.1.6 DAHDI: Add patch to enable building of XPP drivers on 32-bit architectures
 # 2024-09-15 1.1.5 DAHDI: Massive overhaul to DAHDI stop/start/restart logic, fixes for manual span assignment
 # 2024-09-11 1.1.4 DAHDI: Target DAHDI 3.4.0, update patches
 # 2024-03-17 1.1.3 DAHDI: Only build wanpipe if requested
@@ -1552,9 +1553,20 @@ install_dahdi() {
 		echoerr "Skipping DAHDI Linux feature patches..."
 	fi
 
-	# Don't compile the XPP driver for 32-bit
-	if [ "`uname -m`" = "armv7l" ] || [ "`uname -m`" = "i386" ] || [ "`uname -m`" = "i686" ]; then
-		echoerr "Not compiling XPP driver for 32-bit"
+	# Fix or skip compilation of the XPP driver for 32-bit
+	OS_ARCH=$( uname -m )
+	printf "Detected architecture: %s\n" "$OS_ARCH"
+	if [ "$OS_ARCH" = "i386" ] || [ "$OS_ARCH" = "i686" ]; then
+		printf "32-bit OS detected... patching division in XPP drivers\n"
+		# This fixes this issue:
+		# ERROR: modpost: "__divdi3" [/usr/src/dahdi-linux-3.4.0/drivers/dahdi/xpp/xpp.ko] undefined!
+		# ERROR: modpost: "__divmoddi4" [/usr/src/dahdi-linux-3.4.0/drivers/dahdi/xpp/xpp.ko] undefined!
+		git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32, not yet merged
+	elif [ "$OS_ARCH" = "armv7l" ]; then
+		# I can't test this build at the moment, so to play it safe, I'm going to keep it disabled in this case,
+		# given that the xpp drivers are seldom used and especially unlikely to be used by someone with this architecture.
+		# TODO Slightly related, once GitHub allows free arm64 builds, do more testing: https://github.com/orgs/community/discussions/19197
+		echoerr "Skipping compilation of XPP driver for this 32-bit architecture! ($OS_ARCH)"
 		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
 	fi
 
