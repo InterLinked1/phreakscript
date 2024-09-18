@@ -1882,7 +1882,7 @@ static int load_config(void)
 			if (ast_bind(s->listen_fd, &sin)) {
 				ast_log(LOG_ERROR, "Unable to bind to %s: %s\n", ast_sockaddr_stringify(&sin), strerror(errno));
 				close(s->listen_fd);
-				return NULL;
+				return -1;
 			}
 
 			ast_debug(1, "Started alarm system server on %s\n", ast_sockaddr_stringify(&sin));
