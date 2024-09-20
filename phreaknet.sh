@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2024 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.6 (2024-09-16)
+# v1.1.7 (2024-09-19)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2024-09-19 1.1.7 DAHDI: Slipstream critical build fixes, fix build issues on various distros and kernels
 # 2024-09-16 1.1.6 DAHDI: Add patch to enable building of XPP drivers on 32-bit architectures
 # 2024-09-15 1.1.5 DAHDI: Massive overhaul to DAHDI stop/start/restart logic, fixes for manual span assignment
 # 2024-09-11 1.1.4 DAHDI: Target DAHDI 3.4.0, update patches
@@ -228,9 +229,17 @@ PAC_MAN="apt-get"
 AST_SOUNDS_DIR="$AST_VARLIB_DIR/sounds/en"
 AST_MOH_DIR="$AST_VARLIB_DIR/moh"
 AST_MAKE="make"
-WGET="wget -q --show-progress"
+WGET="wget -q"
 XMLSTARLET="/usr/bin/xmlstarlet"
 PATH="/sbin:$PATH" # in case su used without path
+
+# Wget2 does not support --show-progress, uses --force-progress instead
+WGET_VERSION=$( wget --version )
+if [ "${WGET_VERSION#*"Wget2"}" != "$WGET_VERSION" ]; then
+	WGET="$WGET --force-progress"
+else
+	WGET="$WGET --show-progress"
+fi
 
 # Defaults
 AST_CC=1 # Country Code (default: 1 - NANPA)
@@ -805,6 +814,7 @@ make_keys_readable() {
 }
 
 install_prereq() {
+	printf "%s\n" "Installing prerequisites..."
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		# Ubuntu 22.04 prompts for restarts by default, inhibit this: https://askubuntu.com/questions/1367139/apt-get-upgrade-auto-restart-services
 		if [ -f /etc/needrestart/needrestart.conf ]; then
@@ -836,7 +846,7 @@ install_prereq() {
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "yum" ]; then
-		yum install -y git patch
+		yum install -y git patch subversion
 		# Stop on RHEL systems without an active subscription
 		if ! which git > /dev/null; then
 			if [ -f /etc/redhat-release ]; then
@@ -1417,15 +1427,23 @@ install_dahdi() {
 	elif [ "$PAC_MAN" = "yum" ]; then
 		dnf install -y m4 libtool automake autoconf kernel-devel kernel-headers
 		dnf list installed 'kernel*'
-		if [ -f /etc/redhat-release ]; then
-			# https://access.redhat.com/discussions/4656371?tour=8
-			# Red Hat may install newer headers than the current system
-			dnf downgrade kernel-headers-$(uname -r)
-			ls -la /usr/src/kernels
+		# Fedora-based systems seem to have a newer kernel-devel present than the actual running kernel.
+		# This includes Red Hat, which may install newer headers than the current system: https://access.redhat.com/discussions/4656371?tour=8
+		# Try to detect that and fix it.
+		KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
+		kernel_ver=$( uname -r | cut -d'.' -f1-5 )
+		if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
+			echoerr "kernel-devel mismatch has been detected. Package provides $KERNEL_DEVEL_VERSION, but running kernel is $kernel_ver"
+			echoerr "Installing specific kernel-devel package to match..."
+			dnf install -y kernel-devel-$(uname -r)
+			rpm -qa | grep kernel
+			KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
+			if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
+				echoerr "kernel-devel mismatch still present?"
+			fi
+		else
+			echog "kernel-devel is matched with kernel. Package provides $KERNEL_DEVEL_VERSION, and running kernel is $kernel_ver"
 		fi
-		#dnf install -y kernel-headers-$(uname -r)
-		dnf list installed | grep kernel-headers
-		rpm -qa | grep kernel
 	else
 		echoerr "Unable to install potential DAHDI prerequisites"
 		sleep 2
@@ -1519,7 +1537,12 @@ install_dahdi() {
 	fi
 
 	# Merged in master, but not yet in a current release
-	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d932d9fbc8b3559829a76fffcedceb78d1fc1887.diff"
+	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d7bbc8a96fe767bc4eee15dd43170f298282a4c3.diff" # RHEL fixes for const struct device *dev
+	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d932d9fbc8b3559829a76fffcedceb78d1fc1887.diff" # dahdi_spantype fix
+
+	# Not yet merged
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/57.diff" # PR 57: RHEL build fixes
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/58.diff" # PR 58: non-RHEL build fixes for older kernels
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -1576,6 +1599,13 @@ install_dahdi() {
 		echoerr "IPv6 is disabled, forcing driver downloads to use only IPv4..."
 		sed -i 's/WGET_ARGS:=--continue/WGET_ARGS:=--inet4-only --continue/g' drivers/dahdi/firmware/Makefile
 		grep "WGET" drivers/dahdi/firmware/Makefile
+	fi
+
+	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
+		# For some reason, tor2 won't compile on older kernels due to missing target for "makefw"
+		# But if we compile it by its full name first, that takes care of that
+		# TODO BUGBUG This is a build order bug that should be addressed in the build system
+		make $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/makefw $DAHDI_CFLAGS
 	fi
 
 	make -j$(nproc) $DAHDI_CFLAGS
@@ -2833,7 +2863,6 @@ elif [ "$cmd" = "install" ]; then
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
 	quell_mysql
-	printf "%s\n" "Installing prerequisites..."
 	install_prereq # This must be done before any other packages are installed since we'll skip package install checks if package manager was used recently.
 	if [ "$DEVMODE" = "1" ]; then
 		# Install the Linux headers if we can, but don't abort if we can't.
@@ -3204,6 +3233,7 @@ elif [ "$cmd" = "freepbx" ]; then
 	install_freepbx
 elif [ "$cmd" = "dahdi" ]; then
 	assert_root
+	install_prereq # Install basic build requirements
 	install_dahdi
 elif [ "$cmd" = "wanpipe" ]; then
 	assert_root
