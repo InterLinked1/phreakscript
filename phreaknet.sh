@@ -195,10 +195,7 @@ AST_NEXT_MAJOR_VER=22
 AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
 AST_MM_VER=0
 AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
-# This was meant to be -testing, but ended up being -testing-rc#,
-# if this is fixed, this will need to be adjusted accordingly.
-AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing-rc1"
-AST_RC_SOURCE_NAME2="asterisk-${AST_DEFAULT_MAJOR_VER}-testing-rc2"
+AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing"
 
 # DAHDI_MM_VER="${DAHDI_VERSION:0:1}${DAHDI_VERSION:2:1}" Requires bash
 DAHDI_MM_VER=34
@@ -2418,15 +2415,8 @@ get_source() {
 	if [ "$AST_ALT_VER" = "" ]; then # download latest bundled version
 		if [ "$PREFER_RELEASE_CANDIDATES" = "1" ]; then
 			# Delete any previous release candidates
-			rm -f $AST_RC_SOURCE_NAME.tar.gz $AST_RC_SOURCE_NAME2.tar.gz # the name itself doesn't guarantee that the version is the same
+			rm -f $AST_RC_SOURCE_NAME.tar.gz # the name itself doesn't guarantee that the version is the same
 			$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_RC_SOURCE_NAME.tar.gz
-			if [ ! -f $AST_RC_SOURCE_NAME.tar.gz ]; then
-				# XXX This is a workaround for the -testing tarballs including the rc name (which wasn't the intent)
-				# Look for a 2nd RC if there is one.
-				# Very rarely there may be a 3rd one, and this is not yet handled here.
-				AST_RC_SOURCE_NAME="$AST_RC_SOURCE_NAME2"
-				$WGET https://downloads.asterisk.org/pub/telephony/asterisk/$AST_RC_SOURCE_NAME.tar.gz
-			fi
 			if [ ! -f $AST_RC_SOURCE_NAME.tar.gz ]; then
 				printf "No release candidate is currently available, installing latest stable version instead\n"
 				PREFER_RELEASE_CANDIDATES=0
