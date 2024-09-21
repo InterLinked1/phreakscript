@@ -2081,7 +2081,8 @@ postsocket:
 					if (invalid_telenumeric_id(var->value, 0)) {
 						ast_log(LOG_ERROR, "Invalid sensor ID '%s' (must contain only 0-9 and A-D)\n", var->value);
 						ast_free(s);
-						goto nextsensor;
+						s = NULL;
+						break;
 					}
 					ast_copy_string(s->sensor_id, var->value, sizeof(s->sensor_id));
 				} else if (!strcasecmp(var->name, "disarm_delay") && !ast_strlen_zero(var->value)) {
@@ -2090,14 +2091,17 @@ postsocket:
 					ast_log(LOG_WARNING, "Unknown keyword in section '%s': %s at line %d of %s\n", cat, var->name, var->lineno, CONFIG_FILE);
 				}
 			}
-			if (ast_strlen_zero(s->sensor_id)) {
-				ast_log(LOG_ERROR, "Sensor '%s' missing sensor ID\n", cat);
-				ast_free(s);
-				return -1;
+			/* Using a label after this block triggers warnings in old versions of gcc about label at end of compound statement,
+			 * so just check the pointer: */
+			if (s) {
+				if (ast_strlen_zero(s->sensor_id)) {
+					ast_log(LOG_ERROR, "Sensor '%s' missing sensor ID\n", cat);
+					ast_free(s);
+					return -1;
+				}
+				ast_debug(4, "Initializing alarm sensor %s\n", s->sensor_id);
+				AST_RWLIST_INSERT_TAIL(&c->sensors, s, entry);
 			}
-			ast_debug(4, "Initializing alarm sensor %s\n", s->sensor_id);
-			AST_RWLIST_INSERT_TAIL(&c->sensors, s, entry);
-nextsensor:
 		} else if (!strcasecmp(type, "keypad")) {
 			struct alarm_client *c;
 			const char *client = ast_variable_retrieve(cfg, cat, "client");
