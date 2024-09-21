@@ -143,6 +143,7 @@ static void free_server(struct irc_server *server)
 	ast_free(server);
 }
 
+#ifdef HAVE_OPENSSL
 static void free_ssl_and_ctx(void)
 {
 	SSL_CTX_free(ctx);
@@ -150,6 +151,7 @@ static void free_ssl_and_ctx(void)
 	ctx = NULL;
 	ssl = NULL;
 }
+#endif
 
 static void irc_cleanup(void)
 {

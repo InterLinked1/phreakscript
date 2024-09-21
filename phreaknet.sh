@@ -230,14 +230,6 @@ WGET="wget -q"
 XMLSTARLET="/usr/bin/xmlstarlet"
 PATH="/sbin:$PATH" # in case su used without path
 
-# Wget2 does not support --show-progress, uses --force-progress instead
-WGET_VERSION=$( wget --version )
-if [ "${WGET_VERSION#*"Wget2"}" != "$WGET_VERSION" ]; then
-	WGET="$WGET --force-progress"
-else
-	WGET="$WGET --show-progress"
-fi
-
 # Defaults
 AST_CC=1 # Country Code (default: 1 - NANPA)
 AST_USER=""
@@ -314,9 +306,14 @@ if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	XMLSTARLET="/usr/local/bin/xml"
 elif [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
 	PAC_MAN="yum"
-	WGET="wget -q" # --show-progress not supported by yum/Sangoma Linux?
 elif [ -f /etc/redhat-release ]; then
 	PAC_MAN="yum"
+elif [ "$OS_DIST_INFO" = "SLES" ]; then
+	PAC_MAN="zypper"
+elif [ "$OS_DIST_INFO" = "openSUSE Tumbleweed" ]; then
+	PAC_MAN="zypper"
+elif [ -r /etc/arch-release ]; then
+	PAC_MAN="pacman"
 elif [ ! -f /etc/debian_version ]; then # Default is Debian
 	echoerr "Support for this platform ($OS_DIST_INFO) is limited... use at your own risk..."
 
@@ -333,6 +330,64 @@ elif [ ! -f /etc/debian_version ]; then # Default is Debian
 	fi
 fi
 
+# If which is not installed, get that before anything
+if ! which "which" > /dev/null; then
+	printf "which does not appear to be present... installing...\n"
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y debianutils
+	elif [ "$PAC_MAN" = "yum" ]; then
+		yum install -y which
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		pacman -Sy --noconfirm which
+	fi
+	if ! which "which" > /dev/null; then
+		echoerr "which is still not installed?"
+	fi
+fi
+
+install_package() {
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y "$1"
+	elif [ "$PAC_MAN" = "yum" ]; then
+		yum install -y "$1"
+	elif [ "$PAC_MAN" = "zypper" ]; then
+		zypper install -y "$1"
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		pacman -Sy --noconfirm "$1"
+	elif [ "$PAC_MAN" = "pkg" ]; then
+		pkg install -y "$1"
+	else
+		echoerr "Not sure how to satisfy requirement $1"
+	fi
+}
+
+ensure_installed() {
+	if ! which "$1" > /dev/null; then
+		install_package "$1"
+	fi
+}
+
+# Now that packages are detected, install wget if necessary
+ensure_installed "wget"
+
+# Wget2 does not support --show-progress, uses --force-progress instead
+WGET_VERSION=$( wget --version )
+if [ "${WGET_VERSION#*"Wget2"}" != "$WGET_VERSION" ]; then
+	WGET="$WGET --force-progress"
+else
+	WGET="$WGET --show-progress"
+fi
+
+if [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
+	WGET="wget -q" # --show-progress not supported by yum/Sangoma Linux?
+fi
+
+# If getopt is not present, install it
+if ! which "getopt" > /dev/null; then
+	install_package "util-linux" # named the same in most every distro
+fi
+ensure_installed "hostname"
+
 phreakscript_info() {
 	printf "%s" "Hostname: "
 	hostname
@@ -341,6 +396,7 @@ phreakscript_info() {
 	echo $OS_DIST_INFO
 	uname -a
 	echo "Package Manager: $PAC_MAN"
+	echo "wget version: $WGET_VERSION"
 	gcc -v 2>&1 | grep "gcc version"
 	asterisk -V 2> /dev/null # Asterisk might or might not exist...
 	if [ -d /etc/dahdi ]; then
@@ -843,7 +899,8 @@ install_prereq() {
 		apt-get install -y debconf-utils
 		apt-get -y autoremove
 	elif [ "$PAC_MAN" = "yum" ]; then
-		yum install -y git patch subversion
+		yum update -y
+		yum install -y git patch subversion gcc gcc-c++ pkg-config autoconf automake m4 libtool libuuid-devel libxml2-devel sqlite-devel
 		# Stop on RHEL systems without an active subscription
 		if ! which git > /dev/null; then
 			if [ -f /etc/redhat-release ]; then
@@ -854,33 +911,35 @@ install_prereq() {
 		# Rocky Linux seems to be missing libedit-devel, and this package is "missing"
 		if [ "$OS_DIST_INFO" = "Rocky Linux release 8.9 (Green Obsidian)" ]; then
 			dnf --enablerepo=devel install -y libedit-devel
+		else
+			yum install -y libedit-devel # Required on Fedora, may fail initially on Rocky Linux 8.9
 		fi
+	elif [ "$PAC_MAN" = "zypper" ]; then
+		# TODO Some of these should be in Asterisk's install_prereq script
+		zypper update -y
+		zypper install -y git-core make patch gawk subversion bzip2 gcc-c++ libedit-devel libuuid-devel libxml2-devel sqlite3-devel
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		pacman -Syu --noconfirm
+		pacman -Sy --noconfirm git make patch subversion gcc pkg-config autoconf automake m4 libtool libedit
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg update -f
 		pkg upgrade -y
 		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl mpg123 git bind-tools gmake subversion xmlstarlet # bind-tools for dig
 		pkg info e2fsprogs-libuuid
-		#if [ $? -ne 0 ]; then
-		#	if [ ! -d /usr/ports/misc/e2fsprogs-libuuid/ ]; then # https://www.freshports.org/misc/e2fsprogs-libuuid/
-		#		portsnap fetch extract
-		#	fi
-		#	cd /usr/ports/misc/e2fsprogs-libuuid/ && make install clean # for uuid-dev
-		#	pkg install misc/e2fsprogs-libuuid
-		#fi
+		if [ $? -ne 0 ]; then
+			if [ ! -d /usr/ports/misc/e2fsprogs-libuuid/ ]; then # https://www.freshports.org/misc/e2fsprogs-libuuid/
+				portsnap fetch extract
+			fi
+			cd /usr/ports/misc/e2fsprogs-libuuid/ && make install clean # for uuid-dev
+			pkg install misc/e2fsprogs-libuuid
+		fi
 	else
 		echoerr "Could not determine what package manager to use..."
 	fi
-}
-
-ensure_installed() {
-	if ! which "$1" > /dev/null; then
-		if [ "$PAC_MAN" = "apt-get" ]; then
-			apt-get install -y "$1"
-		elif [ "$PAC_MAN" = "yum" ]; then
-			yum install -y "$1"
-		else
-			echoerr "Not sure how to satisfy requirement $1"
-		fi
+	# Dump gcc version
+	gcc -v 2>&1 | grep "gcc version"
+	if [ ! -d $AST_SOURCE_PARENT_DIR ]; then
+		mkdir $AST_SOURCE_PARENT_DIR
 	fi
 }
 
@@ -1199,7 +1258,10 @@ install_testsuite_itself() {
 
 configure_devmode() {
 	./configure --enable-dev-mode --with-jansson-bundled --with-pjproject-bundled
-	make menuselect.makeopts
+	if [ $? -ne 0 ]; then
+		exit 2
+	fi
+	$AST_MAKE menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable COMPILE_DOUBLE --enable DO_CRASH menuselect.makeopts
 	menuselect/menuselect --enable DEBUG_THREADS --enable MALLOC_DEBUG --enable DEBUG_FD_LEAKS menuselect.makeopts
 	menuselect/menuselect --enable TEST_FRAMEWORK --enable-category MENUSELECT_TESTS menuselect.makeopts
@@ -1218,8 +1280,8 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	# Ensure we're compiled with dev mode, or recompile in dev mode if needed
 	configure_devmode
-	make
-	make install
+	$AST_MAKE
+	$AST_MAKE install
 	install_testsuite_itself
 }
 
@@ -1387,7 +1449,9 @@ linux_headers_info() {
 	uname -r
 	printf "Available headers for your system: \n"
 	printf "You may need to upgrade your kernel using apt-get dist-upgrade to install the build headers for your system.\n"
-	apt search linux-headers 2>1 | grep "linux-headers"
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt search linux-headers 2>1 | grep "linux-headers"
+	fi
 	printf "Installed:\n"
 	ls -la /lib/modules/
 }
@@ -1437,10 +1501,18 @@ install_dahdi() {
 			KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
 			if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
 				echoerr "kernel-devel mismatch still present?"
+				exit 1
 			fi
 		else
 			echog "kernel-devel is matched with kernel. Package provides $KERNEL_DEVEL_VERSION, and running kernel is $kernel_ver"
 		fi
+	elif [ "$PAC_MAN" = "zypper" ]; then
+		zypper install -y kernel-source
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		pacman -Sy --noconfirm linux-headers
+	elif [ "$PAC_MAN" = "pkg" ]; then
+		echoerr "DAHDI is not supported on FreeBSD! Proceed at your own risk!"
+		sleep 2
 	else
 		echoerr "Unable to install potential DAHDI prerequisites"
 		sleep 2
@@ -1470,6 +1542,10 @@ install_dahdi() {
 	# just in case, for some reason, these already existed... don't let them throw everything off:
 	rm -f dahdi-linux-current.tar.gz dahdi-tools-current.tar.gz $DAHLIN_SRC_NAME $DAHTOOL_SRC_NAME
 	$WGET $DAHLIN_SRC_URL
+	if [ ! -f $DAHLIN_SRC_NAME ]; then
+		# If this happens, wget is probably not installed
+		die "Failed to download $DAHLIN_SRC_URL... is wget installed?"
+	fi
 	$WGET $DAHTOOL_SRC_URL
 	DAHDI_LIN_SRC_DIR=`tar -tzf $DAHLIN_SRC_NAME | head -1 | cut -f1 -d"/"`
 	DAHDI_TOOLS_SRC_DIR=`tar -tzf $DAHTOOL_SRC_NAME | head -1 | cut -f1 -d"/"`
@@ -1602,16 +1678,16 @@ install_dahdi() {
 		# For some reason, tor2 won't compile on older kernels due to missing target for "makefw"
 		# But if we compile it by its full name first, that takes care of that
 		# TODO BUGBUG This is a build order bug that should be addressed in the build system
-		make $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/makefw $DAHDI_CFLAGS
+		$AST_MAKE $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/makefw $DAHDI_CFLAGS
 	fi
 
-	make -j$(nproc) $DAHDI_CFLAGS
+	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
 		exit 1
 	fi
-	make install $DAHDI_CFLAGS
-	make all install config $DAHDI_CFLAGS
+	$AST_MAKE install $DAHDI_CFLAGS
+	$AST_MAKE all install config $DAHDI_CFLAGS
 
 	# DAHDI Tools
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
@@ -1634,14 +1710,21 @@ install_dahdi() {
 
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
 	./configure
-	make -j$(nproc) $DAHDI_CFLAGS
+	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Tools compilation failed, aborting install"
 		exit 1
 	fi
-	make install
-	make config
-	make install-config
+	$AST_MAKE install
+	$AST_MAKE install-config
+
+	if [ -d /usr/include/dahdi ] && [ -f /usr/include/dahdi/user.h ] && [ ! -f /usr/include/dahdi/tonezone.h ]; then
+		# For some reason, tonezone.h (which is part of dahdi-tools, not dahdi-linux), ends up not installed
+		# in the system headers directory on some systems (e.g. Arch Linux)
+		# Just copy it there manually in this case
+		echoerr "tonezone.h was not found to be installed in the system headers... manually installing it"
+		cp tonezone.h /usr/include/dahdi
+	fi
 
 	# All right, here we go...
 	dahdi_scan -vvvvv
@@ -1685,7 +1768,7 @@ install_dahdi() {
 	tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
 	rm ${LIBPRI_SOURCE_NAME}.tar.gz
 	cd ${LIBPRI_SOURCE_NAME}
-	make && make install
+	$AST_MAKE && $AST_MAKE install
 
 	# LibSS7
 	cd $AST_SOURCE_PARENT_DIR
@@ -1694,7 +1777,7 @@ install_dahdi() {
 	rm ${LIBSS7_VERSION}.tar.gz
 	ls -la
 	cd libss7-${LIBSS7_VERSION}
-	make && make install
+	$AST_MAKE && $AST_MAKE install
 
 	# Wanpipe
 	if [ "$DAHDI_WANPIPE" = "1" ]; then
@@ -2072,7 +2155,9 @@ freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6ca
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-Makefile"
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-agi_Makefile"
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-channels_chan__dahdi.c"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-channels_sip_include_sip.h"
+	if [ "$CHAN_SIP" = "1" ]; then
+		freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-channels_sip_include_sip.h"
+	fi
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-configure"
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-contrib_Makefile"
 	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_Makefile"
@@ -2491,7 +2576,7 @@ get_source() {
 	if [ "$AST_SRC_DIR" = "" ]; then
 		die "No Asterisk source directory available, aborting..."
 	fi
-	printf "%s\n" "Installing production version $AST_SRC_DIR..."
+	printf "%s\n" "Installing version $AST_SRC_DIR..."
 	if [ "$AST_ALT_VER" != "git" ]; then
 		tar -zxvf $EFF_SOURCE_NAME.tar.gz
 		rm $EFF_SOURCE_NAME.tar.gz
@@ -2523,6 +2608,26 @@ get_source() {
 		printf "chan_sip was not natively present in this version of Asterisk\n"
 		ENHANCED_CHAN_SIP=1 # chan_sip isn't present anymore, we need to readd it ourselves (if we're going to build chan_sip at all)
 	fi
+	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
+		if [ "$ENHANCED_CHAN_SIP" != "1" ]; then
+			echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Consider migrating to chan_pjsip at your convenience."
+		else
+			echoerr "chan_sip was deprecated and removed in Asterisk 21. It is still present for your usage, but consider migrating to chan_pjsip at your convenience."
+			printf "Fetching chan_sip to readd to source tree\n"
+			wget https://raw.githubusercontent.com/InterLinked1/chan_sip/master/chan_sip_reinclude.sh
+			chmod +x chan_sip_reinclude.sh
+			./chan_sip_reinclude.sh
+		fi
+	fi
+	if [ "$ALSA" = "1" ]; then
+		# chan_alsa was removed in Asterisk 21, and with it, the support for ALSA lib detection in the build system. Add it back if needed.
+		lines=$(grep "HAVE_ALSA" include/asterisk/autoconfig.h | wc -l)
+		if [ $lines -eq 0 ]; then
+			printf "Patching build system to detect ALSA library\n"
+			git_patch "alsa.diff"
+			./bootstrap.sh # Regenerate configure and include/asterisk/autoconfig.h.in
+		fi
+	fi
 	if [ "$SIP_CISCO" = "1" ]; then # ASTERISK-13145 (https://issues.asterisk.org/jira/browse/ASTERISK-13145)
 		if [ ! -f channels/chan_sip.c ]; then
 			die "chan_sip is not present in this source, please add the --sip option"
@@ -2540,6 +2645,8 @@ get_source() {
 	# Do this BEFORE running the script so that the script will see the files present and just patch and exit.
 	svn --non-interactive --trust-server-cert export https://svn.digium.com/svn/thirdparty/mp3/trunk addons/mp3
 	./contrib/scripts/get_mp3_source.sh
+
+	git_custom_patch "https://github.com/InterLinked1/asterisk/commit/d389a0b14569ab60daac73391e66d57fbbabdadb.diff" # astfd compiler fix
 
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		# Add PhreakNet patches
@@ -2848,7 +2955,11 @@ elif [ "$cmd" = "install" ]; then
 		sleep 2
 	fi
 	if [ "$PKG_AUDIT" = "1" ]; then
-		pkg_before=$( apt list --installed )
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			pkg_before=$( apt list --installed )
+		else
+			echoerr "Distro not supported for package audit"
+		fi
 	fi
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
@@ -2856,10 +2967,12 @@ elif [ "$cmd" = "install" ]; then
 	install_prereq # This must be done before any other packages are installed since we'll skip package install checks if package manager was used recently.
 	if [ "$DEVMODE" = "1" ]; then
 		# Install the Linux headers if we can, but don't abort if we can't.
-		apt-get install -y linux-headers-`uname -r`
-		if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
-			echoerr "DAHDI is potentially incompatible with this system (missing kernel build headers)"
-			linux_headers_info
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			apt-get install -y linux-headers-`uname -r`
+			if [ $? -ne 0 ]; then # we're not installing DAHDI, but warn about this so we know we can't.
+				echoerr "DAHDI is potentially incompatible with this system (missing kernel build headers)"
+				linux_headers_info
+			fi
 		fi
 	fi
 	assert_root
@@ -2897,17 +3010,6 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	./contrib/scripts/install_prereq install
 
-	# Modify build system if needed
-	if [ "$ALSA" = "1" ]; then
-		# chan_alsa was removed in Asterisk 21, and with it, the support for ALSA lib detection in the build system. Add it back if needed.
-		lines=$(grep "HAVE_ALSA" include/asterisk/autoconfig.h | wc -l)
-		if [ $lines -eq 0 ]; then
-			printf "Patching build system to detect ALSA library\n"
-			git_patch "alsa.diff"
-			./bootstrap.sh # Regenerate configure and include/asterisk/autoconfig.h.in
-		fi
-	fi
-
 	if [ "$DEVMODE" = "1" ]; then
 		configure_devmode
 	else
@@ -2943,18 +3045,11 @@ elif [ "$cmd" = "install" ]; then
 		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
 	fi
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
-		if [ "$ENHANCED_CHAN_SIP" != "1" ]; then
-			echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Consider migrating to chan_pjsip at your convenience."
-		else
-			echoerr "chan_sip was deprecated and removed in Asterisk 21. It is still present for your usage, but consider migrating to chan_pjsip at your convenience."
-			printf "Fetching chan_sip to readd to source tree\n"
-			wget https://raw.githubusercontent.com/InterLinked1/chan_sip/master/chan_sip_reinclude.sh
-			chmod +x chan_sip_reinclude.sh
-			./chan_sip_reinclude.sh
-		fi
 		menuselect/menuselect --enable chan_sip menuselect.makeopts
 	else
-		menuselect/menuselect --disable chan_sip menuselect.makeopts # remove this in version 21
+		if [ $AST_MAJOR_VER -lt 21 ]; then
+			menuselect/menuselect --disable chan_sip menuselect.makeopts
+		fi
 	fi
 	# in 19+, ADSI is not built by default. We should always build and enable it.
 	menuselect/menuselect --enable res_adsi --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
@@ -3040,6 +3135,8 @@ elif [ "$cmd" = "install" ]; then
 
 	if [ $? -ne 0 ]; then
 		if [ ! -f channels/chan_dahdi.o ]; then
+			echoerr "Compilation of chan_dahdi failed?"
+			ls -la /usr/include/dahdi
 			# Debug failed chan_dahdi compilation
 			# chan_dahdi.c:7677:18: error: unused variable 'x' [-Werror=unused-variable]
 			# 7677 |         int res, x;
@@ -3167,7 +3264,7 @@ elif [ "$cmd" = "install" ]; then
 				git apply "3c90b6447b17639c52b47ed61cfb154b15ee84ec.patch"
 			fi
 			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
-			make -j$(nproc) && make install && make reload
+			$AST_MAKE -j$(nproc) && $AST_MAKE install && $AST_MAKE reload
 			if [ $? -ne 0 ]; then
 				echoerr "Failed to install chan_sccp"
 				exit 2
@@ -3206,7 +3303,11 @@ elif [ "$cmd" = "install" ]; then
 		install_freepbx
 	fi
 	if [ "$PKG_AUDIT" = "1" ]; then
-		pkg_after=$( apt list --installed )
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			pkg_after=$( apt list --installed )
+		else
+			echoerr "Distro not supported for package audit"
+		fi
 		printf "%s\n" "Package Audit: Before/After"
 		# diff wants a file...
 		printf "%s" "$pkg_before" > /tmp/phreaknet_audit_before.txt
@@ -3242,7 +3343,7 @@ elif [ "$cmd" = "uninstall" ]; then
 		uninstall_freepbx
 	fi
 	cd $AST_SRC_DIR
-	make uninstall
+	$AST_MAKE uninstall
 elif [ "$cmd" = "uninstall-all" ]; then
 	assert_root
 	cd $AST_SOURCE_PARENT_DIR
@@ -3255,7 +3356,7 @@ elif [ "$cmd" = "uninstall-all" ]; then
 		uninstall_freepbx
 	fi
 	cd $AST_SRC_DIR
-	make uninstall-all
+	$AST_MAKE uninstall-all
 elif [ "$cmd" = "pulsar" ]; then
 	assert_root
 	require_installed_asterisk
@@ -3429,7 +3530,7 @@ elif [ "$cmd" = "mkdocs" ]; then
 
 	printf "Building documentation... this may take a couple minutes\n"
 
-	make BRANCH=master NO_STATIC=yes
+	$AST_MAKE BRANCH=master NO_STATIC=yes
 
 	printf "Documentation has been built to %s\n" "/tmp/documentation/temp/site"
 elif [ "$cmd" = "pubdocs" ]; then
@@ -3874,10 +3975,10 @@ elif [ "$cmd" = "enable-backtraces" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
-	make menuselect.makeopts
+	$AST_MAKE menuselect.makeopts
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
-	make
-	make install
+	$AST_MAKE
+	$AST_MAKE install
 elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/Valgrind
 	apt-get install -y valgrind
 	cd $AST_SOURCE_PARENT_DIR
@@ -3900,9 +4001,9 @@ elif [ "$cmd" = "malloc-debug" ]; then # https://wiki.asterisk.org/wiki/display/
 	cd $AST_SRC_DIR
 	asterisk -rx "core show settings" | grep "Build Options:" | grep "MALLOC_DEBUG"
 	if [ $? -ne 0 ]; then # either Asterisk isn't running or MALLOC_DEBUG isn't a currently compiler option, so recompile with MALLOC_DEBUG
-		make menuselect.makeopts
+		$AST_MAKE menuselect.makeopts
 		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable MALLOC_DEBUG menuselect.makeopts
-		$AST_MAKE make
+		$AST_MAKE
 		$AST_MAKE install
 	fi
 	cd /tmp
@@ -3957,8 +4058,8 @@ elif [ "$cmd" = "ccache" ]; then
 	tar -zxvf ccache-4.5.1.tar.gz
 	cd ccache-4.5.1
 	cmake -DCMAKE_BUILD_TYPE=Release -DZSTD_FROM_INTERNET=ON -DHIREDIS_FROM_INTERNET=ON ..
-	make
-	make install
+	$AST_MAKE
+	$AST_MAKE install
 	if [ $? -ne 0 ]; then
 		exit 1
 	fi

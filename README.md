@@ -140,9 +140,11 @@ To install with DAHDI, run `phreaknet install --dahdi` (add `--drivers` to also 
 
 For a guided, interactive installation, you can also run `phreaknet wizard`. The wizard will determine what installation options are best for you, based on your preferences.
 
-PhreakScript must be run as root, even if Asterisk does not run as root.
+PhreakScript must be run as root, even if Asterisk will not be installed to run as root.
 
-PhreakScript is primarily supported on Debian-based Linux systems. Support has also been added for FreeBSD. Pull requests to add support for other Linux distros or BSD are welcome.
+PhreakScript is primarily supported on Debian-based Linux systems, and DAHDI and Asterisk are best supported on these platforms.
+Limited support is available for other Linux distros (Fedora, RHEL, Rocky Linux, SUSE, Arch Linux, etc.).
+Extremely limited support exists for FreeBSD, and BSDs (and UNIX in general) are not recommended for running Asterisk/DAHDI - use Linux instead if possible.
 
 ### License
 
