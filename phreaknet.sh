@@ -268,6 +268,7 @@ EXTERNAL_CODECS=0
 RTPULSING=1
 HEARPULSING=1
 HAVE_COMPATIBLE_SPANDSP=1
+PACMAN_UPDATED=0 # Internal flag
 
 handler() {
 	kill $BGPID
@@ -330,36 +331,74 @@ elif [ ! -f /etc/debian_version ]; then # Default is Debian
 	fi
 fi
 
+update_packages() {
+	printf "Updating package manager...\n"
+	PACMAN_UPDATED=1
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		if [ $PACMAN_UPDATED = 0 ]; then
+			# Ubuntu 22.04 prompts for restarts by default, inhibit this: https://askubuntu.com/questions/1367139/apt-get-upgrade-auto-restart-services
+			if [ -f /etc/needrestart/needrestart.conf ]; then
+				sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
+			fi
+			if [ -f /var/cache/apt/pkgcache.bin ] && [ "$FORCE_INSTALL" != "1" ]; then
+				echo $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) ))
+				if [ $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) )) -lt 300 ]; then # within last 5 minutes
+					printf "Package updates occured recently, skipping...\n"
+					return
+				fi
+			fi
+		fi
+		apt-get update -y
+		apt-get upgrade -y
+	elif [ "$PAC_MAN" = "yum" ]; then
+		yum update -y
+	elif [ "$PAC_MAN" = "zypper" ]; then
+		zypper update -y
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		pacman -Syu --noconfirm
+	elif [ "$PAC_MAN" = "pkg" ]; then
+		pkg install -y
+		pkg upgrade -y
+	fi
+}
+
+install_package() {
+	if [ $PACMAN_UPDATED -eq 0 ]; then
+		update_packages
+	fi
+	echo "Installing package(s): " $1 # unquoted, to trim any leading whitespace
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		apt-get install -y $1
+	elif [ "$PAC_MAN" = "yum" ]; then
+		yum install -y $1
+	elif [ "$PAC_MAN" = "zypper" ]; then
+		zypper install -y $1
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		pacman -Sy --noconfirm $1
+	elif [ "$PAC_MAN" = "pkg" ]; then
+		pkg install -y $1
+	else
+		echoerr "Not sure how to satisfy requirement: $1"
+	fi
+	if [ $? -ne 0 ]; then
+		echoerr "Package installation failed: $1"
+	fi
+}
+
 # If which is not installed, get that before anything
 if ! which "which" > /dev/null; then
 	printf "which does not appear to be present... installing...\n"
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y debianutils
+		install_package "debianutils"
 	elif [ "$PAC_MAN" = "yum" ]; then
-		yum install -y which
+		install_package "which"
 	elif [ "$PAC_MAN" = "pacman" ]; then
-		pacman -Sy --noconfirm which
+		install_package "which"
 	fi
 	if ! which "which" > /dev/null; then
 		echoerr "which is still not installed?"
 	fi
 fi
-
-install_package() {
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y "$1"
-	elif [ "$PAC_MAN" = "yum" ]; then
-		yum install -y "$1"
-	elif [ "$PAC_MAN" = "zypper" ]; then
-		zypper install -y "$1"
-	elif [ "$PAC_MAN" = "pacman" ]; then
-		pacman -Sy --noconfirm "$1"
-	elif [ "$PAC_MAN" = "pkg" ]; then
-		pkg install -y "$1"
-	else
-		echoerr "Not sure how to satisfy requirement $1"
-	fi
-}
 
 ensure_installed() {
 	if ! which "$1" > /dev/null; then
@@ -866,78 +905,97 @@ make_keys_readable() {
 	cd $curdir # Restore original working directory.
 }
 
+# $1 = include Asterisk-only pre-reqs (not needed for DAHDI-only builds)
 install_prereq() {
-	printf "%s\n" "Installing prerequisites..."
+	# wget should already be installed at this point, so it's not included here
+	PREREQ_PACKAGES=""
+	RHEL_MAJOR_VERSION_8=0
+	printf "Installing prerequisites for %s..." "$OS_DIST_INFO"
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		# Ubuntu 22.04 prompts for restarts by default, inhibit this: https://askubuntu.com/questions/1367139/apt-get-upgrade-auto-restart-services
-		if [ -f /etc/needrestart/needrestart.conf ]; then
-			sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
-		fi
-		if [ -f /var/cache/apt/pkgcache.bin ] && [ "$FORCE_INSTALL" != "1" ]; then
-			echo $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) ))
-			if [ $(( ($(date +%s) - $(stat /var/cache/apt/pkgcache.bin  -c %Y)) )) -lt 300 ]; then # within last 5 minutes
-				printf "Package updates occured recently, skipping...\n"
-				return
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc pkg-config autoconf automake m4 libtool build-essential"
+		if [ "$1" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion libcurl4-openssl-dev"
+			if [ "$ENHANCED_INSTALL" = "1" ]; then
+				PREREQ_PACKAGES="$PREREQ_PACKAGES dnsutils bc mpg123 ntp tcpdump festival"
+			fi
+			if [ "$DEVMODE" = "1" ]; then
+				PREREQ_PACKAGES="$PREREQ_PACKAGES xmlstarlet" # only needed in developer mode for doc validation.
 			fi
 		fi
-		apt-get clean
-		apt-get update -y
-		apt-get upgrade -y
-		if [ "$ENHANCED_INSTALL" = "1" ]; then
-			apt-get dist-upgrade -y
-		fi
-		apt-get install -y wget curl libcurl4-openssl-dev dnsutils bc build-essential git subversion patch mpg123 # necessary for install and basic operation.
-		if [ "$ENHANCED_INSTALL" = "1" ]; then # not strictly necessary, but likely useful on many Asterisk systems.
-			apt-get install -y ntp tcpdump festival
-		fi
-		if [ "$DEVMODE" = "1" ]; then
-			apt-get install -y xmlstarlet # only needed in developer mode for doc validation.
-		fi
-		apt-get install -y libedit-dev # Ubuntu also needs this package
+		PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-dev" # Ubuntu also needs this package
 		# apt-get install libcurl3-gnutls=7.64.0-4+deb10u2 # fix git clone not working: upvoted comment at https://superuser.com/a/1642989
-		# used to feed the country code non-interactively
-		apt-get install -y debconf-utils
-		apt-get -y autoremove
+		PREREQ_PACKAGES="$PREREQ_PACKAGES debconf-utils" # used to feed the country code non-interactively
 	elif [ "$PAC_MAN" = "yum" ]; then
-		yum update -y
-		yum install -y git patch subversion gcc gcc-c++ pkg-config autoconf automake m4 libtool libuuid-devel libxml2-devel sqlite-devel
-		# Stop on RHEL systems without an active subscription
+		# Format is something like: Rocky Linux release 8.10 (Green Obsidian)
+		RHEL_MAJOR_VERSION=$( cat /etc/redhat-release | cut -d'(' -f1 | awk '{print $(NF)}' | cut -d'.' -f1 )
+		if [ -f /etc/redhat-release ] && [ "$RHEL_MAJOR_VERSION" = "8" ]; then # RHEL or Rocky Linux major version 8
+			RHEL_MAJOR_VERSION_8=1
+		fi
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc gcc-c++ pkg-config autoconf automake m4 libtool"
+		if [ "$1" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libuuid-devel libxml2-devel sqlite-devel"
+			if [ $RHEL_MAJOR_VERSION_8 -eq 0 ]; then
+				PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel" # Required on Fedora, may fail initially on Rocky Linux 8.9
+			fi
+		fi
+	elif [ "$PAC_MAN" = "zypper" ]; then
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk subversion bzip2 gcc-c++"
+		if [ "$1" = "1" ]; then
+			# TODO Some of these should be in Asterisk's install_prereq script
+			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel libuuid-devel libxml2-devel sqlite3-devel"
+		fi
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gcc pkg-config autoconf automake m4 libtool"
+		if [ "$1" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libedit"
+		fi
+	elif [ "$PAC_MAN" = "pkg" ]; then
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git gmake"
+		if [ "$1" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion e2fsprogs-libuuid sqlite3 xmlstarlet"
+			if [ "$ENHANCED_INSTALL" = "1" ]; then
+				PREREQ_PACKAGES="$PREREQ_PACKAGES ntp tcpdump mpg123 bind-tools" # bind-tools for dig
+			fi
+		fi
+	else
+		echoerr "Could not determine what package manager to use..."
+		return
+	fi
+
+	install_package "$PREREQ_PACKAGES"
+
+	# Any followup work
+	if [ "$PAC_MAN" = "yum" ]; then
+		# Stop on RHEL systems without an active subscription since packages are failing to install
 		if ! which git > /dev/null; then
 			if [ -f /etc/redhat-release ]; then
 				echoerr "Subscription required to use RHEL package manager"
 			fi
 			die "Git does not appear to be installed"
 		fi
-		# Rocky Linux seems to be missing libedit-devel, and this package is "missing"
-		if [ "$OS_DIST_INFO" = "Rocky Linux release 8.9 (Green Obsidian)" ]; then
-			dnf --enablerepo=devel install -y libedit-devel
-		else
-			yum install -y libedit-devel # Required on Fedora, may fail initially on Rocky Linux 8.9
-		fi
-	elif [ "$PAC_MAN" = "zypper" ]; then
-		# TODO Some of these should be in Asterisk's install_prereq script
-		zypper update -y
-		zypper install -y git-core make patch gawk subversion bzip2 gcc-c++ libedit-devel libuuid-devel libxml2-devel sqlite3-devel
-	elif [ "$PAC_MAN" = "pacman" ]; then
-		pacman -Syu --noconfirm
-		pacman -Sy --noconfirm git make patch subversion gcc pkg-config autoconf automake m4 libtool libedit
-	elif [ "$PAC_MAN" = "pkg" ]; then
-		pkg update -f
-		pkg upgrade -y
-		pkg install -y e2fsprogs-libuuid wget sqlite3 ntp tcpdump curl mpg123 git bind-tools gmake subversion xmlstarlet # bind-tools for dig
-		pkg info e2fsprogs-libuuid
-		if [ $? -ne 0 ]; then
-			if [ ! -d /usr/ports/misc/e2fsprogs-libuuid/ ]; then # https://www.freshports.org/misc/e2fsprogs-libuuid/
-				portsnap fetch extract
+		if [ "$1" = "1" ]; then
+			if [ $RHEL_MAJOR_VERSION_8 -eq 1 ]; then
+				# Rocky Linux seems to be missing libedit-devel, and this package is "missing"
+				printf "Installing libedit-devel from the devel repo\n"
+				dnf --enablerepo=devel install -y libedit-devel
 			fi
-			cd /usr/ports/misc/e2fsprogs-libuuid/ && make install clean # for uuid-dev
-			pkg install misc/e2fsprogs-libuuid
 		fi
-	else
-		echoerr "Could not determine what package manager to use..."
+	elif [ "$PAC_MAN" = "pkg" ]; then
+		if [ "$1" = "1" ]; then
+			pkg info e2fsprogs-libuuid
+			if [ $? -ne 0 ]; then
+				if [ ! -d /usr/ports/misc/e2fsprogs-libuuid/ ]; then # https://www.freshports.org/misc/e2fsprogs-libuuid/
+					portsnap fetch extract
+				fi
+				cd /usr/ports/misc/e2fsprogs-libuuid/ && make install clean # for uuid-dev
+				pkg install misc/e2fsprogs-libuuid
+			fi
+		fi
 	fi
+
 	# Dump gcc version
 	gcc -v 2>&1 | grep "gcc version"
+	# /usr/local/src doesn't exist by default on FreeBSD
 	if [ ! -d $AST_SOURCE_PARENT_DIR ]; then
 		mkdir $AST_SOURCE_PARENT_DIR
 	fi
@@ -1033,7 +1091,7 @@ install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asteri
 		echoerr "Failed to find FreePBX source directory"
 		return
 	fi
-	apt-get install -y nodejs
+	install_package "nodejs"
 	phreak_tree_patch "installlib/installcommand.class.php" "freepbx_installvercheck.diff" # bug fix to installer
 	./install -n
 	if [ $? -ne 0 ]; then
@@ -1143,7 +1201,7 @@ run_testsuite_tests() {
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
 	# run manually for good measure, and so we get the full output
-	apt-get install -y python3.11-venv
+	install_package "python3.11-venv"
 	./setupVenv.sh
 
 	run_testsuite_test "apps/assert"
@@ -1481,41 +1539,54 @@ linux_headers_install_apt() {
 }
 
 install_dahdi() {
-	if [ "$PAC_MAN" = "apt-get" ]; then
-		apt-get install -y build-essential binutils-dev dh-autoreconf libusb-dev
-		apt-get install -y pkg-config m4 libtool automake autoconf git
-		linux_headers_install_apt
-	elif [ "$PAC_MAN" = "yum" ]; then
-		dnf install -y m4 libtool automake autoconf kernel-devel kernel-headers
-		dnf list installed 'kernel*'
-		# Fedora-based systems seem to have a newer kernel-devel present than the actual running kernel.
-		# This includes Red Hat, which may install newer headers than the current system: https://access.redhat.com/discussions/4656371?tour=8
-		# Try to detect that and fix it.
-		KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
-		kernel_ver=$( uname -r | cut -d'.' -f1-5 )
-		if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
-			echoerr "kernel-devel mismatch has been detected. Package provides $KERNEL_DEVEL_VERSION, but running kernel is $kernel_ver"
-			echoerr "Installing specific kernel-devel package to match..."
-			dnf install -y kernel-devel-$(uname -r)
-			rpm -qa | grep kernel
+	# Install the kernel headers
+	if [ "$KSRC" = "" ]; then
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			install_package "kmod binutils-dev dh-autoreconf libusb-dev"
+			linux_headers_install_apt
+		elif [ "$PAC_MAN" = "yum" ]; then
+			install_package "kmod kernel-devel kernel-headers"
+			dnf list installed 'kernel*'
+			# Fedora-based systems seem to have a newer kernel-devel present than the actual running kernel.
+			# This includes Red Hat, which may install newer headers than the current system: https://access.redhat.com/discussions/4656371?tour=8
+			# Try to detect that and fix it.
 			KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
+			kernel_ver=$( uname -r | cut -d'.' -f1-5 )
 			if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
-				echoerr "kernel-devel mismatch still present?"
-				exit 1
+				echoerr "kernel-devel mismatch has been detected. Package provides $KERNEL_DEVEL_VERSION, but running kernel is $kernel_ver"
+				echoerr "Installing specific kernel-devel package to match..."
+				dnf install -y kernel-devel-$(uname -r)
+				rpm -qa | grep kernel
+				KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
+				if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
+					echoerr "kernel-devel mismatch still present?"
+					if [ "$GENERIC_HEADERS" != "1" ]; then
+						exit 1
+					fi
+				fi
+			else
+				echog "kernel-devel is matched with kernel. Package provides $KERNEL_DEVEL_VERSION, and running kernel is $kernel_ver"
 			fi
+		elif [ "$PAC_MAN" = "zypper" ]; then
+			install_package "kmod kernel-source"
+		elif [ "$PAC_MAN" = "pacman" ]; then
+			install_package "kmod linux-headers"
+		elif [ "$PAC_MAN" = "pkg" ]; then
+			echoerr "DAHDI is not supported on FreeBSD! Proceed at your own risk!"
+			sleep 2
 		else
-			echog "kernel-devel is matched with kernel. Package provides $KERNEL_DEVEL_VERSION, and running kernel is $kernel_ver"
+			echoerr "Unable to install potential DAHDI prerequisites"
+			sleep 2
 		fi
-	elif [ "$PAC_MAN" = "zypper" ]; then
-		zypper install -y kernel-source
-	elif [ "$PAC_MAN" = "pacman" ]; then
-		pacman -Sy --noconfirm linux-headers
-	elif [ "$PAC_MAN" = "pkg" ]; then
-		echoerr "DAHDI is not supported on FreeBSD! Proceed at your own risk!"
-		sleep 2
-	else
-		echoerr "Unable to install potential DAHDI prerequisites"
-		sleep 2
+
+		# Check that the kernel sources are really present
+		# /usr/src/linux-headers-* on Debian
+		# /usr/src/kernels on Rocky Linux
+		numkernheaders=$( ls /usr/src/linux-headers-* /usr/src/kernels/* 2>/dev/null | wc -w )
+		if [ "$numkernheaders" = "0" ]; then
+			echoerr "Kernel headers do not appear to be installed... compilation will likely fail"
+			sleep 2
+		fi
 	fi
 
 	# Requests to downloads.digium.com usually use IPv4, but sometimes use IPv6
@@ -1527,15 +1598,6 @@ install_dahdi() {
 		printf "IPv6 Disabled: "
 		sysctl net.ipv6.conf.all.disable_ipv6
 		IPV6_DISABLED=$( sysctl net.ipv6.conf.all.disable_ipv6 | cut -d '=' -f2 | xargs | tr -d '\n' )
-	fi
-
-	# Check that the kernel sources are really present
-	# /usr/src/linux-headers-* on Debian
-	# /usr/src/kernels on Rocky Linux
-	numkernheaders=$( ls /usr/src/linux-headers-* /usr/src/kernels/* 2>/dev/null | wc -w )
-	if [ "$numkernheaders" = "0" ]; then
-		echoerr "Kernel headers do not appear to be installed... compilation will likely fail"
-		sleep 2
 	fi
 
 	cd $AST_SOURCE_PARENT_DIR
@@ -1616,6 +1678,10 @@ install_dahdi() {
 	# Not yet merged
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/57.diff" # PR 57: RHEL build fixes
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/58.diff" # PR 58: non-RHEL build fixes for older kernels
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/60.diff" # PR 60: Fix old style declaration error on newer systems
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/62.diff" # PR 62: Rename MAX to MAX_ATTEMPTS to avoid macro redefinition
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/64.diff" # PR 64: More struct device to const struct device
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/66.diff" # PR 66: Add braces around empty if body
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -1681,13 +1747,13 @@ install_dahdi() {
 		$AST_MAKE $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/makefw $DAHDI_CFLAGS
 	fi
 
+	# if KSRC/KVERS env vars are set, they will automatically propagate to children
 	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		echoerr "DAHDI Linux compilation failed, aborting install"
 		exit 1
 	fi
 	$AST_MAKE install $DAHDI_CFLAGS
-	$AST_MAKE all install config $DAHDI_CFLAGS
 
 	# DAHDI Tools
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
@@ -2906,7 +2972,7 @@ elif [ "$cmd" = "source" ]; then
 		{ git --version >/dev/null && svn help >/dev/null; } || { echoerr "Please install git and subversion packages and try again."; exit 2; }
 	else
 		# we are already root, so just install prereqs
-		install_prereq
+		install_prereq 1
 	fi
 	AST_SOURCE_PARENT_DIR=$PWD
 	get_source
@@ -2964,7 +3030,7 @@ elif [ "$cmd" = "install" ]; then
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
 	quell_mysql
-	install_prereq # This must be done before any other packages are installed since we'll skip package install checks if package manager was used recently.
+	install_prereq 1 # This must be done before any other packages are installed since we'll skip package install checks if package manager was used recently.
 	if [ "$DEVMODE" = "1" ]; then
 		# Install the Linux headers if we can, but don't abort if we can't.
 		if [ "$PAC_MAN" = "apt-get" ]; then
@@ -3324,7 +3390,7 @@ elif [ "$cmd" = "freepbx" ]; then
 	install_freepbx
 elif [ "$cmd" = "dahdi" ]; then
 	assert_root
-	install_prereq # Install basic build requirements
+	install_prereq 0 # Install basic build requirements
 	install_dahdi
 elif [ "$cmd" = "wanpipe" ]; then
 	assert_root
