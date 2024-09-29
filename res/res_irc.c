@@ -35,6 +35,8 @@
 
 #include "asterisk.h"
 
+#include <signal.h> /* use pthread_kill */
+
 #include "asterisk/lock.h"
 #include "asterisk/channel.h"
 #include "asterisk/pbx.h"

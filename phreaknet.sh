@@ -303,6 +303,7 @@ fi
 if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	PAC_MAN="pkg"
 	AST_SOURCE_PARENT_DIR="/usr/local/src"
+	AST_CONFIG_DIR="/usr/local/etc/asterisk"
 	AST_MAKE="gmake"
 	XMLSTARLET="/usr/local/bin/xml"
 elif [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
@@ -892,8 +893,8 @@ make_keys_readable() {
 	# tlscertfile used by http.conf and sip.conf
 	# Simpler methods of looping on each line of output only work in bash and not POSIX sh
 	echo -n "" > /tmp/astkeylist.txt
-	grep -h -R "tlscertfile" /etc/asterisk | grep -v '<' | cut -d'=' -f 2 | sed 's/^[ \t]*//' | sed '/^;/d' | grep -e ".pem" -e ".key" | cut -d' ' -f 1 >> /tmp/astkeylist.txt
-	grep -h -R "priv_key_file" /etc/asterisk | grep -v '<' | cut -d'=' -f 2 | sed 's/^[ \t]*//' | sed '/^;/d' | grep -e ".pem" -e ".key" | cut -d' ' -f 1 >> /tmp/astkeylist.txt
+	grep -h -R "tlscertfile" $AST_CONFIG_DIR | grep -v '<' | cut -d'=' -f 2 | sed 's/^[ \t]*//' | sed '/^;/d' | grep -e ".pem" -e ".key" | cut -d' ' -f 1 >> /tmp/astkeylist.txt
+	grep -h -R "priv_key_file" $AST_CONFIG_DIR | grep -v '<' | cut -d'=' -f 2 | sed 's/^[ \t]*//' | sed '/^;/d' | grep -e ".pem" -e ".key" | cut -d' ' -f 1 >> /tmp/astkeylist.txt
 
 	while read filename
 	do
@@ -952,7 +953,7 @@ install_prereq() {
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		PREREQ_PACKAGES="$PREREQ_PACKAGES git gmake"
 		if [ "$1" = "1" ]; then
-			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion e2fsprogs-libuuid sqlite3 xmlstarlet"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion e2fsprogs-libuuid sqlite3 xmlstarlet libsysinfo"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
 				PREREQ_PACKAGES="$PREREQ_PACKAGES ntp tcpdump mpg123 bind-tools" # bind-tools for dig
 			fi
@@ -1070,7 +1071,7 @@ install_freepbx_checks() {
 	fi
 	if [ -f $AST_CONFIG_DIR/extensions.conf ]; then
 		if [ "$FORCE_INSTALL" != "1" ]; then
-			echoerr "An existing /etc/asterisk/extensions.conf has been detected on the file system. Installing FreePBX will overwrite ALL OF YOUR CONFIGURATION!!!"
+			echoerr "An existing $AST_CONFIG_DIR/extensions.conf has been detected on the file system. Installing FreePBX will overwrite ALL OF YOUR CONFIGURATION!!!"
 			printf "%s\n" "If this is intended, rerun the command with the -f or --force flag. Be sure to backup your configuration first if desired."
 			exit 2
 		fi
@@ -1124,9 +1125,9 @@ uninstall_freepbx() {
 	# rm -rf /var/lib/asterisk/bin/* # there could be other stuff in here
 	rm -rf /var/www/html/admin/*
 	rm /etc/amportal.conf
-	rm /etc/asterisk/amportal.conf
+	rm $AST_CONFIG_DIR/amportal.conf
 	rm /etc/freepbx.conf
-	rm /etc/asterisk/freepbx.conf
+	rm $AST_CONFIG_DIR/freepbx.conf
 }
 
 run_testsuite_test() {
@@ -1461,9 +1462,15 @@ github_pr() {
 # $2 = 1 to force
 asterisk_pr() {
 	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O /tmp/$1.pr.diff --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff"
+	fi
 	if [ "$2" = "1" ]; then
 		git apply -v "/tmp/$1.pr.diff"
-		patch -p1 -F 3 -f --verbose < "/tmp/$1.pr.diff"
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to apply patch using git apply, retrying directly using patch..."
+			patch -p1 -F 3 -f --verbose < "/tmp/$1.pr.diff"
+		fi
 	else
 		git apply "/tmp/$1.pr.diff"
 	fi
@@ -1822,8 +1829,8 @@ install_dahdi() {
 	else
 		echoerr "No assigned spans"
 	fi
-	if [ -f /etc/asterisk/dahdi-channels.conf ]; then
-		cat /etc/asterisk/dahdi-channels.conf
+	if [ -f $AST_CONFIG_DIR/dahdi-channels.conf ]; then
+		cat $AST_CONFIG_DIR/dahdi-channels.conf
 	else
 		echoerr "No DAHDI channels"
 	fi
@@ -2027,6 +2034,9 @@ asterisk_pr_if() {
 	asterisk_pr_if_single $2 $1
 	asterisk_pr_if_single $3 $1
 	asterisk_pr_if_single $4 $1
+	if [ "$5" != "" ]; then # At some times of the year, there will be 4 branches actively supported
+		asterisk_pr_if_single $5 $1
+	fi
 }
 
 asterisk_pr_unconditional() {
@@ -2123,7 +2133,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		#cd ..
 	fi
 	custom_module "apps/app_fsk.c" "https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c"
-	sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		sed -i '' '/defaultenabled/d' apps/app_fsk.c
+	else
+		sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
+	fi
 
 	## Add patches to existing modules
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application
@@ -2146,13 +2160,15 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		phreak_tree_patch "res/res_srtp.c" "srtp.diff" # Temper SRTCP unprotect warnings. Only beneficial for older ATAs that require older TLS protocols.
 	fi
 
-	## todo: there should be logic to download an rc if it exists, but switch to current if it no longer does.
-
-	printf "Determining patches applicable to %s -> %d (~%s)\n" "$AST_ALT_VER" "$AST_MM_VER" "$AST_MAJOR_VER"
+	printf "Applying patches applicable to %s -> %d (~%s)\n" "$AST_ALT_VER" "$AST_MM_VER" "$AST_MAJOR_VER"
 
 	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
+	#git_custom_patch "https://github.com/InterLinked1/asterisk/commit/d389a0b14569ab60daac73391e66d57fbbabdadb.diff" # astfd compiler fix
+	asterisk_pr_if 901 220100 210600 182600 # astfd compiler fix
+	asterisk_pr_if 903 220100 210600 182600 # voicemail pager email fix
 
 	## Unmerged patches: remove once merged
+	asterisk_pr_unconditional 917 # FreeBSD compilation fixes
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 	git_patch "config_c_fix_template_writing.patch" # config.c: fix template inheritance/overrides
 
@@ -2712,8 +2728,6 @@ get_source() {
 	svn --non-interactive --trust-server-cert export https://svn.digium.com/svn/thirdparty/mp3/trunk addons/mp3
 	./contrib/scripts/get_mp3_source.sh
 
-	git_custom_patch "https://github.com/InterLinked1/asterisk/commit/d389a0b14569ab60daac73391e66d57fbbabdadb.diff" # astfd compiler fix
-
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		# Add PhreakNet patches
 		printf "%s\n" "Beginning custom patches..."
@@ -3191,7 +3205,17 @@ elif [ "$cmd" = "install" ]; then
 		niceval="-15" # -15 to speed up compilation by increasing CPU priority.
 	fi
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		nice $AST_MAKE ASTLDFLAGS=-lcrypt main
+		# For some reason, %%LIBSYSINFO%% is in the linking flags on FreeBSD, remove that from being added. libsysinfo is needed though.
+		# Same with HAVE_CRYPT_R, that's not available but gets detected, so undetect it
+		# Note that these sed expressions are designed for BSD sed, and do not work with GNU sed
+		sed -i '' '/LIBSYSINFO/d' main/Makefile
+		sed -i '' '/HAVE_CRYPT_R/d' include/asterisk/autoconfig.h
+		sed -i "" -e 's|WRAP_LIBC_MALLOC|ASTMM_LIBC ASTMM_REDIRECT|g' addons/mp3/interface.c # for format_mp3
+		sed -i "" -e 's|\\s|s|g' build_tools/make_xml_documentation # fix sed command in this script to remove the backslash for BSD sed
+		nice $AST_MAKE "ASTLDFLAGS=-lcrypt -lsysinfo" main
+		if [ $? -eq 0 ]; then
+			nice $AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+		fi
 	else
 		nice $AST_MAKE -j$(nproc) main # compile 'main' subdirectory first
 		if [ $? -eq 0 ]; then
@@ -3200,6 +3224,7 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	if [ $? -ne 0 ]; then
+		$AST_MAKE NOISY_BUILD=1 # show actual compilation command that failed
 		if [ ! -f channels/chan_dahdi.o ]; then
 			echoerr "Compilation of chan_dahdi failed?"
 			ls -la /usr/include/dahdi

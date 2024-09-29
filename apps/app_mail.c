@@ -32,6 +32,7 @@
 #include "asterisk.h"
 
 #include <sys/stat.h>
+#include <libgen.h> /* for FreeBSD */
 
 #include "asterisk/logger.h"
 #include "asterisk/channel.h"
@@ -125,7 +126,7 @@ static void make_email_file(FILE *p, const char *subject, char *body, const char
 	struct ast_tm tm;
 	char date[256];
 	char host[MAXHOSTNAMELEN] = "";
-	char who[256];
+	char who[257];
 	char bound[256];
 	struct ast_str *str2 = ast_str_create(16);
 	char filename[256];

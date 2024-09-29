@@ -1413,7 +1413,7 @@ static void *call_back_queue(void *data)
 			/* Something happened: perhaps it's our turn to do a callback? Or maybe we were aborted. */
 		}
 		if (call->aborted) { /* CBQ was cancelled. */
-			ast_debug(1, "CBQ thread %lu is ending early\n", call->cbqthread);
+			ast_debug(1, "CBQ thread %ld is ending early\n", (long) call->cbqthread);
 			break;
 		} else if (res) {
 			char cbq_dest[AST_MAX_CONTEXT]; /* Technically not enough for exten@context, but in practice, should be... */
@@ -1534,7 +1534,7 @@ static void *call_back_queue(void *data)
 
 	if (!call->aborted) {
 		/* Hey, we weren't aborted, which means nobody is going to clean up our mess for us. */
-		ast_debug(2, "Thread %lu is ending of its own volition\n", call->cbqthread);
+		ast_debug(2, "Thread %ld is ending of its own volition\n", (long) call->cbqthread);
 		pthread_detach(call->cbqthread);
 		call_free(call, 1);
 	}

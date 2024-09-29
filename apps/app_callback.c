@@ -441,7 +441,7 @@ static void cancel_thread(struct callback_monitor_item *cb, int join)
 {
 	pthread_t thread = cb->thread;
 
-	ast_debug(3, "Instructing thread %lu to exit\n", thread);
+	ast_debug(3, "Instructing callback thread %lu to exit\n", (long) thread);
 
 	ast_mutex_lock(&cb->lock);
 	cb->cancel = 1;
@@ -453,7 +453,7 @@ static void cancel_thread(struct callback_monitor_item *cb, int join)
 		/*! \todo join can cause a segfault on module unload/refresh, but why??? */
 		pthread_join(thread, NULL); /* Thread will now free cb and clean up. */
 	}
-	ast_debug(3, "Thread %lu has exited\n", thread);
+	ast_debug(3, "Thread %ld has exited\n", (long) thread);
 }
 
 static int cancel_exec(struct ast_channel *chan, const char *data)
