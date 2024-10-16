@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2024 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.7 (2024-09-19)
+# v1.1.8 (2024-10-16)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2024-10-16 1.1.8 wanpipe: Installation procedure improvements
 # 2024-09-19 1.1.7 DAHDI: Slipstream critical build fixes, fix build issues on various distros and kernels
 # 2024-09-16 1.1.6 DAHDI: Add patch to enable building of XPP drivers on 32-bit architectures
 # 2024-09-15 1.1.5 DAHDI: Massive overhaul to DAHDI stop/start/restart logic, fixes for manual span assignment
@@ -211,7 +212,7 @@ DAHTOOL_SRC_URL="http://downloads.asterisk.org/pub/telephony/dahdi-tools/dahdi-t
 
 LIBPRI_SOURCE_NAME="libpri-1.6.1"
 LIBSS7_VERSION="2.0.1"
-WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.37.1, 2023-12-21)
+WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.38, 2024-02-05)
 ODBC_VER="3.1.14"
 CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
 MIN_ARGS=1
@@ -1300,6 +1301,15 @@ install_testsuite_itself() {
 	cd $AST_SOURCE_PARENT_DIR
 	cd testsuite
 	./setupVenv.sh
+
+	if [ $? -ne 0 ]; then
+		# Test suite failed to compile.
+		# Disable yappcap and try again. This is an old library that no longer compiles on newer systems, e.g. Ubuntu 24.04
+		echoerr "Test suite failed to install, disabling yappcap and trying again..."
+		sed -i 's|^https://github.com/asterisk/yappcap|#https://github.com/asterisk/yappcap|' extras.txt
+		./setupVenv.sh # Retry
+	fi
+
 	# ./runInVenv.sh python3 ./runtests.py -t tests/channels/iax2/basic-call/ # run a single basic test
 	#./runInVenv.sh python3 ./runtests.py -l # list all tests
 
@@ -1542,6 +1552,74 @@ linux_headers_install_apt() {
 			linux_headers_info
 			exit 2
 		fi
+	fi
+}
+
+install_wanpipe() {
+	MYSOURCEDIR=/lib/modules/$(uname -r)/build
+	MYSOURCEDIRORIG=$MYSOURCEDIR
+	MYINCLUDEDIR=/usr/src/linux-headers-$(uname -r)/include
+
+	ensure_installed flex # required for wancfg
+	ensure_installed bison # required for wanpipe
+	ensure_installed libtool # required for libsangoma
+
+	# wanpipe currently fails to install on Debian because the wanpipe Setup.sh doesn't support recursive Makefile includes.
+	# Explicitly find the right source directory to use if that's the case.
+	# XXX See below: I don't think this is fully correct at the moment, since SOURCEDIR in wanpipe's Setup.sh is used for multiple, unrelated things.
+	while true; do
+		printf "Checking file: %s\n" "$MYSOURCEDIR/Makefile" >&2
+		if [ ! -f "$MYSOURCEDIR/Makefile" ]; then
+			echoerr "File $MYSOURCEDIR/Makefile does not exist\n"
+			break
+		fi
+
+		# POSIX sh doesn't support ${var:x:y} syntax
+		contents=$( cat "$MYSOURCEDIR/Makefile" )
+		first7=$( echo "$contents" | cut -d" " -f1 )
+		if [ "${first7}" = "include" ]; then
+			nextfile=$( echo "$contents" | cut -d" " -f2 )
+			printf "Following include to %s\n" "${nextfile}" >&2
+			MYSOURCEDIR=`dirname "${nextfile}"`
+		else
+			printf "Actual makefile is %s\n" "$MYSOURCEDIR/Makefile" >&2
+			break
+		fi
+	done
+
+	cd $AST_SOURCE_PARENT_DIR
+	# Sangoma clearly doesn't know how to run a web server, since their server keeps going down.
+	# Pull tarball from Wayback Machine if Sangoma's is unresponsive
+	wget --tries=1 https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+	if [ $? -ne 0 ]; then
+		# Note: This link needs to be updated for new versions of wanpipe
+		wget https://web.archive.org/web/20240708051349/https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+	fi
+	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
+	WANPIPE_DIR=`tar -tzf $WANPIPE_SOURCE_NAME.tgz | head -1 | cut -f1 -d"/"`
+	cd ${WANPIPE_DIR}
+	if [ $? -ne 0 ]; then
+		die "Failed to download/extract wanpipe"
+	fi
+	rm ${AST_SOURCE_PARENT_DIR}/${WANPIPE_SOURCE_NAME}.tgz
+	#phreak_fuzzy_patch "af_wanpipe.diff"
+
+	#./Setup dahdi --silent
+	./Setup install --silent # Even if Setup dahdi fails, this can work
+
+	if [ $? -ne 0 ]; then
+		echoerr "wanpipe install failed: unsupported kernel?"
+		# No need to cat setup_drv_compile.log here, Setup automatically does so on failure
+		# XXX wanpipe currently fails to compile on kernels newer than 6.1.0. See [PHREAKSCRIPT-49]
+		if [ "$IGNORE_FAILURES" = "1" ]; then
+			printf "Installation of other items will proceed anyways...\n"
+			sleep 1
+		else
+			exit 1
+		fi
+	else
+		wanrouter stop
+		wanrouter start
 	fi
 }
 
@@ -1863,67 +1941,6 @@ install_dahdi() {
 	echog "DAHDI and friends have finished installing"
 }
 
-install_wanpipe() {
-	MYSOURCEDIR=/lib/modules/$(uname -r)/build
-	MYSOURCEDIRORIG=$MYSOURCEDIR
-	MYINCLUDEDIR=/usr/src/linux-headers-$(uname -r)/include
-
-	# wanpipe currently fails to install on Debian because the wanpipe Setup.sh doesn't support recursive Makefile includes.
-	# Explicitly find the right source directory to use if that's the case.
-	# XXX See below: I don't think this is fully correct at the moment, since SOURCEDIR in wanpipe's Setup.sh is used for multiple, unrelated things.
-	while true; do
-		printf "Checking file: %s\n" "$MYSOURCEDIR/Makefile" >&2
-		if [ ! -f "$MYSOURCEDIR/Makefile" ]; then
-			echoerr "File $MYSOURCEDIR/Makefile does not exist\n"
-			break
-		fi
-
-		# POSIX sh doesn't support ${var:x:y} syntax
-		contents=$( cat "$MYSOURCEDIR/Makefile" )
-		first7=$( echo "$contents" | cut -d" " -f1 )
-		if [ "${first7}" = "include" ]; then
-			nextfile=$( echo "$contents" | cut -d" " -f2 )
-			printf "Following include to %s\n" "${nextfile}" >&2
-			MYSOURCEDIR=`dirname "${nextfile}"`
-		else
-			printf "Actual makefile is %s\n" "$MYSOURCEDIR/Makefile" >&2
-			break
-		fi
-	done
-
-	cd $AST_SOURCE_PARENT_DIR
-	# Sangoma clearly doesn't know how to run a web server, since their server keeps going down.
-	# Pull tarball from Wayback Machine if Sangoma's is unresponsive
-	wget --tries=1 https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
-	if [ $? -ne 0 ]; then
-		wget https://web.archive.org/web/20240103031741/https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
-	fi
-	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
-	WANPIPE_DIR=`tar -tzf $WANPIPE_SOURCE_NAME.tgz | head -1 | cut -f1 -d"/"`
-	cd ${WANPIPE_DIR}
-	if [ $? -ne 0 ]; then
-		die "Failed to download/extract wanpipe"
-	fi
-	rm ${AST_SOURCE_PARENT_DIR}/${WANPIPE_SOURCE_NAME}.tgz
-	#phreak_fuzzy_patch "af_wanpipe.diff"
-
-	./Setup dahdi --silent
-
-	if [ $? -ne 0 ]; then
-		echoerr "wanpipe install failed: unsupported kernel?"
-		IGNORE_FAILURES=1 # XXX: For now, remove once wanpipe is more reliable
-		if [ "$IGNORE_FAILURES" = "1" ]; then
-			printf "Installation of other items will proceed anyways...\n"
-			sleep 1
-		else
-			exit 1
-		fi
-	else
-		wanrouter stop
-		wanrouter start
-	fi
-}
-
 phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 	printf "Adding new module: %s\n" "$1"
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
@@ -2163,7 +2180,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	printf "Applying patches applicable to %s -> %d (~%s)\n" "$AST_ALT_VER" "$AST_MM_VER" "$AST_MAJOR_VER"
 
 	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
-	#git_custom_patch "https://github.com/InterLinked1/asterisk/commit/d389a0b14569ab60daac73391e66d57fbbabdadb.diff" # astfd compiler fix
 	asterisk_pr_if 901 220100 210600 182600 # astfd compiler fix
 	asterisk_pr_if 903 220100 210600 182600 # voicemail pager email fix
 
@@ -2190,8 +2206,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	asterisk_pr_unconditional 414 # IAX2 loopback warning
 
 	# Unmerged
-	asterisk_pr_unconditional 272 # Call Waiting Deluxe
-	asterisk_pr_unconditional 438 # Last Number Redial
+	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
+	#asterisk_pr_unconditional 438 # Last Number Redial. This now conflicts with 272, so temp. disabled.
 
 	### TODO: Include ASTERISK-30339 and ASTERISK-30374 once resubmitted on GitHub
 
@@ -2811,6 +2827,10 @@ while true; do
 	esac
 done
 
+if [ "$FAST_COMPILE" = "1" ]; then
+	AST_MAKE="nice -15 $AST_MAKE" # -15 to speed up compilation by increasing CPU priority.
+fi
+
 if [ "$FLAG_TEST" = "1" ]; then
 	echog "Flag test successful."
 	exit 0
@@ -3200,10 +3220,7 @@ elif [ "$cmd" = "install" ]; then
 		gmake
 		cd ../..
 	fi
-	niceval=""
-	if [ "$FAST_COMPILE" = "1" ]; then
-		niceval="-15" # -15 to speed up compilation by increasing CPU priority.
-	fi
+
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		# For some reason, %%LIBSYSINFO%% is in the linking flags on FreeBSD, remove that from being added. libsysinfo is needed though.
 		# Same with HAVE_CRYPT_R, that's not available but gets detected, so undetect it
@@ -3212,14 +3229,14 @@ elif [ "$cmd" = "install" ]; then
 		sed -i '' '/HAVE_CRYPT_R/d' include/asterisk/autoconfig.h
 		sed -i "" -e 's|WRAP_LIBC_MALLOC|ASTMM_LIBC ASTMM_REDIRECT|g' addons/mp3/interface.c # for format_mp3
 		sed -i "" -e 's|\\s|s|g' build_tools/make_xml_documentation # fix sed command in this script to remove the backslash for BSD sed
-		nice $AST_MAKE "ASTLDFLAGS=-lcrypt -lsysinfo" main
+		$AST_MAKE "ASTLDFLAGS=-lcrypt -lsysinfo" main
 		if [ $? -eq 0 ]; then
-			nice $AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+			$AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 		fi
 	else
-		nice $AST_MAKE -j$(nproc) main # compile 'main' subdirectory first
+		$AST_MAKE -j$(nproc) main # compile 'main' subdirectory first
 		if [ $? -eq 0 ]; then
-			nice $AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
+			$AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
 		fi
 	fi
 
