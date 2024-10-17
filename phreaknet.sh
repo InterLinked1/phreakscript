@@ -1935,6 +1935,16 @@ phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 	fi
 }
 
+phreak_tree_module_branch() { # $1 = file to patch, $2 = whether failure is acceptable, $3 = branch name
+	printf "Adding new module: %s\n" "$1"
+	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/$3/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download module from branch $3, retrying with master..."
+		# Fall back to master in case the branch name is stale. If that fails, abort.
+		phreak_tree_module "$1" "$2"
+	fi
+}
+
 custom_module() { # $1 = filename, $2 = URL to download
 	printf "Adding new module: %s\n" "$1"
 	wget -q "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
@@ -2116,6 +2126,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "res/res_msp.c"
 	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
+	phreak_tree_module "res/res_smdr_whozz.c"
 
 	if [ -d /etc/dahdi ]; then
 		phreak_tree_module "apps/app_loopdisconnect.c"

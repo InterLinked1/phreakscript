@@ -19,6 +19,7 @@ PhreakScript installs:
    - Broadworks compatible Shared Call Appearances (PJSIP)
    - Presence publishing (PJSIP)
    - Message Send Protocol send support
+   - SMDR support for "WHOZZ Calling?" call accounting devices
    - AGI `RECORD FILE` option to require noise before silence detection
    - Optional build enhancements
       - `chan_sccp` (improved community Skinny/SCCP channel driver), with compilation fixes
