@@ -1,0 +1,29 @@
+; res_smdr_whozz.conf - SMDR for "WHOZZ Calling?" call accounting devices
+
+; TIPS: Both serial and parallel wiring of the phone line to your WHOZZ Calling? device are supported.
+; It is recommended that you wire in parallel if possible to avoid putting the unit in the voice path.
+; Additionally, please note that the WHOZZ Calling? units do NOT support pulse dialing,
+; and pulse-to-tone converters may degrade the quality of the voice path. You may wish
+; to drive a slave / follower line to follow hook state changes and receive dialed digits (but not audio)
+; and connect that to the unit instead.
+; As always, USE AT YOUR OWN RISK.
+
+;[general]
+;device=/dev/ttyS0 ; Device name of serial port to which WHOZZ Calling? unit is connected (9600/N/1)
+
+;[line-1]
+;line = 1 ; Line number as configured on WHOZZ Calling? unit.
+;device=DAHDI/1 ; Optional. Device name of associated FXO port connected to this same line.
+                ; If configured, if calls are made using this device, they will be ignored by this module.
+                ; This allows this module to create CDRs for calls made directly on a phone line connected
+                ; to an Asterisk FXO port, when the call was NOT made through Asterisk,
+                ; but allows Asterisk to create the CDR record if the call was made through Asterisk.
+                ; This avoids duplicate CDR records for the same call.
+; Optional variables to set, for example, for outgoing calls, you could do a lookup to determine if a call is local, long distance, etc. based on dialed number.
+;setvar=CDR(trunkgrp)=pots-1
+;setvar=CDR(direction)=${WHOZZ_DIRECTION}
+;setvar=CDR(line)=${WHOZZ_LINE}
+;setvar=CHANNEL(amaflags)=BILLING
+
+;[line-2]
+;line = 2
