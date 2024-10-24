@@ -60,7 +60,7 @@
 			<para>The other end should use SendText to send the data transfer.</para>
 			<example title="Query device state of endpoints at the main branch office">
 			[rx-node] ; Node A
-			exten => rx,1,Set(remotestate=${QUERY(IAX2/mainbranch/2368@device-state-context)})
+			exten => rx,1,Set(remotestate=${TEXT_QUERY(IAX2/mainbranch/2368@device-state-context)})
 				same => n,ExecIf($[ "${remotestate}" = "NOT_INUSE" ]?Dial(IAX2/mainbranch/2368@extensions))
 				same => n,Hangup()
 			[extensions] ; Node B: allow other Asterisk systems to query local device states.
