@@ -92,6 +92,26 @@
 			</configObject>
 		</configFile>
 	</configInfo>
+	<function name="WHOZZ_LINE_STATE" language="en_US">
+		<synopsis>
+			Returns the line state of a WHOZZ Calling? line
+		</synopsis>
+		<syntax>
+			<parameter name="line" required="true">
+				<para>Line number</para>
+			</parameter>
+		</syntax>
+		<description>
+			<para>Returns the line state of the specified line.</para>
+			<para>The possible values are:</para>
+			<enumlist>
+				<enum name="UNKNOWN"/>
+				<enum name="ONHOOK"/>
+				<enum name="OFFHOOK"/>
+				<enum name="RINGING"/>
+			</enumlist>
+		</description>
+	</function>
  ***/
 
 #define MODULE_NAME "res_smdr_whozz"
@@ -162,7 +182,7 @@ static int unloading = 0;
 	ast_debug(3, "Received %ld bytes from serial port: %s\n", bufres, buf); \
 }
 
-static const char *state_str(enum line_state state)
+static const char *state_str_cli(enum line_state state)
 {
 	switch (state) {
 	case UNKNOWN:
@@ -173,6 +193,21 @@ static const char *state_str(enum line_state state)
 		return "Off Hook";
 	case RINGING:
 		return "Ringing";
+	}
+	__builtin_unreachable();
+}
+
+static const char *state_str_func(enum line_state state)
+{
+	switch (state) {
+	case UNKNOWN:
+		return "UNKNOWN";
+	case ONHOOK:
+		return "ONHOOK";
+	case OFFHOOK:
+		return "OFFHOOK";
+	case RINGING:
+		return "RINGING";
 	}
 	__builtin_unreachable();
 }
@@ -445,8 +480,92 @@ static int handle_hook(struct whozz_line *w, int outbound, int end, int duration
 		return -1; \
 	}
 
+static void update_state(struct whozz_line *w, enum line_state newstate, enum line_state oldstate)
+{
+	w->state = newstate;
+	manager_event(EVENT_FLAG_CALL, "WHOZZLineStateChange",
+		"LineNumber: %d\r\n"
+		"CurrentState: %s\r\n"
+		"OldState: %s\r\n",
+		w->lineno,
+		state_str_func(w->state),
+		state_str_func(oldstate));
+}
+
 static int __process_serial_read(struct whozz_line *w, int lineno, const char *action, char *buf, size_t len)
 {
+	enum line_state oldstate = w->state;
+	/*** DOCUMENTATION
+		<managerEvent language="en_US" name="WHOZZLineStateChange">
+			<managerEventInstance class="EVENT_FLAG_CALL">
+				<synopsis>Raised when the state of a phone line connected to
+				a WHOZZ Calling? device changes.</synopsis>
+				<syntax>
+					<channel_snapshot/>
+					<parameter name="LineNumber">
+						<para>The line number</para>
+					</parameter>
+					<parameter name="CurrentState">
+						<para>The current state of the line.</para>
+						<para>The possible values are:</para>
+						<enumlist>
+							<enum name="UNKNOWN"/>
+							<enum name="ONHOOK"/>
+							<enum name="OFFHOOK"/>
+							<enum name="RINGING"/>
+						</enumlist>
+					</parameter>
+					<parameter name="OldState">
+						<para>The old state of the line.</para>
+						<para>The possible values are:</para>
+						<enumlist>
+							<enum name="UNKNOWN"/>
+							<enum name="ONHOOK"/>
+							<enum name="OFFHOOK"/>
+							<enum name="RINGING"/>
+						</enumlist>
+					</parameter>
+				</syntax>
+				<description>
+					<para>This event is raised whenever the line state of a line changes.</para>
+				</description>
+			</managerEventInstance>
+		</managerEvent>
+		<managerEvent language="en_US" name="WHOZZLineCall">
+			<managerEventInstance class="EVENT_FLAG_CALL">
+				<synopsis>Raised when a call begins or ends on a phone line
+				connected to a WHOZZ Calling? device.</synopsis>
+				<syntax>
+					<channel_snapshot/>
+					<parameter name="LineNumber">
+						<para>The line number</para>
+					</parameter>
+					<parameter name="Direction">
+						<para>IN or OUT.</para>
+					</parameter>
+					<parameter name="Duration">
+						<para>Call duration, in seconds.</para>
+						<para>Only provided when a call ends.</para>
+					</parameter>
+					<parameter name="CalledNumber">
+						<para>The called number.</para>
+						<para>Only provided for outgoing calls.</para>
+					</parameter>
+					<parameter name="CallerNumber">
+						<para>The calling number.</para>
+						<para>Only provided for incoming calls.</para>
+					</parameter>
+					<parameter name="CallerName">
+						<para>The calling name.</para>
+						<para>Only provided for incoming calls.</para>
+					</parameter>
+				</syntax>
+				<description>
+					<para>This event is raised whenever the line state of a line changes.</para>
+				</description>
+			</managerEventInstance>
+		</managerEvent>
+	***/
 	if (!strcasecmp(action, "F")) {
 		ast_verb(5, "Off-hook on line %d\n", lineno);
 		if (w->state == RINGING) {
@@ -458,13 +577,13 @@ static int __process_serial_read(struct whozz_line *w, int lineno, const char *a
 				ast_log(LOG_WARNING, "No call in progress, ignoring call answer\n");
 			}
 		}
-		w->state = OFFHOOK;
+		update_state(w, OFFHOOK, oldstate);
 	} else if (!strcasecmp(action, "N")) {
 		ast_verb(5, "On-hook on line %d\n", lineno);
-		w->state = ONHOOK;
+		update_state(w, ONHOOK, oldstate);
 	} else if (!strcasecmp(action, "R")) {
 		ast_verb(5, "First ring on line %d\n", lineno);
-		w->state = RINGING;
+		update_state(w, RINGING, oldstate);
 		/* This could be followed by I S: Incoming Call Start (whether or not the line has Caller ID, and even if call is answered before first ring ends)
 		 * That, in turn, is followed by F, for off hook if somebody answers it,
 		 * or I E (Incoming Call End), if ring no answer. */
@@ -498,11 +617,62 @@ static int __process_serial_read(struct whozz_line *w, int lineno, const char *a
 		duration = atoi(durationstr);
 		if (callend) {
 			ast_log(LOG_NOTICE, "%s call %s on line %d to %s (%d s)\n", outbound ? "Outbound" : "Inbound", "ended", lineno, numberstr, duration);
+			/* If we were previously ringing, and never went off-hook,
+			 * there won't be an on-hook event that will reset the line state,
+			 * do it here. */
+			if (oldstate == RINGING) {
+				update_state(w, ONHOOK, oldstate);
+			}
 		} else {
 			ast_log(LOG_NOTICE, "%s call %s on line %d to %s\n", outbound ? "Outbound" : "Inbound", "began", lineno, numberstr);
 		}
 		/* Log/store the appropriate details */
 		handle_hook(w, outbound, callend, duration, numberstr, cnam);
+		if (callend) {
+			if (outbound) {
+				manager_event(EVENT_FLAG_CALL, "WHOZZLineCall",
+					"LineNumber: %d\r\n"
+					"Direction: %s\r\n"
+					"Duration: %d\r\n"
+					"CalledNumber: %s\r\n",
+					w->lineno,
+					outbound ? "OUT" : "IN",
+					duration,
+					numberstr);
+			} else {
+				manager_event(EVENT_FLAG_CALL, "WHOZZLineCall",
+					"LineNumber: %d\r\n"
+					"Direction: %s\r\n"
+					"Duration: %d\r\n"
+					"CallerNumber: %s\r\n"
+					"CallerName: %s\r\n",
+					w->lineno,
+					outbound ? "OUT" : "IN",
+					duration,
+					numberstr,
+					cnam);
+			}
+		} else {
+			if (outbound) {
+				manager_event(EVENT_FLAG_CALL, "WHOZZLineCall",
+					"LineNumber: %d\r\n"
+					"Direction: %s\r\n"
+					"CalledNumber: %s\r\n",
+					w->lineno,
+					outbound ? "OUT" : "IN",
+					numberstr);
+			} else {
+				manager_event(EVENT_FLAG_CALL, "WHOZZLineCall",
+					"LineNumber: %d\r\n"
+					"Direction: %s\r\n"
+					"CallerNumber: %s\r\n"
+					"CallerName: %s\r\n",
+					w->lineno,
+					outbound ? "OUT" : "IN",
+					numberstr,
+					cnam);
+			}
+		}
 	}
 	return 0;
 }
@@ -633,6 +803,34 @@ static void *__serial_monitor(void *varg)
 	return NULL;
 }
 
+static int whozz_line_state_read(struct ast_channel *chan, const char *cmd, char *parse, char *buffer, size_t buflen)
+{
+	int lineno;
+	struct whozz_line *w;
+
+	if (ast_strlen_zero(parse)) {
+		ast_log(LOG_ERROR, "Line number required for %s\n", cmd);
+		return -1;
+	}
+
+	lineno = atoi(parse);
+	AST_RWLIST_RDLOCK(&lines);
+	AST_RWLIST_TRAVERSE(&lines, w, entry) {
+		if (w->lineno == lineno) {
+			ast_copy_string(buffer, state_str_func(w->state), buflen);
+			break;
+		}
+	}
+	AST_RWLIST_UNLOCK(&lines);
+
+	return w ? 0 : -1;
+}
+
+static struct ast_custom_function acf_whozz = {
+	.name = "WHOZZ_LINE_STATE",
+	.read = whozz_line_state_read,
+};
+
 static char *handle_show_whozz(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	struct whozz_line *w;
@@ -655,7 +853,7 @@ static char *handle_show_whozz(struct ast_cli_entry *e, int cmd, struct ast_cli_
 	ast_cli(a->fd, "%4s %-8s %s\n", "Line", "State", "Associated Device");
 	AST_RWLIST_RDLOCK(&lines);
 	AST_RWLIST_TRAVERSE(&lines, w, entry) {
-		ast_cli(a->fd, "%4d %-8s %s\n", w->lineno, state_str(w->state), S_OR(w->device, ""));
+		ast_cli(a->fd, "%4d %-8s %s\n", w->lineno, state_str_cli(w->state), S_OR(w->device, ""));
 	}
 	AST_RWLIST_UNLOCK(&lines);
 
@@ -763,6 +961,7 @@ static int unload_module(void)
 
 	unloading = 1;
 	ast_cli_unregister_multiple(whozz_cli, ARRAY_LEN(whozz_cli));
+	ast_custom_function_unregister(&acf_whozz);
 	if (serial_fd != -1) {
 		if (serial_thread != AST_PTHREADT_NULL) {
 			/* Interrupt any system call */
@@ -826,6 +1025,7 @@ static int load_module(void)
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
+	ast_custom_function_register(&acf_whozz);
 	ast_cli_register_multiple(whozz_cli, ARRAY_LEN(whozz_cli));
 	return res;
 }
