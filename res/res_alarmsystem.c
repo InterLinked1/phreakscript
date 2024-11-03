@@ -269,6 +269,8 @@
 					<synopsis>Disarm delay</synopsis>
 					<description>
 						<para>Number of seconds grace period permitted to disarm an active alarm after this sensor triggers before considering it a breach.</para>
+						<para>If set to 0, activation of this sensor will never trigger an alarm. This can be useful for certain sensors, like window sensors on windows that are not a breach threat. Events will still be generated for these sensors, allowing automation actions to be taken if desired.</para>
+						<para>Consequently, to have a sensor that always triggers a breach alarm immediately, set this option to 1 second.</para>
 					</description>
 				</configOption>
 			</configObject>
@@ -389,6 +391,22 @@
 			<ref type="application">AlarmReceiver</ref>
 		</see-also>
 	</application>
+	<function name="ALARMSYSTEM_SENSOR_TRIGGERED" language="en_US">
+		<synopsis>
+			Returns whether an alarm sensor is currently triggered
+		</synopsis>
+		<syntax>
+			<parameter name="client" required="true">
+				<para>Client name as configured in <literal>res_alarmsystem.conf</literal></para>
+			</parameter>
+			<parameter name="sensor" required="true">
+				<para>Sensor name as configured in <literal>res_alarmsystem.conf</literal></para>
+			</parameter>
+		</syntax>
+		<description>
+			<para>Returns whether an alarm system sensor is currently triggered.</para>
+		</description>
+	</function>
  ***/
 
 #define MODULE_NAME "res_alarmsystem"
@@ -538,7 +556,6 @@ struct alarm_client {
 	enum alarm_state state; /* Internal aggregate alarm state */
 	unsigned int ip_connected:1; /* IP connectivity good or lost? */
 	pthread_t thread;
-	ast_mutex_t lock; /*! \todo not used, remove */
 	int alertpipe[2];
 	char client_id[AST_MAX_EXTENSION];
 	char client_pin[AST_MAX_EXTENSION];
@@ -552,6 +569,7 @@ struct alarm_client {
 	time_t autoservice_start;
 	time_t breach_time;
 	time_t last_arm;
+	time_t ip_lost_time; /* Time that IP connectivity was last lost */
 	int egress_delay;
 	char *contexts[NUM_ALARM_EVENTS];
 	struct alarm_sensors sensors;
@@ -681,7 +699,6 @@ static void cleanup_client(struct alarm_client *c)
 		ast_free(c->cid_name);
 	}
 	ast_alertpipe_close(c->alertpipe);
-	ast_mutex_destroy(&c->lock);
 	ast_free(c);
 }
 
@@ -1250,9 +1267,19 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 static void set_ip_connected(struct alarm_client *c, int connected)
 {
 	if (connected != c->ip_connected) {
+		time_t now;
 		ast_log(LOG_NOTICE, "Client '%s' is now %s\n", c->name, connected ? "ONLINE" : "OFFLINE");
 		c->ip_connected = connected;
 		generate_event(c, connected ? EVENT_INTERNET_RESTORED : EVENT_INTERNET_LOST, NULL, NULL);
+		now = time(NULL);
+		if (connected) {
+			if (c->ip_lost_time >= now - 1) {
+				/* Possible, and likely just highly coincidental. */
+				ast_debug(1, "Interesting! IP connectivity restored immediately after it was lost!\n");
+			}
+		} else {
+			c->ip_lost_time = now;
+		}
 	}
 }
 
@@ -1710,14 +1737,30 @@ static void *client_thread(void *arg)
 		 * if we get stuck in the POLLERR case above.
 		 * This ensure that this will always get executed periodically,
 		 * such as to report events by phone if needed. */
-		if (res == 0 || (c->ip_connected == 0)) { /* res == 0 */
+		if (res == 0 || c->ip_connected == 0) { /* res == 0 */
 			time_t now = time(NULL);
 			/* No need for pings if IP isn't enabled */
-			if (now >= c->last_ip_ack + c->ping_interval * 2 + 1) {
-				/* Haven't gotten any ACKs over IP from the server in a while.
-				 * Set client as offline. */
-				ast_debug(1, "Time is %lu, but haven't gotten an ACK since %lu\n", now, c->last_ip_ack);
-				set_ip_connected(c, 0);
+			if (c->ip_connected) {
+				/* Handling to determine if we think the client is still online when it's really offline now */
+				if (now >= c->last_ip_ack + c->ping_interval * 3 + 1) {
+					/* Haven't gotten any ACKs over IP from the server in a while.
+					 * Set client as offline. */
+					ast_debug(1, "Confirmed connectivity loss: time is %lu, but haven't gotten an ACK since %lu\n", now, c->last_ip_ack);
+					set_ip_connected(c, 0);
+					/* It is possible at this point that we will get a reply to the next ping we send,
+					 * later on in this function. The bizarre effect of this is that it is possible
+					 * to have an INTERNET_LOST event immediately followed by INTERNET_RESTORED.
+					 * It would require just the right number of pings to be lost followed by one that is not,
+					 * immediately after we determine that connectivity has been lost. */
+				} else if (now >= c->last_ip_ack + c->ping_interval * 2 + 1) {
+					/* Haven't gotten any ACKs over IP from the server in a while.
+					 * Don't immediately mark client as offline though. */
+					ast_debug(1, "Likely connectivity loss: time is %lu, but haven't gotten an ACK since %lu\n", now, c->last_ip_ack);
+					ast_log(LOG_NOTICE, "Significant packet loss encountered, possible connectivity loss\n");
+					/* Don't set connected to 0 yet... allow one more ping, and send an extra one just to be sure. */
+					generate_event(c, EVENT_PING, NULL, NULL);
+					usleep(50000); /* Wait briefly before sending the next packet, since if this one is dropped, the next one probably will be too */
+				}
 			}
 			/* There might still be some outstanding events that need to be delivered.
 			 * For example, a few seconds ago, we were woken up to send events to server by IP,
@@ -1899,7 +1942,6 @@ static int load_config(void)
 			}
 			strcpy(c->data, cat); /* Safe */
 			c->name = c->data;
-			ast_mutex_init(&c->lock);
 			c->alertpipe[0] = c->alertpipe[1] = -1;
 			if (ast_alertpipe_init(c->alertpipe)) {
 				ast_log(LOG_ERROR, "Failed to initialize alertpipe\n");
@@ -2209,6 +2251,7 @@ static int alarmsensor_exec(struct ast_channel *chan, const char *data)
 
 	/* Okay, now we can start.
 	 * Since the sensor just took the sensor loop off hook, it has been triggered. */
+	s->triggered = 1;
 
 	/* Update state from OK to TRIGGERED.
 	 * From here, it can return to ALARM_STATE_OK if disarmed within s->disarm_delay time.
@@ -2216,6 +2259,9 @@ static int alarmsensor_exec(struct ast_channel *chan, const char *data)
 	is_egress = c->last_arm > time(NULL) - c->egress_delay;
 	if (is_egress) {
 		ast_debug(1, "Egress is currently permitted, not triggering alarm\n");
+		breach_time = 0;
+	} else if (!s->disarm_delay) {
+		ast_debug(1, "Sensor does not trigger alarms, no breach timer required\n");
 		breach_time = 0;
 	} else {
 		time_t now = time(NULL);
@@ -2243,14 +2289,15 @@ static int alarmsensor_exec(struct ast_channel *chan, const char *data)
 	}
 
 	/* If we have a keypad device to autodial, kick that off */
-	if (!is_egress && !ast_strlen_zero(c->keypad_device)) {
+	if (breach_time && !is_egress && !ast_strlen_zero(c->keypad_device)) {
 		orig_app_device(c->keypad_device, NULL, "AlarmKeypad", c->name, c->cid_num, c->cid_name);
 	}
 
 	/* Now, wait for the sensor to be restored. This could be soon, it could not be. */
-	while (ast_safe_sleep(chan, 500) != -1);
+	while (ast_safe_sleep(chan, 60000) != -1);
 
 	ast_debug(3, "Sensor '%s' appears to have been restored\n", s->name);
+	s->triggered = 0;
 	generate_event(c, EVENT_ALARM_SENSOR_RESTORED, s, NULL);
 
 	/* The only time we get a WRLOCK on clients is when cleaning them up at module unload.
@@ -2469,6 +2516,59 @@ cleanup:
 	return 0;
 }
 
+static int sensor_triggered_read(struct ast_channel *chan, const char *cmd, char *parse, char *buffer, size_t buflen)
+{
+	char *argcopy;
+	struct alarm_client *c;
+	struct alarm_sensor *s;
+	AST_DECLARE_APP_ARGS(args,
+		AST_APP_ARG(client);
+		AST_APP_ARG(sensor);
+	);
+
+	if (ast_strlen_zero(parse)) {
+		ast_log(LOG_ERROR, "Must specify client-name,sensor-name\n");
+		return -1;
+	}
+
+	argcopy = ast_strdupa(parse);
+	AST_STANDARD_APP_ARGS(args, argcopy);
+
+	if (ast_strlen_zero(args.client)) {
+		ast_log(LOG_ERROR, "Must specify client name\n");
+		return -1;
+	}
+
+	AST_RWLIST_RDLOCK(&clients);
+	c = find_client_locked(args.client);
+	if (!c) {
+		ast_log(LOG_ERROR, "Client '%s' not found in configuration\n", args.client);
+		AST_RWLIST_UNLOCK(&clients);
+		return -1;
+	}
+	if (!ast_strlen_zero(args.sensor)) {
+		s = find_sensor(c, args.sensor);
+		if (!s) {
+			AST_RWLIST_UNLOCK(&clients);
+			ast_log(LOG_ERROR, "No such sensor '%s'\n", args.sensor);
+			return -1;
+		}
+	} else {
+		AST_RWLIST_UNLOCK(&clients);
+		ast_log(LOG_ERROR, "Must specify sensor name\n");
+		return -1;
+	}
+
+	ast_copy_string(buffer, s->triggered ? "1" : "0", buflen);
+	AST_RWLIST_UNLOCK(&clients);
+	return 0;
+}
+
+static struct ast_custom_function acf_sensortriggered = {
+	.name = "ALARMSYSTEM_SENSOR_TRIGGERED",
+	.read = sensor_triggered_read,
+};
+
 static char *handle_show_sensors(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 #define FORMAT  "%-12s %-20s %s\n"
@@ -2625,6 +2725,7 @@ static int unload_module(void)
 	module_shutting_down = 1;
 
 	ast_cli_unregister_multiple(alarmsystem_cli, ARRAY_LEN(alarmsystem_cli));
+	ast_custom_function_unregister(&acf_sensortriggered);
 	ast_unregister_application("AlarmSensor");
 	ast_unregister_application("AlarmEventReceiver");
 	ast_unregister_application("AlarmKeypad");
@@ -2678,6 +2779,7 @@ static int load_module(void)
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
+	ast_custom_function_register(&acf_sensortriggered);
 	ast_cli_register_multiple(alarmsystem_cli, ARRAY_LEN(alarmsystem_cli));
 	return 0;
 }

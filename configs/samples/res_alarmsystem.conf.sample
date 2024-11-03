@@ -73,6 +73,13 @@
 ;disarm_delay = 45 ; Number of seconds grace period permitted to disarm an active alarm after this sensor triggers before it is considered a breach.
                   ; Default is 60.
 
+;[window] ; Section defining a window sensor, which does not trigger alarms (reporting only)
+;type = sensor
+;sensor_id = 2
+;client = myclient
+;device = DAHDI/24
+;disarm_delay = 0 ; Do not require the system to be disarmed when this sensor is triggered (reporting is informational only)
+
 ;[keypad] ; Section defining alarm keypad settings. An alarm keypad can be instantiated by using AlarmKeypad()
 ;type = keypad
 ;client = myclient ; Client associated with these keypad settings
