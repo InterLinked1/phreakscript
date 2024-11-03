@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2024 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.1.8 (2024-10-16)
+# v1.2.0 (2024-11-03)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2024-11-03 1.2.0 Asterisk: Install Asterisk 22 by default
 # 2024-10-16 1.1.8 wanpipe: Installation procedure improvements
 # 2024-09-19 1.1.7 DAHDI: Slipstream critical build fixes, fix build issues on various distros and kernels
 # 2024-09-16 1.1.6 DAHDI: Add patch to enable building of XPP drivers on 32-bit architectures
@@ -191,8 +192,8 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 # Script environment variables
 AST_ALT_VER=""
 AST_MIN_PREFERRED_VER=20
-AST_DEFAULT_MAJOR_VER=21
-AST_NEXT_MAJOR_VER=22
+AST_DEFAULT_MAJOR_VER=22
+AST_NEXT_MAJOR_VER=23
 AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
 AST_MM_VER=0
 AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
@@ -201,8 +202,6 @@ AST_RC_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-testing"
 # DAHDI_MM_VER="${DAHDI_VERSION:0:1}${DAHDI_VERSION:2:1}" Requires bash
 DAHDI_MM_VER=34
 DAHDI_VERSION="3.4.0"
-#DAHLIN_SRC_NAME="dahdi-linux-${DAHDI_VERSION}.tar.gz"
-#DAHTOOL_SRC_NAME="dahdi-tools-${DAHDI_VERSION}.tar.gz"
 #DAHLIN_SRC_URL="https://github.com/asterisk/dahdi-linux/releases/download/v${DAHDI_VERSION}/${DAHLIN_SRC_NAME}"
 #DAHTOOL_SRC_URL="https://github.com/asterisk/dahdi-tools/releases/download/v${DAHDI_VERSION}/${DAHTOOL_SRC_NAME}"
 DAHLIN_SRC_NAME="dahdi-linux-current.tar.gz"
@@ -214,7 +213,7 @@ LIBPRI_SOURCE_NAME="libpri-1.6.1"
 LIBSS7_VERSION="2.0.1"
 WANPIPE_SOURCE_NAME="wanpipe-current" # wanpipe-latest (7.0.38, 2024-02-05)
 ODBC_VER="3.1.14"
-CISCO_CM_SIP="cisco-usecallmanager-18.15.0"
+CISCO_CM_SIP="cisco-usecallmanager-20.10.0"
 MIN_ARGS=1
 FILE_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 FILE_NAME=$( basename $0 ) # grr... why is realpath not in the POSIX standard?
@@ -2719,7 +2718,7 @@ get_source() {
 	fi
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
 		if [ "$ENHANCED_CHAN_SIP" != "1" ]; then
-			echoerr "chan_sip is deprecated and will be removed in Asterisk 21. Consider migrating to chan_pjsip at your convenience."
+			echoerr "chan_sip is deprecated and was removed in Asterisk 21. Consider migrating to chan_pjsip at your convenience."
 		else
 			echoerr "chan_sip was deprecated and removed in Asterisk 21. It is still present for your usage, but consider migrating to chan_pjsip at your convenience."
 			printf "Fetching chan_sip to readd to source tree\n"
