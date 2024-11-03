@@ -912,8 +912,9 @@ install_prereq() {
 	PREREQ_PACKAGES=""
 	RHEL_MAJOR_VERSION_8=0
 	printf "Installing prerequisites for %s..." "$OS_DIST_INFO"
+	# libnewt-dev is needed for newt, which dahdi_tool requires. If it's not available, it won't get built.
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc pkg-config autoconf automake m4 libtool build-essential"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc pkg-config autoconf automake m4 libtool build-essential libnewt-dev"
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion libcurl4-openssl-dev"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
@@ -932,7 +933,7 @@ install_prereq() {
 		if [ -f /etc/redhat-release ] && [ "$RHEL_MAJOR_VERSION" = "8" ]; then # RHEL or Rocky Linux major version 8
 			RHEL_MAJOR_VERSION_8=1
 		fi
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc gcc-c++ pkg-config autoconf automake m4 libtool"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc gcc-c++ pkg-config autoconf automake m4 libtool newt-devel"
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libuuid-devel libxml2-devel sqlite-devel"
 			if [ $RHEL_MAJOR_VERSION_8 -eq 0 ]; then
@@ -940,18 +941,18 @@ install_prereq() {
 			fi
 		fi
 	elif [ "$PAC_MAN" = "zypper" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk subversion bzip2 gcc-c++"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk subversion bzip2 gcc-c++ newt-devel"
 		if [ "$1" = "1" ]; then
 			# TODO Some of these should be in Asterisk's install_prereq script
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel libuuid-devel libxml2-devel sqlite3-devel"
 		fi
 	elif [ "$PAC_MAN" = "pacman" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gcc pkg-config autoconf automake m4 libtool"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gcc pkg-config autoconf automake m4 libtool libnewt"
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libedit"
 		fi
 	elif [ "$PAC_MAN" = "pkg" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git gmake"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git gmake newt"
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion e2fsprogs-libuuid sqlite3 xmlstarlet libsysinfo"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
@@ -1874,6 +1875,15 @@ install_dahdi() {
 		# Just copy it there manually in this case
 		echoerr "tonezone.h was not found to be installed in the system headers... manually installing it"
 		cp tonezone.h /usr/include/dahdi
+	fi
+
+	# Ensure that dahdi_tool is installed, since it's not built if the prereqs weren't available at compile time.
+	if ! which "dahdi_tool" > /dev/null; then
+		echoerr "dahdi_tool does not appear to have been built successfully... newt development package missing?"
+		if [ "$FORCE_INSTALL" != "1" ] && [ "$PAC_MAN" != "pacman" ]; then
+			# Even though we successfully install the newt dev package on Arch Linux, for some reason this still fails, so don't make it fatal on Arch
+			exit 1
+		fi
 	fi
 
 	# All right, here we go...
