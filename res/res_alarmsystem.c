@@ -1398,7 +1398,11 @@ static int wait_for_answer(struct alarm_client *c)
 /*! \brief Send a DTMF string, optionally *-terminated */
 static int send_dtmf(struct ast_channel *chan, const char *digits, int addstar)
 {
-	int res = ast_dtmf_stream(chan, NULL, digits, 150, 100);
+	int res;
+
+	ast_assert(chan != NULL);
+
+	res = ast_dtmf_stream(chan, NULL, digits, 150, 100);
 	if (res) {
 		ast_log(LOG_WARNING, "Failed to send digits '%s'\n", digits);
 		return res;
@@ -1573,6 +1577,7 @@ postunlock:
 		/* Hang up the channel immediately, since it's unlikely to be needed soon */
 		ast_hangup(c->phonechan);
 		c->phonechan = NULL;
+		return 0;
 	}
 
 	/* Send a final # to indicate we're done, at least for now */
