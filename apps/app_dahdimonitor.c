@@ -272,15 +272,14 @@ static int dahdi_monitor_exec(struct ast_channel *chan, const char *data)
 					/* Sometimes DAHDI resources like to be temporarily unavailable.
 					 * DAHDI_POLICY_IMMEDIATE also makes this more likely
 					 * (see https://support.digium.com/s/article/How-to-configure-DAHDI-buffer-policies)
+					 * This is normal and expected.
 					 * Don't abort if this happens, just keep trying
 					 * in case the channel becomes available again soon.
 					 * To avoid having a super tight loop (dozens per millisecond),
 					 * skip reading from DAHDI the next iteration,
-					 * and just use the Asterisk channel for timing, which will limit
-					 * how often this error message appears and temper CPU usage.
+					 * and just use the Asterisk channel for timing, which will temper CPU usage.
 					 */
 					skip_dahdi = 1;
-					ast_log(LOG_WARNING, "Failed to read from DAHDI channel %d: %s\n", dahdichan, strerror(errno));
 					continue;
 				}
 				ast_log(LOG_ERROR, "Failed to read from DAHDI channel %d: %s\n", dahdichan, strerror(errno));
