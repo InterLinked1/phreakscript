@@ -912,9 +912,14 @@ install_prereq() {
 	PREREQ_PACKAGES=""
 	RHEL_MAJOR_VERSION_8=0
 	printf "Installing prerequisites for %s..." "$OS_DIST_INFO"
+	# Even if we are just installing DAHDI (without Asterisk), $CHAN_DAHDI should be set to 1 at this point.
 	# libnewt-dev is needed for newt, which dahdi_tool requires. If it's not available, it won't get built.
+	# dwarves is needed for pahole, which DAHDI Linux install needs for BTF generation
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc pkg-config autoconf automake m4 libtool build-essential libnewt-dev"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc pkg-config autoconf automake m4 libtool build-essential"
+		if [ "$CHAN_DAHDI" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt-dev dwarves"
+		fi
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion libcurl4-openssl-dev"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
@@ -933,7 +938,10 @@ install_prereq() {
 		if [ -f /etc/redhat-release ] && [ "$RHEL_MAJOR_VERSION" = "8" ]; then # RHEL or Rocky Linux major version 8
 			RHEL_MAJOR_VERSION_8=1
 		fi
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc gcc-c++ pkg-config autoconf automake m4 libtool newt-devel"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc gcc-c++ pkg-config autoconf automake m4 libtool"
+		if [ "$CHAN_DAHDI" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel dwarves"
+		fi
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libuuid-devel libxml2-devel sqlite-devel"
 			if [ $RHEL_MAJOR_VERSION_8 -eq 0 ]; then
@@ -941,18 +949,27 @@ install_prereq() {
 			fi
 		fi
 	elif [ "$PAC_MAN" = "zypper" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk subversion bzip2 gcc-c++ newt-devel"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk subversion bzip2 gcc-c++"
+		if [ "$CHAN_DAHDI" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel dwarves"
+		fi
 		if [ "$1" = "1" ]; then
 			# TODO Some of these should be in Asterisk's install_prereq script
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel libuuid-devel libxml2-devel sqlite3-devel"
 		fi
 	elif [ "$PAC_MAN" = "pacman" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gcc pkg-config autoconf automake m4 libtool libnewt"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gcc pkg-config autoconf automake m4 libtool"
+		if [ "$CHAN_DAHDI" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt pahole"
+		fi
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libedit"
 		fi
 	elif [ "$PAC_MAN" = "pkg" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git gmake newt"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git gmake"
+		if [ "$CHAN_DAHDI" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES newt dwarves"
+		fi
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion e2fsprogs-libuuid sqlite3 xmlstarlet libsysinfo"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
@@ -1672,6 +1689,28 @@ install_dahdi() {
 			echoerr "Kernel headers do not appear to be installed... compilation will likely fail"
 			sleep 2
 		fi
+	fi
+
+	# Avoid "Skipping BTF generation for ... due to unavailability of vmlinux"
+	# Worked around by copying vmlinux to another location:
+	if [ -f /sys/kernel/btf/vmlinux ]; then
+		cp /sys/kernel/btf/vmlinux /usr/lib/modules/`uname -r`/build/
+	else
+		echoerr "Couldn't find vmlinux... BTF generation may be skipped during driver install..."
+	fi
+
+	# Fix missing resolve_btfids
+	# https://github.com/aircrack-ng/rtl8188eus/issues/263#issuecomment-1715699688
+	# Fixed by commenting out lines 61-63
+	KERNEL_MM=$( uname -r | cut -d'.' -f1-2 )
+	KBUILD_DIR="/usr/lib/linux-kbuild-${KERNEL_MM}"
+	MODFINAL_FILE="${KBUILD_DIR}/scripts/Makefile.modfinal"
+	if [ -f "$MODFINAL_FILE" ]; then
+		sed -n 61,63p $MODFINAL_FILE
+		phreak_tree_patch $MODFINAL_FILE "modfinal.diff"
+		sed -n 61,63p $MODFINAL_FILE
+	else
+		echoerr "Could not determine path to Makefile.modfinal"
 	fi
 
 	# Requests to downloads.digium.com usually use IPv4, but sometimes use IPv6
@@ -3454,6 +3493,7 @@ elif [ "$cmd" = "freepbx" ]; then
 	install_freepbx
 elif [ "$cmd" = "dahdi" ]; then
 	assert_root
+	CHAN_DAHDI=1 # This is used by the pre-req install process to install DAHDI-specific prereqs.
 	install_prereq 0 # Install basic build requirements
 	install_dahdi
 elif [ "$cmd" = "wanpipe" ]; then
