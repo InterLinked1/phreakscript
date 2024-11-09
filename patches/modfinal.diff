@@ -1,0 +1,15 @@
+--- /usr/lib/linux-kbuild-6.1/scripts/Makefile.modfinal.orig	2024-11-09 17:26:54.648766021 -0500
++++ /usr/lib/linux-kbuild-6.1/scripts/Makefile.modfinal	2024-11-09 17:27:00.900879469 -0500
+@@ -58,9 +58,9 @@
+ # Re-generate module BTFs if either module's .ko or vmlinux changed
+ $(modules): %.ko: %.o %.mod.o $(ARCH_MODULE_LDS) $(and $(CONFIG_DEBUG_INFO_BTF_MODULES),$(KBUILD_BUILTIN),vmlinux) FORCE
+ 	+$(call if_changed_except,ld_ko_o,vmlinux)
+-ifdef CONFIG_DEBUG_INFO_BTF_MODULES
+-	+$(if $(newer-prereqs),$(call cmd,btf_ko))
+-endif
++#ifdef CONFIG_DEBUG_INFO_BTF_MODULES
++#	+$(if $(newer-prereqs),$(call cmd,btf_ko))
++#endif
+ 
+ targets += $(modules) $(modules:.ko=.mod.o)
+ 
