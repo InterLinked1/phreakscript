@@ -2241,9 +2241,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
 	asterisk_pr_if 901 220100 210600 182600 # astfd compiler fix
 	asterisk_pr_if 903 220100 210600 182600 # voicemail pager email fix
+	asterisk_pr_if 917 220100 210600 182600 # FreeBSD compilation fixes
 
 	## Unmerged patches: remove once merged
-	asterisk_pr_unconditional 917 # FreeBSD compilation fixes
 	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
 	git_patch "config_c_fix_template_writing.patch" # config.c: fix template inheritance/overrides
 	asterisk_pr_unconditional 918 # config.c #tryinclude fixes
