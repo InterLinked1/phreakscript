@@ -132,7 +132,7 @@ jobs:
      - name: Build DAHDI and Asterisk
        run: |
           sudo ./phreaknet.sh make
-          sudo phreaknet install --fast --dahdi --drivers --sip --devmode
+          sudo phreaknet install --fast --dahdi --drivers --devmode --sip
   ubuntu-stable:
     runs-on: ubuntu-22.04
     name: Ubuntu 22.04
@@ -142,7 +142,7 @@ jobs:
      - name: Build DAHDI and Asterisk
        run: |
           sudo ./phreaknet.sh make
-          sudo phreaknet install --fast --dahdi --drivers --sip --devmode
+          sudo phreaknet install --fast --dahdi --drivers --devmode --sip
   debian-stable-asterisk-lts:
     runs-on: ubuntu-24.04
     name: Debian 12, Asterisk 20
@@ -188,7 +188,17 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          phreaknet install --fast --sip --devmode
+          KVERS="6.13.0-0.rc0" phreaknet install --fast --dahdi --drivers --devmode
+  alma-9-5:
+    runs-on: ubuntu-24.04
+    name: Alma Linux 9.5
+    container: almalinux:9.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          KVERS="5.14.0-503.14.1" phreaknet install --fast --dahdi --drivers --devmode
   rocky-9:
     runs-on: ubuntu-24.04
     name: Rocky Linux 9.3
@@ -198,7 +208,7 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          phreaknet install --fast --sip --devmode
+          KVERS="5.14.0-503.14.1" phreaknet install --fast --dahdi --drivers --devmode
   rocky-8:
     runs-on: ubuntu-24.04
     name: Rocky Linux 8.9
@@ -208,17 +218,17 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          phreaknet install --fast --sip --devmode
+          KVERS="4.18.0-553.27.1" phreaknet install --fast --dahdi --drivers --devmode
   opensuse:
     runs-on: ubuntu-24.04
     name: openSUSE Tumbleweed
     container: opensuse/tumbleweed
     steps:
       - uses: actions/checkout@v4
-      - name: Build DAHDI and Asterisk
+      - name: Build Asterisk
         run: |
           ./phreaknet.sh make
-          phreaknet install --fast --sip --devmode
+          phreaknet install --fast --devmode --sip
   archlinux:
     runs-on: ubuntu-24.04
     name: Arch Linux
@@ -228,7 +238,7 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          phreaknet install --fast --dahdi --drivers --sip --devmode
+          phreaknet install --fast --dahdi --drivers --devmode --sip
 # FreeBSD CI disabled since libuuid headers can't get installed in CI?
 #  freebsd-14:
 #    runs-on: ubuntu-24.04
@@ -241,4 +251,4 @@ jobs:
 #          usesh: true
 #          run: |
 #            ./phreaknet.sh make
-#            phreaknet install --fast --sip --devmode
+#            phreaknet install --fast --devmode --sip
