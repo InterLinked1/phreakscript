@@ -1703,14 +1703,24 @@ install_dahdi() {
 	# https://github.com/aircrack-ng/rtl8188eus/issues/263#issuecomment-1715699688
 	# Fixed by commenting out lines 61-63
 	KERNEL_MM=$( uname -r | cut -d'.' -f1-2 )
+	printf "Kernel major.minor version is %s\n" "$KERNEL_MM"
 	KBUILD_DIR="/usr/lib/linux-kbuild-${KERNEL_MM}"
-	MODFINAL_FILE="${KBUILD_DIR}/scripts/Makefile.modfinal"
-	if [ -f "$MODFINAL_FILE" ]; then
-		sed -n 61,63p $MODFINAL_FILE
-		phreak_tree_patch $MODFINAL_FILE "modfinal.diff"
-		sed -n 61,63p $MODFINAL_FILE
+	if [ -d "$KBUILD_DIR" ]; then
+		MODFINAL_FILE="${KBUILD_DIR}/scripts/Makefile.modfinal"
+		if [ -f "$MODFINAL_FILE" ]; then
+			sed -n 61,63p $MODFINAL_FILE
+			sed -n 61,63p $MODFINAL_FILE | grep "CONFIG_DEBUG_INFO_BTF_MODULES"
+			if [ $? -eq 0 ]; then
+				phreak_tree_patch $MODFINAL_FILE "modfinal.diff"
+				sed -n 61,63p $MODFINAL_FILE
+			else
+				echoerr "Skipping modfinal patch, expected content differs on line 61"
+			fi
+		else
+			echoerr "Could not determine path to Makefile.modfinal"
+		fi
 	else
-		echoerr "Could not determine path to Makefile.modfinal"
+		echoerr "Could not determine path to kbuild dir"
 	fi
 
 	# Requests to downloads.digium.com usually use IPv4, but sometimes use IPv6
