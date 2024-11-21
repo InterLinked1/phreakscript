@@ -297,7 +297,6 @@ die() {
 
 if [ "$OS" != 'Linux' -a "$OS" != 'NetBSD' -a "$OS" != 'OpenBSD' -a "$OS" != 'FreeBSD' -a "$OS" != 'DragonFly' ]; then
 	die "Your OS ($OS) is definitely not supported... aborting."
-	exit 1
 fi
 
 if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
@@ -411,7 +410,7 @@ ensure_installed() {
 ensure_installed "wget"
 
 # Wget2 does not support --show-progress, uses --force-progress instead
-WGET_VERSION=$( wget --version )
+WGET_VERSION=$( wget --version | head -n 1 )
 if [ "${WGET_VERSION#*"Wget2"}" != "$WGET_VERSION" ]; then
 	WGET="$WGET --force-progress"
 else
@@ -940,7 +939,10 @@ install_prereq() {
 		fi
 		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc gcc-c++ pkg-config autoconf automake m4 libtool"
 		if [ "$CHAN_DAHDI" = "1" ]; then
-			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel dwarves"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel"
+			if [ $RHEL_MAJOR_VERSION_8 -eq 0 ]; then
+				PREREQ_PACKAGES="$PREREQ_PACKAGES dwarves" # Not available on 8.9
+			fi
 		fi
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libuuid-devel libxml2-devel sqlite-devel"
@@ -1640,9 +1642,26 @@ install_wanpipe() {
 	fi
 }
 
+kernel_header_debug() {
+	printf "Running kernel: %s\n" $( uname -r )
+	printf "KVERS: %s\n" "$KVERS"
+	printf "KSRC: %s\n" "$KSRC"
+	ls -la /usr/src/
+	ls -la /usr/src/kernels
+	printf "Available kernel packages:\n"
+	dnf search kernel-devel
+	printf "Installed kernels:\n"
+	rpm -qa | grep kernel
+	ls -la /lib/modules
+	ls -la /usr/src/
+	ls -la /usr/src/kernels
+	ls -la /usr/src/kernels/*
+}
+
 install_dahdi() {
 	# Install the kernel headers
 	if [ "$KSRC" = "" ]; then
+		printf "Actual kernel version: %s\n" $( uname -r )
 		if [ "$PAC_MAN" = "apt-get" ]; then
 			install_package "kmod binutils-dev dh-autoreconf libusb-dev"
 			linux_headers_install_apt
@@ -1658,11 +1677,42 @@ install_dahdi() {
 				echoerr "kernel-devel mismatch has been detected. Package provides $KERNEL_DEVEL_VERSION, but running kernel is $kernel_ver"
 				echoerr "Installing specific kernel-devel package to match..."
 				dnf install -y kernel-devel-$(uname -r)
-				rpm -qa | grep kernel
 				KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
 				if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
-					echoerr "kernel-devel mismatch still present?"
-					if [ "$GENERIC_HEADERS" != "1" ]; then
+					KERNEL_MMP_VERSION=$( uname -r | cut -d'-' -f1-2 )
+					printf "Attempting to install: %s\n" "$KERNEL_MMP_VERSION"
+					dnf install -y kernel-devel-$KERNEL_MMP_VERSION
+					KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
+				fi
+				if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ] && [ "$RHEL_MAJOR_VERSION_8" != "1" ]; then
+					dnf remove -y kernel-devel
+					dnf install -y kernel-devel-matched
+					KERNEL_DEVEL_VERSION=$( dnf list installed 'kernel-devel' | grep "kernel-devel" | xargs | cut -d' ' -f2 | cut -d'.' -f1-5 )
+				fi
+				if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
+					echoerr "kernel-devel mismatch still present? ($KERNEL_DEVEL_VERSION != $kernel_ver)"
+					if [ "$KVERS" != "" ]; then
+						# Kernel version override for GitHub CI builds, where the available headers on Fedora-based distros
+						# do not match the running kernel. This probably would not run successfully, but in this case,
+						# we just care about building it.
+						ls /usr/src/kernels | grep "$KVERS"
+						if [ $? -ne 0 ]; then
+							printf "Installed kernels:\n"
+							ls /usr/src/kernels
+							die "No kernel matching specified kernel version, unable to autodetermine KSRC from specifiers KVERS: $KVERS"
+						fi
+						ksrc_dir=$( ls /usr/src/kernels | grep "${KVERS}" | head -n 1 | tr -d '\n' )
+						printf "Kernel source dir: %s\n" "$ksrc_dir"
+						new_ksrc="/usr/src/kernels/${ksrc_dir}"
+						if [ "$new_ksrc" == "" ]; then
+							printf "Installed kernels:\n"
+							ls /usr/src/kernels
+							die "Couldn't autodetermine KSRC from KVERS"
+						fi
+						printf "Setting KSRC to %s\n" "$new_ksrc"
+						export KSRC="$new_ksrc"
+					elif [ "$GENERIC_HEADERS" != "1" ]; then
+						kernel_header_debug
 						exit 1
 					fi
 				fi
@@ -1691,10 +1741,23 @@ install_dahdi() {
 		fi
 	fi
 
+	if [ "$KSRC" != "" ]; then
+		if [ ! -d "$KSRC" ]; then
+			die "KSRC directory does not exist: $KSRC"
+		elif [ ! -f "$KSRC/.config" ]; then
+			die "$KSRC/.config does not exist"
+		fi
+	fi
+
 	# Avoid "Skipping BTF generation for ... due to unavailability of vmlinux"
 	# Worked around by copying vmlinux to another location:
 	if [ -f /sys/kernel/btf/vmlinux ]; then
-		cp /sys/kernel/btf/vmlinux /usr/lib/modules/`uname -r`/build/
+		if [ -d /usr/lib/modules/`uname -r`/build/ ]; then
+			cp /sys/kernel/btf/vmlinux /usr/lib/modules/`uname -r`/build/
+		else
+			printf "Couldn't find kernel modules build dir for kernel %s\n" $( uname -r )
+			ls -la /usr/lib/modules
+		fi
 	else
 		echoerr "Couldn't find vmlinux... BTF generation may be skipped during driver install..."
 	fi
@@ -1750,8 +1813,7 @@ install_dahdi() {
 			rm -rf $DAHDI_LIN_SRC_DIR
 		else
 			ls -la
-			echoerr "Directory $DAHDI_LIN_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-			exit 1
+			die "Directory $DAHDI_LIN_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
 		fi
 	fi
 	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR" ]; then
@@ -1759,8 +1821,7 @@ install_dahdi() {
 			rm -rf $DAHDI_TOOLS_SRC_DIR
 		else
 			ls -la
-			echoerr "Directory $DAHDI_TOOLS_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-			exit 1
+			die "Directory $DAHDI_TOOLS_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
 		fi
 	fi
 	tar -zxvf $DAHLIN_SRC_NAME && rm $DAHLIN_SRC_NAME
@@ -1884,8 +1945,7 @@ install_dahdi() {
 	# if KSRC/KVERS env vars are set, they will automatically propagate to children
 	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
-		echoerr "DAHDI Linux compilation failed, aborting install"
-		exit 1
+		die "DAHDI Linux compilation failed, aborting install"
 	fi
 	$AST_MAKE install $DAHDI_CFLAGS
 
@@ -1912,8 +1972,7 @@ install_dahdi() {
 	./configure
 	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
-		echoerr "DAHDI Tools compilation failed, aborting install"
-		exit 1
+		die "DAHDI Tools compilation failed, aborting install"
 	fi
 	$AST_MAKE install
 	$AST_MAKE install-config
@@ -1929,8 +1988,8 @@ install_dahdi() {
 	# Ensure that dahdi_tool is installed, since it's not built if the prereqs weren't available at compile time.
 	if ! which "dahdi_tool" > /dev/null; then
 		echoerr "dahdi_tool does not appear to have been built successfully... newt development package missing?"
-		if [ "$FORCE_INSTALL" != "1" ] && [ "$PAC_MAN" != "pacman" ]; then
-			# Even though we successfully install the newt dev package on Arch Linux, for some reason this still fails, so don't make it fatal on Arch
+		if [ "$FORCE_INSTALL" != "1" ] && [ "$PAC_MAN" != "pacman" ] && [ "$PAC_MAN" != "yum" ]; then
+			# Even though we successfully install the newt dev package on Arch Linux / Fedora 42, for some reason this still fails, so don't make it fatal on those
 			exit 1
 		fi
 	fi
@@ -2686,8 +2745,7 @@ get_source() {
 			if [ "$FORCE_INSTALL" = "1" ]; then
 				rm -rf "asterisk"
 			else
-				echoerr "Directory asterisk already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
+				die "Directory asterisk already exists. Please rename or delete this directory and restart installation or specify the force flag."
 			fi
 		fi
 		if [ -d "asterisk-git" ]; then
@@ -2699,8 +2757,7 @@ get_source() {
 			mv asterisk asterisk-git
 		fi
 		if [ $? -ne 0 ]; then
-			echoerr "Failed to clone asterisk repository"
-			exit 1
+			die "Failed to clone asterisk repository"
 		fi
 	else
 		$WGET https://downloads.asterisk.org/pub/telephony/asterisk/releases/$AST_SOURCE_NAME.tar.gz
@@ -2731,8 +2788,7 @@ get_source() {
 			if [ "$FORCE_INSTALL" = "1" ]; then
 				rm -rf $AST_SRC_DIR
 			else
-				echoerr "Directory $AST_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-				exit 1
+				die "Directory $AST_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
 			fi
 		fi
 		ver=`echo $AST_SRC_DIR | cut -d'-' -f2`
@@ -3749,8 +3805,7 @@ elif [ "$cmd" = "config" ]; then
 	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
 	if [ $? -ne 0 ]; then
-		echoerr "Asterisk configuration directory does not exist"
-		exit 1
+		die "Asterisk configuration directory does not exist"
 	fi
 	install_samples
 	if [ ${#INTERLINKED_APIKEY} -eq 0 ]; then
@@ -3793,8 +3848,7 @@ elif [ "$cmd" = "bconfig" ]; then
 	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
 	if [ $? -ne 0 ]; then
-		echoerr "Asterisk configuration directory does not exist"
-		exit 1
+		die "Asterisk configuration directory does not exist"
 	fi
 	install_samples
 	install_boilerplate
@@ -3892,14 +3946,12 @@ elif [ "$cmd" = "fail2ban" ]; then
 	ensure_installed iptables
 	ensure_installed fail2ban
 	if [ -f /etc/fail2ban/filter.d/asterisk.conf ]; then
-		echoerr "Existing fail2ban configuration for Asterisk already found, exiting..."
-		exit 1
+		die "Existing fail2ban configuration for Asterisk already found, exiting..."
 	fi
 	wget -q "https://raw.githubusercontent.com/fail2ban/fail2ban/master/config/filter.d/asterisk.conf" -O /etc/fail2ban/filter.d/asterisk.conf
 elif [ "$cmd" = "ban" ]; then
 	if [ ${#2} -lt 1 ]; then
-		echoerr "Must specify an IP address or CIDR range"
-		exit 1
+		die "Must specify an IP address or CIDR range"
 	fi
 	iptables -A INPUT -s $2 -j DROP
 elif [ "$cmd" = "update" ]; then
@@ -4019,14 +4071,12 @@ elif [ "$cmd" = "alembic" ]; then
 	# This should only be done in a Git repository (developer usage only)
 	git status
 	if [ $? -ne 0 ]; then
-		echoerr "Not currently in a Git directory?"
-		exit 1
+		die "Not currently in a Git directory?"
 	fi
 	# Go into the alembic directory
 	cd contrib/ast-db-manage
 	if [ $? -ne 0 ]; then
-		echoerr "Directory not found: contrib/ast-db-manage"
-		exit 1
+		die "Directory not found: contrib/ast-db-manage"
 	fi
 	read -r -p "Alembic title: " title
 	alembic -c config.ini.sample revision -m "$title"
@@ -4143,12 +4193,10 @@ elif [ "$cmd" = "funclist" ]; then
 	grep -ERo "\{([A-Z]+)\(" | cut -d'{' -f2 | cut -d'(' -f1 | sort | uniq
 elif [ "$cmd" = "paste" ]; then
 	if [ ${#2} -eq 0 ]; then
-		echoerr "Usage: phreaknet paste <filename>"
-		exit 1
+		die "Usage: phreaknet paste <filename>"
 	fi
 	if [ ! -f "$2" ]; then
-		echoerr "File $2 does not exist"
-		exit 1
+		die "File $2 does not exist"
 	fi
 	paste_post "$2"
 elif [ "$cmd" = "enable-backtraces" ]; then
@@ -4192,8 +4240,7 @@ elif [ "$cmd" = "malloc-debug" ]; then # https://wiki.asterisk.org/wiki/display/
 	asterisk -g
 	read -r -p "MALLOC_DEBUG is currently collecting debug. Press ENTER once issue has been reproduced: "
 	if [ ! -f "/var/log/asterisk/mmlog" ]; then
-		echoerr "Could not find /var/log/asterisk/mmlog"
-		exit 1
+		die "Could not find /var/log/asterisk/mmlog"
 	fi
 	paste_post "/var/log/asterisk/mmlog"
 	ls /var/log/asterisk/mmlog
@@ -4218,8 +4265,7 @@ elif [ "$cmd" = "threads" ]; then
 	# Debug CPU usage of specific threads.
 	pid=`cat /var/run/asterisk/asterisk.pid`
 	if [ ${#pid} -eq 0 ]; then
-		echoerr "Asterisk is not currently running."
-		exit 1
+		die "Asterisk is not currently running."
 	fi
 	ps -o pid,lwp,pcpu,pmem,comm,cmd -L $pid
 	/sbin/asterisk -rx "core show threads"
@@ -4276,8 +4322,7 @@ elif [ "$cmd" = "apiban" ]; then # install apiban-client: https://github.com/pal
 }
 EOF
 	if [ ! -f /usr/local/bin/apiban/apiban-iptables-client ]; then
-		echoerr "apiban-client not installed successfully"
-		exit 1
+		die "apiban-client not installed successfully"
 	fi
 	/usr/local/bin/apiban/apiban-iptables-client
 	printf "%s\n\n" "apiban-client has been installed"
@@ -4286,8 +4331,7 @@ EOF
 	# EDITOR=nano crontab -e
 elif [ "$cmd" = "iaxping" ]; then
 	if [ ${#2} -eq 0 ]; then
-		echoerr "Usage: phreaknet iaxping <hostname> [<port>]"
-		exit 1
+		die "Usage: phreaknet iaxping <hostname> [<port>]"
 	fi
 	port=4569
 	host="$2"
@@ -4295,8 +4339,7 @@ elif [ "$cmd" = "iaxping" ]; then
 		if [ "$3" -eq "$3" ] 2> /dev/null; then
 			port="$3"
 		else
-			echoerr "Invalid port number: $3"
-			exit 2
+			die "Invalid port number: $3"
 		fi
 	fi
 	ensure_installed nmap
@@ -4406,8 +4449,7 @@ elif [ "$cmd" = "enable-swap" ]; then
 		echo "More than 800 MB of free disk space, allocating 500 MB space"
 		fallocate -l 500M /swapfile
 	else
-		echoerr "Only $freediskspace KB of space available (not enough to add sufficient swap)"
-		exit 1
+		die "Only $freediskspace KB of space available (not enough to add sufficient swap)"
 	fi
 	chmod 600 /swapfile
 	mkswap /swapfile
@@ -4432,8 +4474,7 @@ elif [ "$cmd" = "disable-swap" ]; then
 	swapon --show
 	# if in /etc/fstab, then should be removed from there, too!
 	if [ ! -f /swapfile ]; then
-		echoerr "/swapfile does not exist!"
-		exit 1
+		die "/swapfile does not exist!"
 	fi
 	df -h /
 	rm /swapfile
