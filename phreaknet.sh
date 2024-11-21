@@ -910,7 +910,7 @@ install_prereq() {
 	# wget should already be installed at this point, so it's not included here
 	PREREQ_PACKAGES=""
 	RHEL_MAJOR_VERSION_8=0
-	printf "Installing prerequisites for %s..." "$OS_DIST_INFO"
+	printf "Installing prerequisites for %s...\n" "$OS_DIST_INFO"
 	# Even if we are just installing DAHDI (without Asterisk), $CHAN_DAHDI should be set to 1 at this point.
 	# libnewt-dev is needed for newt, which dahdi_tool requires. If it's not available, it won't get built.
 	# dwarves is needed for pahole, which DAHDI Linux install needs for BTF generation
@@ -1879,6 +1879,8 @@ install_dahdi() {
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/66.diff" # PR 66: Add braces around empty if body
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/69.diff" # PR 69: DEFINE_SEMAPHORE for RHEL
 
+	git_custom_patch "https://raw.githubusercontent.com/InterLinked1/phreakscript/kernel-next/patches/vpmadt032.diff"
+
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
 	if [ "$KERN_VER_MM" = "4.18" ] && [ "$OS_DIST_2" = "Rocky Linux" ]; then
@@ -1946,6 +1948,10 @@ install_dahdi() {
 	# if KSRC/KVERS env vars are set, they will automatically propagate to children
 	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
+		if [ "$KSRC" != "" ]; then
+			# With debug, and not parallelized
+			$AST_MAKE -n $DAHDI_CFLAGS
+		fi
 		die "DAHDI Linux compilation failed, aborting install"
 	fi
 	$AST_MAKE install $DAHDI_CFLAGS

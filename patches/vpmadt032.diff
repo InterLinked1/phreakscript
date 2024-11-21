@@ -1,0 +1,13 @@
+diff --git a/drivers/dahdi/Kbuild b/drivers/dahdi/Kbuild
+index d9d26da..b8b63ed 100644
+--- a/drivers/dahdi/Kbuild
++++ b/drivers/dahdi/Kbuild
+@@ -138,7 +138,7 @@ ifneq ($(DAHDI_ARCH),)
+   ifneq ($(wildcard $(src)/vpmadt032_loader/vpmadt032_$(DAHDI_ARCH).o_shipped),)
+     $(shell touch $(KBUILD_EXTMOD)/vpmadt032_loader/.vpmadt032_$(DAHDI_ARCH).o.cmd)
+     VPMADT032_LOADER_PRESENT=yes
+-    dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_$(DAHDI_ARCH).o
++    #dahdi_vpmadt032_loader-objs += vpmadt032_loader/vpmadt032_$(DAHDI_ARCH).o
+     obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_VPMADT032_LOADER)	+= dahdi_vpmadt032_loader.o
+   endif
+ endif
