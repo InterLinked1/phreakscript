@@ -109,9 +109,10 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+          mv linux-next linux
      - name: Build kernel
        run: |
-          cd /usr/src/linux-next
+          cd /usr/src/linux
           make -j$(nproc) kernelversion
           make -j$(nproc) x86_64_defconfig
           make -j$(nproc) modules_prepare
@@ -122,7 +123,7 @@ jobs:
      - name: Build DAHDI
        run: |
            ./phreaknet.sh make
-           KSRC=/usr/src/linux-next phreaknet dahdi --drivers
+           KSRC=/usr/src/linux phreaknet dahdi --drivers
   ubuntu-latest:
     runs-on: ubuntu-24.04
     name: Ubuntu 24.04
