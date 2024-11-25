@@ -242,6 +242,7 @@ SIP_CISCO=0
 CHAN_SCCP=0
 CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
+EMPULSE=1 # Automatically enable EMPULSE, cause why not?
 DAHDI_WANPIPE=0 # wanpipe only needed for Sangoma cards
 DEVMODE=0
 TEST_SUITE=0
@@ -1907,6 +1908,10 @@ install_dahdi() {
 		if [ "$HEARPULSING" = "1" ]; then
 			git_patch "hearpulsing-dahlin.diff"
 		fi
+		if [ "$EMPULSE" = "1" ]; then
+			printf "Enabling EMPULSE for this build\n"
+			sed -i 's|/\* #define EMPULSE \*/|#define EMPULSE|g' include/dahdi/dahdi_config.h # Enable EMPULSE by default. Note that the * must be escaped for sed.
+		fi
 	else
 		echoerr "Skipping DAHDI Linux feature patches..."
 	fi
@@ -2309,13 +2314,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	printf "Applying patches applicable to %s -> %d (~%s)\n" "$AST_ALT_VER" "$AST_MM_VER" "$AST_MAJOR_VER"
 
 	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
-	asterisk_pr_if 901 220100 210600 182600 # astfd compiler fix
-	asterisk_pr_if 903 220100 210600 182600 # voicemail pager email fix
-	asterisk_pr_if 917 220100 210600 182600 # FreeBSD compilation fixes
+	asterisk_pr_if 961 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
+	asterisk_pr_if 994 220200 210700 201200 182700 # FGD regression fix
 
-	## Unmerged patches: remove once merged
-	git_patch "config_c_fix_template_inheritance_overrides.patch" # config.c: fix template inheritance/overrides
-	git_patch "config_c_fix_template_writing.patch" # config.c: fix template inheritance/overrides
+	## Unmerged patches: remove or switch to asterisk_pr_if once merged
+	asterisk_pr_unconditional 245 # config.c: fix template inheritance/overrides
 	asterisk_pr_unconditional 918 # config.c #tryinclude fixes
 	asterisk_pr_unconditional 971 # config.c fix issues w/ whitespace in comments
 
