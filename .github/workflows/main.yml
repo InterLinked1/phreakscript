@@ -188,7 +188,7 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          KVERS="6.13.0-0.rc0" phreaknet install --fast --dahdi --drivers --devmode
+          KVERS="6.13.0-0.rc2" phreaknet install --fast --dahdi --drivers --devmode
   alma-9-5:
     runs-on: ubuntu-24.04
     name: Alma Linux 9.5
@@ -198,7 +198,7 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          KVERS="5.14.0-503.14.1" phreaknet install --fast --dahdi --drivers --devmode
+          KVERS="5.14.0-503.15.1" phreaknet install --fast --dahdi --drivers --devmode
   rocky-9:
     runs-on: ubuntu-24.04
     name: Rocky Linux 9.3
@@ -208,7 +208,7 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          KVERS="5.14.0-503.14.1" phreaknet install --fast --dahdi --drivers --devmode
+          KVERS="5.14.0-503.16.1" phreaknet install --fast --dahdi --drivers --devmode
   rocky-8:
     runs-on: ubuntu-24.04
     name: Rocky Linux 8.9
@@ -218,7 +218,7 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          KVERS="4.18.0-553.27.1" phreaknet install --fast --dahdi --drivers --devmode
+          KVERS="4.18.0-553.32.1" phreaknet install --fast --dahdi --drivers --devmode
   opensuse:
     runs-on: ubuntu-24.04
     name: openSUSE Tumbleweed
