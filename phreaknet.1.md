@@ -291,6 +291,12 @@ The following options may be used with the **install** command.
 **--drivers**
 : Also install DAHDI drivers removed in 2018 by Sangoma
 
+**--generic**
+: Use generic kernel headers that do not match the installed kernel version
+
+**--autokvers**
+: Automatically pass the appropriate value for KVERS for DAHDI compilation (only needed on non-Debian systems)
+
 **--experimental**
 : Install experimental features that may not be production ready
 

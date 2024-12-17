@@ -265,6 +265,7 @@ SCRIPT_UPSTREAM="$PATCH_DIR/phreaknet.sh"
 DEBUG_LEVEL=0
 FREEPBX_GUI=0
 GENERIC_HEADERS=0
+AUTOSET_KVERS=0
 EXTERNAL_CODECS=0
 RTPULSING=1
 HEARPULSING=1
@@ -580,6 +581,7 @@ Options:
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
        --generic      install: Use generic kernel headers that do not match the installed kernel version
+       --autokvers    install: Automatically pass the appropriate value for KVERS for DAHDI compilation (only needed on non-Debian systems)
        --extcodecs    install: Specify this if any external codecs are being or will be installed
        --freepbx      install: Install FreePBX GUI (not recommended)
        --manselect    install: Manually run menuselect yourself
@@ -1692,6 +1694,10 @@ install_dahdi() {
 				fi
 				if [ "$KERNEL_DEVEL_VERSION" != "$kernel_ver" ]; then
 					echoerr "kernel-devel mismatch still present? ($KERNEL_DEVEL_VERSION != $kernel_ver)"
+					if [ "$AUTOSET_KVERS" = "1" ]; then
+						printf "Auto-setting KVERS=%s\n" "$KERNEL_DEVEL_VERSION"
+						KVERS="$KERNEL_DEVEL_VERSION"
+					fi
 					if [ "$KVERS" != "" ]; then
 						# Kernel version override for GitHub CI builds, where the available headers on Fedora-based distros
 						# do not match the running kernel. This probably would not run successfully, but in this case,
@@ -2896,7 +2902,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -2941,6 +2947,7 @@ while true; do
 		--fast ) FAST_COMPILE=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
 		--generic ) GENERIC_HEADERS=1; shift ;;
+		--autokvers ) AUTOSET_KVERS=1; shift ;;
 		--lightweight ) LIGHTWEIGHT=1; shift ;;
 		--api-key ) INTERLINKED_APIKEY=$2; shift 2;;
 		--rotate ) ASTKEYGEN=1; shift ;;
