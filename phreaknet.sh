@@ -320,14 +320,14 @@ elif [ ! -f /etc/debian_version ]; then # Default is Debian
 	echoerr "Support for this platform ($OS_DIST_INFO) is limited... use at your own risk..."
 
 	# Try to automatically detect the right package manager, at least...
-	if ! which "yum" > /dev/null; then
+	if which "yum" > /dev/null; then
 		PAC_MAN="yum"
-	elif ! which "dnf" > /dev/null; then
+	elif which "dnf" > /dev/null; then
 		PAC_MAN="dnf"
-	elif ! which "pkg" > /dev/null; then
+	elif which "pkg" > /dev/null; then
 		PAC_MAN="pkg"
 		AST_SOURCE_PARENT_DIR="/usr/local/src"
-	elif which "apt-get" > /dev/null; then # apt-get is default, so check last
+	elif ! which "apt-get" > /dev/null; then # apt-get is default, so check last
 		echoerr "Failed to automatically determine your package manager... script will likely fail"
 	fi
 fi
@@ -2405,7 +2405,7 @@ install_odbc() {
 	# https://wiki.asterisk.org/wiki/display/AST/Getting+Asterisk+Connected+to+MySQL+via+ODBC
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		# unixodbc is what contains isql
-		apt-get install -y unixodbc unixodbc-dev unixodbc-bin mariadb-server odbcinst
+		install_package "unixodbc unixodbc-dev odbcinst"
 	fi
 	cd $AST_SOURCE_PARENT_DIR
 	# http://www.unixodbc.org/ to get isql (if desired for manual testing)
@@ -2423,8 +2423,8 @@ install_odbc() {
 	fi
 	cp libmaodbc.so /usr/lib/x86_64-linux-gnu/odbc/
 	cp libmariadb.so /usr/lib/x86_64-linux-gnu/odbc/
-	rm mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
 	cd $AST_SOURCE_PARENT_DIR
+	rm mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
 	odbcinst -j
 	if [ $? -ne 0 ]; then
 		die "odbcinst failed"
