@@ -68,6 +68,7 @@
 					<synopsis>Asterisk device</synopsis>
 					<description>
 						<para>Asterisk device corresponding to this SMDR line, if applicable.</para>
+						<para>If provided, this must be a <literal>chan_dahdi</literal> FXO (FXS-signalled) device connected to the same phone line.</para>
 						<para>If specified, SMDR entries will be ignored if this channel is in use during the logged call.
 						This is useful if certain calls are made through an FXO port with CDR already directly logged by Asterisk directly,
 						but other calls are made directly on the line and not through the FXO port. Setting this option appropriately
@@ -132,7 +133,8 @@ struct whozz_line {
 	struct ast_channel *chan;			/*!< Dummy channel for CDR */
 	const char *device;					/*!< Asterisk device */
 	enum line_state state;				/*!< Current line state */
-	enum ast_device_state startstate;	/*!< Starting device state of associated device, if applicable */
+	enum ast_device_state startstate;	/*!< Starting device state of associated FXO device, if applicable */
+	enum ast_device_state answerstate;	/*!< Device state of associated FXO device, if applicable, at time of off-hook on incoming call */
 	struct varshead varshead;			/*!< Variables to set on channel for CDR */
 	AST_LIST_ENTRY(whozz_line) entry;	/*!< Next channel */
 	char data[];
@@ -354,6 +356,94 @@ static void mark_answered(struct ast_channel *chan)
 	ast_channel_unlock(chan);
 }
 
+static int fxo_device_state(const char *device)
+{
+	/* Non-ISDN DAHDI channels (e.g. analog) are always "unknown" when not in use...
+	 * not sure I agree with this, but this is the way it is currently, so account for that.
+	 *
+	 * Furthermore, the device state is misleading and CANNOT BE USED for determining the line state.
+	 * - When the connected phone line is idle, the state will be "Unknown".
+	 * - When the FXO port is in use, the state will be "In Use" (good).
+	 * - When there is an incoming call ringing to the FXO port, its device state will be... "In Use".
+	 *
+	 * To understand what's going on, recall the Asterisk fallback for computing device state simply
+	 * finds a channel associated with the device and converts its channel state to a mapped device state.
+	 *
+	 * AST_STATE_RING -> AST_DEVICE_INUSE
+	 * AST_STATE_RINGING -> AST_DEVICE_RINGING
+	 *
+	 * STATE_RING essentially corresponds to audible ring being present on the channel, while
+	 * STATE_RINGING corresponds to the device actually ringing, e.g. actual physical 90V power ring.
+	 *
+	 * However, RINGING only makes sense when Asterisk is ringing a device (whether it's DAHDI or not).
+	 * For example, when ringing a phone, its DAHDI channel will have channel state (and device state) "Ringing".
+	 *
+	 * However, on incoming calls to an FXO port, Asterisk isn't ringing it... the opposite, in fact!
+	 * The network is indicating to us that there is an incoming call. And in all other scenarios,
+	 * the incoming channel side that is ringing a phone has state "Ring". FXO ports are a special edge
+	 * case where there is something physically ringing (perhaps phones on the connected line), but it's
+	 * not really "Ringing" in the semantic sense that Asterisk uses it.
+	 *
+	 * TL;DR To distinguish between FXO port being rung and actually active and in use, do not use
+	 * ${DEVICE_STATE(DAHDI/1)}
+	 * In both cases, it will return "INUSE".
+	 * Instead, do:
+	 * ${IMPORT(DAHDI/1-1,CHANNEL(state))}
+	 * This is because chan_dahdi doesn't support call waiting on FXO ports (currently),
+	 * so there will only ever be one channel max on an FXO port, and so we know what it will be called.
+	 * Therefore, if we know the device is in use, then we can use this to check if Asterisk is off-hook on the FXO port.
+	 * If it returns "Ring", it's just ringing and the FXO port is idle.
+	 * If it returns "Up", then we're actually off-hook on the FXO port.
+	 *
+	 * The code below does the internal equivalent of ${IMPORT(DAHDI/1-1,CHANNEL(state))}
+	 */
+
+	/* Use the device state to get started, but for the reasons described at length above, we can't use that alone.
+	 * We need to narrow it down further to distinguish between ringing and actually in use. */
+	enum ast_device_state devstate = ast_device_state(device);
+	if (devstate == AST_DEVICE_INUSE) {
+		struct ast_channel *chan2;
+		char channel_name[64];
+		/* The DAHDI channel naming scheme is predictable, and FXO ports are only going to have 1 channel, currently,
+		 * so that simplifies this to a straightforward translation. */
+		snprintf(channel_name, sizeof(channel_name), "%s-1", device);
+		if ((chan2 = ast_channel_get_by_name(channel_name))) {
+			enum ast_channel_state state;
+			ast_channel_lock(chan2);
+			state = ast_channel_state(chan2);
+			ast_channel_unlock(chan2);
+			chan2 = ast_channel_unref(chan2);
+
+			/* Based on the state, do a conversion. */
+			ast_debug(3, "Channel state of %s is %s\n", channel_name, ast_state2str(state));
+			switch (state) {
+			case AST_STATE_RING:
+				/* Normally, this would map to AST_DEVICE_INUSE.
+				 * For our purposes, we return AST_DEVICE_RINGING,
+				 * to reflect the FXO port ringing. Semantically,
+				 * this breaks with Asterisk's idea of what device state
+				 * refers to, but we're really just repurposing the enum
+				 * for something specific here. */
+				devstate = AST_DEVICE_RINGING;
+				break;
+			default:
+				/* Leave it alone */
+				break;
+			}
+		} else {
+			/* Not really any way to determine the truth... */
+			ast_log(LOG_ERROR, "Channel %s does not exist\n", channel_name);
+		}
+	} else if (devstate == AST_DEVICE_UNKNOWN) {
+		/* chan_dahdi doesn't set specific states for non-ISDN.
+		 * If it's unknown, then what that really indicates is not in use. */
+		devstate = AST_DEVICE_NOT_INUSE;
+	}
+	return devstate;
+}
+
+/* NOTE: Do not use the ast_device_state function directly below this point! Use fxo_device_state instead! */
+
 static int handle_hook(struct whozz_line *w, int outbound, int end, int duration, const char *numberstr, const char *cnam)
 {
 	if (end) {
@@ -362,14 +452,29 @@ static int handle_hook(struct whozz_line *w, int outbound, int end, int duration
 
 			/* End call and finalize */
 			if (!ast_strlen_zero(w->device)) {
-				enum ast_device_state endstate = ast_device_state(w->device);
-				if (w->startstate == AST_DEVICE_INUSE && endstate == AST_DEVICE_NOT_INUSE) {
+				int ast_device_used;
+				enum ast_device_state endstate = fxo_device_state(w->device);
+				if (outbound) {
+					ast_device_used = w->startstate == AST_DEVICE_INUSE && endstate == AST_DEVICE_NOT_INUSE;
+				} else {
+					/* The inbound case is a little bit different because there's an extra step.
+					 * Initially, the state should always be AST_DEVICE_RINGING here,
+					 * because you can't answer a phone call through Asterisk before the FXO port even starts ringing!
+					 * But RINGING to start with and NOT_INUSE at the end doesn't tell us whether we answered through Asterisk or not.
+					 * The critical thing is detecting DEVICE_INUSE at some point while the line is off-hook,
+					 * and conveniently we check this right if/when an off-hook occurs. */
+					ast_device_used = w->answerstate == AST_DEVICE_INUSE && endstate == AST_DEVICE_NOT_INUSE;
+				}
+				if (ast_device_used) {
 					/* Avoid a duplicate CDR record, since the call was made through Asterisk. */
 					ast_verb(6, "Call was made through associated device, ignoring this call for SMDR purposes\n");
 					__cleanup_stale_cdr(w->chan);
 					w->chan = NULL;
 					return 0;
+				} else {
+					ast_debug(2, "FXO state of %s was %s and is now %s\n", w->device, ast_devstate_str(w->startstate), ast_devstate_str(endstate));
 				}
+				w->startstate = w->answerstate = AST_DEVICE_UNKNOWN; /* Reset */
 			}
 
 			/* Now, add any variables */
@@ -404,7 +509,7 @@ static int handle_hook(struct whozz_line *w, int outbound, int end, int duration
 			 * If it's in use, then we know that the call in question
 			 * is being made through Asterisk, and thus we'll probably
 			 * end up ignoring this call for CDR purposes. */
-			w->startstate = ast_device_state(w->device);
+			w->startstate = fxo_device_state(w->device);
 		}
 
 		/* Unfortunately, we cannot use a dummy channel for CDR.
@@ -573,6 +678,9 @@ static int __process_serial_read(struct whozz_line *w, int lineno, const char *a
 			/* Answer it on the channel */
 			if (w->chan) {
 				mark_answered(w->chan);
+				if (!ast_strlen_zero(w->device)) {
+					w->answerstate = fxo_device_state(w->device);
+				}
 			} else {
 				ast_log(LOG_WARNING, "No call in progress, ignoring call answer\n");
 			}
@@ -727,6 +835,7 @@ static int serial_loop(struct pollfd *pfd)
 	for (;;) {
 		char buf[128];
 		char *pos;
+
 		bufres = poll(pfd, 1, -1);
 		if (bufres <= 0) {
 			if (unloading) {
@@ -904,6 +1013,10 @@ static int load_config(void)
 					}
 				} else if (!strcasecmp(var->name, "device")) {
 					device = var->value;
+					if (strncasecmp(device, "DAHDI/", 6)) {
+						ast_log(LOG_WARNING, "Setting 'device' must be a DAHDI device\n");
+						device = NULL;
+					}
 				} else if (!strcasecmp(var->name, "setvar")) {
 					continue; /* Ignore on this pass */
 				} else {
