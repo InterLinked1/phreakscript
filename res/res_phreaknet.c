@@ -1033,6 +1033,8 @@ static int iax_purge_keys(void)
 	return 0;
 }
 
+#define MY_KEYPAIR_TEMPFILE_PREFIX "/tmp/" MY_KEYPAIR_NAME
+
 /*! \brief Generate a new or rotated PhreakNet public key pair and upload it to the server */
 static int gen_keypair(int rotate)
 {
@@ -1044,7 +1046,7 @@ static int gen_keypair(int rotate)
 	char *pubkey;
 	struct ast_str *str;
 	const char *clli;
-	char *const argv[] = { "astgenkey", "-q", "-n", MY_KEYPAIR_NAME, NULL };
+	char *const argv[] = { "astgenkey", "-q", "-n", MY_KEYPAIR_TEMPFILE_PREFIX, NULL };
 
 	if (ast_strlen_zero(interlinked_api_key)) {
 		/* Can't successfully upload to server with no API key */
@@ -1099,10 +1101,10 @@ static int gen_keypair(int rotate)
 	/* astgenkey will create files in the current working directory, not ast_config_AST_KEY_DIR.
 	 * We could chdir after we fork but before we execvp, but let's just rename the file from what it is to what it should be. */
 	if (rename(MY_KEYPAIR_NAME ".key", privkeyfile)) {
-		ast_log(LOG_WARNING, "Failed to rename file to %s: %s\n", privkeyfile, strerror(errno));
+		ast_log(LOG_WARNING, "Failed to rename %s to %s: %s\n", MY_KEYPAIR_TEMPFILE_PREFIX MY_KEYPAIR_NAME ".key", privkeyfile, strerror(errno));
 		return -1;
 	} else if (rename(MY_KEYPAIR_NAME ".pub", pubkeyfile)) {
-		ast_log(LOG_WARNING, "Failed to rename file to %s: %s\n", pubkeyfile, strerror(errno));
+		ast_log(LOG_WARNING, "Failed to rename %s to %s: %s\n", MY_KEYPAIR_TEMPFILE_PREFIX MY_KEYPAIR_NAME ".pub", pubkeyfile, strerror(errno));
 		return -1;
 	}
 
