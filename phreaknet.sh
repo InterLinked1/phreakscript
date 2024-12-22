@@ -2322,9 +2322,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
 	asterisk_pr_if 961 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
 	asterisk_pr_if 994 220200 210700 201200 182700 # FGD regression fix
+	asterisk_pr_if 245 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
+	asterisk_pr_if 414 220200 210700 201200 182700 # IAX2 loopback warning
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
-	asterisk_pr_unconditional 245 # config.c: fix template inheritance/overrides
 	asterisk_pr_unconditional 918 # config.c #tryinclude fixes
 	asterisk_pr_unconditional 971 # config.c fix issues w/ whitespace in comments
 
@@ -2343,7 +2344,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## WIP
 	asterisk_pr_unconditional 292 # GROUP VARs
-	asterisk_pr_unconditional 414 # IAX2 loopback warning
 
 	# Unmerged
 	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
@@ -3754,6 +3754,8 @@ elif [ "$cmd" = "docgen" ]; then
 	fi
 	rm /tmp/astdocgen.xml
 	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
+	# To remove any packages installed purely for astdocgen:
+	# apt-get remove apache2 apache2-bin apache2-data apache2-utils libapache2-mod-php8.2 libaprutil1-dbd-sqlite3 libaprutil1-ldap liblua5.3-0 php php8.2 php8.2-xml
 elif [ "$cmd" = "mkdocs" ]; then
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
