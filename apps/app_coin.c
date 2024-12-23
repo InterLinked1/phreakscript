@@ -178,7 +178,7 @@
 						<para>Put the phone in Operator Attached Mode before beginning the call,
 						useful if the call is being sent to a toll switch for long distance handling.</para>
 					</option>
-					<option name="f">
+					<option name="c">
 						<para>Enable Feature Group C trunk mode for the call.</para>
 						<para>This is intended when the call is sent to a Class 4 switch
 						using a Feature Group C trunk with Expanded In-Band Signaling.
