@@ -96,6 +96,12 @@ static int get_user_agent(struct ast_channel *chan, char *buf, size_t len, char 
 	char workspace[256];
 	char device_name[256];
 	char *endpoint;
+	const char *tech;
+
+	if (!chan) {
+		ast_log(LOG_ERROR, "Missing channel\n");
+		return -1;
+	}
 
 	if (!ast_strlen_zero(device)) { /* we were given a device to use */
 		endpoint = strchr(device, '/');
@@ -119,28 +125,47 @@ static int get_user_agent(struct ast_channel *chan, char *buf, size_t len, char 
 
 	endpoint++; /* Eat the slash so we just have the name without the tech */
 
+	if (!ast_channel_tech(chan)) { /* This could be NULL, like if evaluating a function from the CLI */
+		ast_log(LOG_ERROR, "Channel has no tech?\n");
+		return -1;
+	}
+	tech = ast_channel_tech(chan)->type;
 	/* Can't use CHANNEL(useragent) in predial unfortunately... only works when channel is really there */
-	if (!strcasecmp(ast_channel_tech(chan)->type, "PJSIP")) {
+	if (!strcasecmp(tech, "PJSIP")) {
 		snprintf(tmp, sizeof(tmp), "PJSIP_AOR(%s,contact)", endpoint);
-		ast_func_read(chan, tmp, workspace, sizeof(workspace));
+		if (ast_func_read(chan, tmp, workspace, sizeof(workspace))) {
+			ast_log(LOG_ERROR, "Failed to get contact for %s\n", endpoint);
+			return -1;
+		}
 		if (ast_strlen_zero(workspace)) {
 			ast_log(LOG_WARNING, "No AOR found for %s\n", endpoint);
 			return -1;
 		}
+		ast_debug(3, "Contact for endpoint %s is %s\n", endpoint, workspace);
+		/* If multiple contacts are present, then there's no real way to know which one to use.
+		 * Just yell at the user that there should only be 1 contact! */
+		if (strchr(workspace, ',')) {
+			ast_log(LOG_WARNING, "Multiple contacts detected for endpoint '%s': %s\n", endpoint, workspace);
+			/* This will probably fail now, but go ahead and fail anyways */
+		}
 		snprintf(tmp, sizeof(tmp), "PJSIP_CONTACT(%s,user_agent)", workspace);
-		ast_func_read(chan, tmp, buf, len);
+		if (ast_func_read(chan, tmp, buf, len)) {
+			ast_log(LOG_ERROR, "Failed to get user agent using contact %s\n", workspace);
+			return -1;
+		}
 		ast_debug(1, "User agent of PJSIP/%s is '%s'\n", endpoint, buf);
-		return 0;
-	} else if (!strcasecmp(ast_channel_tech(chan)->type, "SIP")) {
+	} else if (!strcasecmp(tech, "SIP")) {
 		snprintf(tmp, sizeof(tmp), "SIPPEER(%s,useragent)", endpoint);
-		ast_func_read(chan, tmp, buf, len);
+		if (ast_func_read(chan, tmp, buf, len)) {
+			ast_log(LOG_ERROR, "Failed to get user agent for %s\n", endpoint);
+			return -1;
+		}
 		ast_debug(1, "User agent of SIP/%s is '%s'\n", endpoint, buf);
-		return 0;
+	} else {
+		ast_log(LOG_WARNING, "Unsupported channel technology: %s\n", ast_channel_tech(chan)->type);
+		return -1;
 	}
-
-	ast_log(LOG_WARNING, "Unsupported channel technology: %s\n", ast_channel_tech(chan)->type);
-
-	return -1;
+	return 0;
 }
 
 /*! \brief Somewhat arbitrary, but broken down by manufacturer / vendor / things that respond differently. */
