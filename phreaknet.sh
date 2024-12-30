@@ -1876,8 +1876,6 @@ install_dahdi() {
 	# Merged in master, but not yet in a current release
 	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d7bbc8a96fe767bc4eee15dd43170f298282a4c3.diff" # RHEL fixes for const struct device *dev
 	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d932d9fbc8b3559829a76fffcedceb78d1fc1887.diff" # dahdi_spantype fix
-
-	# Not yet merged
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/57.diff" # PR 57: RHEL build fixes
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/58.diff" # PR 58: non-RHEL build fixes for older kernels
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/60.diff" # PR 60: Fix old style declaration error on newer systems
@@ -1885,6 +1883,20 @@ install_dahdi() {
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/64.diff" # PR 64: More struct device to const struct device
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/66.diff" # PR 66: Add braces around empty if body
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/69.diff" # PR 69: DEFINE_SEMAPHORE for RHEL
+
+	# Not yet merged
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32, not yet merged
+
+	# Fix or skip compilation of the XPP driver for 32-bit
+	OS_ARCH=$( uname -m )
+	printf "Detected architecture: %s\n" "$OS_ARCH"
+	if [ "$OS_ARCH" = "armv7l" ]; then
+		# I can't test this build at the moment, so to play it safe, I'm going to keep it disabled in this case,
+		# given that the xpp drivers are seldom used and especially unlikely to be used by someone with this architecture.
+		# TODO Slightly related, once GitHub allows free arm64 builds, do more testing: https://github.com/orgs/community/discussions/19197
+		echoerr "Skipping compilation of XPP driver for this 32-bit architecture! ($OS_ARCH)"
+		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
+	fi
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -1920,23 +1932,6 @@ install_dahdi() {
 		fi
 	else
 		echoerr "Skipping DAHDI Linux feature patches..."
-	fi
-
-	# Fix or skip compilation of the XPP driver for 32-bit
-	OS_ARCH=$( uname -m )
-	printf "Detected architecture: %s\n" "$OS_ARCH"
-	if [ "$OS_ARCH" = "i386" ] || [ "$OS_ARCH" = "i686" ]; then
-		printf "32-bit OS detected... patching division in XPP drivers\n"
-		# This fixes this issue:
-		# ERROR: modpost: "__divdi3" [/usr/src/dahdi-linux-3.4.0/drivers/dahdi/xpp/xpp.ko] undefined!
-		# ERROR: modpost: "__divmoddi4" [/usr/src/dahdi-linux-3.4.0/drivers/dahdi/xpp/xpp.ko] undefined!
-		git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32, not yet merged
-	elif [ "$OS_ARCH" = "armv7l" ]; then
-		# I can't test this build at the moment, so to play it safe, I'm going to keep it disabled in this case,
-		# given that the xpp drivers are seldom used and especially unlikely to be used by someone with this architecture.
-		# TODO Slightly related, once GitHub allows free arm64 builds, do more testing: https://github.com/orgs/community/discussions/19197
-		echoerr "Skipping compilation of XPP driver for this 32-bit architecture! ($OS_ARCH)"
-		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
 	fi
 
 	# If IPv6 is disabled, force wget downloads to use the IPv4 address
@@ -2328,6 +2323,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
 	asterisk_pr_unconditional 918 # config.c #tryinclude fixes
 	asterisk_pr_unconditional 971 # config.c fix issues w/ whitespace in comments
+	asterisk_pr_unconditional 1030 # chan_dahdi: Fix wrong channel state when RINGING recieved
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then
 		if [ "$EXTERNAL_CODECS" = "1" ]; then
