@@ -1886,7 +1886,7 @@ install_dahdi() {
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/69.diff" # PR 69: DEFINE_SEMAPHORE for RHEL
 
 	# Not yet merged
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32, not yet merged
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32: xpp: Fix 32-bit builds
 
 	# Fix or skip compilation of the XPP driver for 32-bit
 	OS_ARCH=$( uname -m )
@@ -2003,6 +2003,9 @@ install_dahdi() {
 	# fix static inline function get_ver (GitHub dahdi-tools #11)
 	phreak_fuzzy_patch "dahdi_tools_inline_get_ver.diff"	
 
+	# Not yet merged
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-tools/pull/22.diff" # PR 22 (dahdi_cfg: fix truncation warning)
+
 	# hearpulsing
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		if [ "$HEARPULSING" = "1" ]; then
@@ -2011,7 +2014,7 @@ install_dahdi() {
 	fi
 
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
-	./configure
+	./configure # Both configures are needed!
 	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		die "DAHDI Tools compilation failed, aborting install"
