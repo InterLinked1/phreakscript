@@ -2255,12 +2255,8 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "funcs/func_query.c"
 	phreak_tree_module "funcs/func_resonance.c"
 	phreak_tree_module "funcs/func_tech.c"
+
 	phreak_tree_module "res/res_coindetect.c"
-
-	if [ "$DEVMODE" = "1" ]; then
-		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
-	fi
-
 	phreak_tree_module "res/res_alarmsystem.c"
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
@@ -2270,6 +2266,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "res/res_pjsip_presence.c"
 	phreak_tree_module "res/res_smdr_whozz.c"
 
+	if [ "$DEVMODE" = "1" ]; then
+		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
+	fi
 	if [ -d /etc/dahdi ]; then
 		phreak_tree_module "apps/app_loopdisconnect.c"
 		if [ "$RTPULSING" = "1" ]; then
@@ -2326,6 +2325,11 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	asterisk_pr_unconditional 971 # config.c fix issues w/ whitespace in comments
 	asterisk_pr_unconditional 1030 # chan_dahdi: Fix wrong channel state when RINGING recieved
 
+	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
+	#asterisk_pr_unconditional 438 # Last Number Redial. This now conflicts with 272, so temp. disabled.
+	asterisk_pr_unconditional 292 # GROUP VARs
+	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"
+
 	if [ $AST_MAJOR_VER -lt 21 ]; then
 		if [ "$EXTERNAL_CODECS" = "1" ]; then
 			phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
@@ -2336,38 +2340,22 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 		fi
 	fi
 
-	# Unmerged patches
-	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
-
-	## WIP
-	asterisk_pr_unconditional 292 # GROUP VARs
-
-	# Unmerged
-	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
-	#asterisk_pr_unconditional 438 # Last Number Redial. This now conflicts with 272, so temp. disabled.
-
-	### TODO: Include ASTERISK-30339 and ASTERISK-30374 once resubmitted on GitHub
-
 	if [ "$RTPULSING" = "1" ]; then
 		# Patches split up to make it easier to selectively redo the 2nd one if a patch conflict occurs and the patch needs to be rebased.
 		git_patch "ast_rtoutpulsing1.diff" # chan_dahdi: add rtoutpulsing
 		git_patch "ast_rtoutpulsing2.diff" # chan_dahdi: add rtoutpulsing
 	fi
 
+	# Out of tree patches
+	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
 	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI
-
-	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"
+	git_patch "19655-asterisk.c-Prevent-duplicate-Asterisk-processes-fro.patch" # Prevent duplicate Asterisk process creation
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ] && [ $AST_MAJOR_VER -ge 21 ]; then
 		printf "Installing 21+ patches for experimental features\n"
 		add_experimental
-	fi
-
-	if [ "$DEVMODE" = "1" ]; then # highly experimental
-		# res_pbx_validate
-		:
 	fi
 }
 

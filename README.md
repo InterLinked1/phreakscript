@@ -14,6 +14,7 @@ PhreakScript installs:
    - Bug fixes for reading and writing configuration file templates
    - Bug fix for ConfBridge shutdown race condition
    - Enhances performance by completely removing Newexten AMI event
+   - Prevents duplicate Asterisk process creation
 - Many additional features and improvements
    - Adds prefix capabilities to `include => `
    - Signaling enhancements
