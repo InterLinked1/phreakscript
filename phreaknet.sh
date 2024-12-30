@@ -2265,6 +2265,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	phreak_tree_module "res/res_digitmap.c"
 	phreak_tree_module "res/res_irc.c"
 	phreak_tree_module "res/res_msp.c"
+	phreak_tree_module "res/res_pbx_validate.c"
 	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
 	phreak_tree_module "res/res_smdr_whozz.c"
