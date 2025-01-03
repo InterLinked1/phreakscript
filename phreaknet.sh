@@ -1469,8 +1469,7 @@ git_patch() {
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$1" -O /tmp/$1 --no-cache
 	git apply "/tmp/$1"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply git patch... this should be reported..."
-		exit 2
+		die "Failed to apply git patch $1... this should be reported..."
 	fi
 	rm "/tmp/$1"
 }
@@ -1517,10 +1516,12 @@ asterisk_pr() {
 git_custom_patch() {
 	printf "Applying git patch: %s\n" "$1"
 	wget -q "$1" -O /tmp/tmp_git_patch.diff --no-cache
+	if [ ! -f /tmp/tmp_git_patch.diff ]; then
+		die "Failed to download patch $1"
+	fi
 	git apply "/tmp/tmp_git_patch.diff"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply git patch... this should be reported..."
-		exit 2
+		die "Failed to apply git patch $1... this should be reported..."
 	fi
 	rm "/tmp/tmp_git_patch.diff"
 }
@@ -1884,8 +1885,6 @@ install_dahdi() {
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/64.diff" # PR 64: More struct device to const struct device
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/66.diff" # PR 66: Add braces around empty if body
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/69.diff" # PR 69: DEFINE_SEMAPHORE for RHEL
-
-	# Not yet merged
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32: xpp: Fix 32-bit builds
 
 	# Fix or skip compilation of the XPP driver for 32-bit
