@@ -1469,8 +1469,7 @@ git_patch() {
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$1" -O /tmp/$1 --no-cache
 	git apply "/tmp/$1"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply git patch... this should be reported..."
-		exit 2
+		die "Failed to apply git patch $1... this should be reported..."
 	fi
 	rm "/tmp/$1"
 }
@@ -1517,10 +1516,12 @@ asterisk_pr() {
 git_custom_patch() {
 	printf "Applying git patch: %s\n" "$1"
 	wget -q "$1" -O /tmp/tmp_git_patch.diff --no-cache
+	if [ ! -f /tmp/tmp_git_patch.diff ]; then
+		die "Failed to download patch $1"
+	fi
 	git apply "/tmp/tmp_git_patch.diff"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply git patch... this should be reported..."
-		exit 2
+		die "Failed to apply git patch $1... this should be reported..."
 	fi
 	rm "/tmp/tmp_git_patch.diff"
 }
@@ -1884,8 +1885,6 @@ install_dahdi() {
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/64.diff" # PR 64: More struct device to const struct device
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/66.diff" # PR 66: Add braces around empty if body
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/69.diff" # PR 69: DEFINE_SEMAPHORE for RHEL
-
-	# Not yet merged
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32: xpp: Fix 32-bit builds
 
 	# Fix or skip compilation of the XPP driver for 32-bit
@@ -2357,11 +2356,12 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	asterisk_pr_if 994 220200 210700 201200 182700 # FGD regression fix
 	asterisk_pr_if 245 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
 	asterisk_pr_if 414 220200 210700 201200 182700 # IAX2 loopback warning
+	asterisk_pr_if 1030 220200 210700 201200 182700 # chan_dahdi: Fix wrong channel state when RINGING recieved
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
-	asterisk_pr_unconditional 918 # config.c #tryinclude fixes
+	#asterisk_pr_unconditional 918 # config.c #tryinclude fixes. Temporarily disabled since patch fails to apply: main/config.c:2750
 	asterisk_pr_unconditional 971 # config.c fix issues w/ whitespace in comments
-	asterisk_pr_unconditional 1030 # chan_dahdi: Fix wrong channel state when RINGING recieved
+	asterisk_pr_unconditional 1055 # chan_iax2: Avoid unnecessarily backlogging frames
 
 	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
 	#asterisk_pr_unconditional 438 # Last Number Redial. This now conflicts with 272, so temp. disabled.
