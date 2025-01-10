@@ -178,6 +178,7 @@ static int unloading = 0;
 #define SERIAL_READ_STRING(buf, siz, pollfirst) { \
 	bufres = serial_getline(pfd, pollfirst, buf, siz); \
 	if (bufres <= 0) { \
+		ast_log(LOG_WARNING, "Failed to read string from serial port\n"); \
 		return -1; \
 	} \
 	/* These can end in CR, but since we have a LF after, it's okay */ \
@@ -216,6 +217,7 @@ static const char *state_str_func(enum line_state state)
 
 static int serial_getline(struct pollfd *pfd, int pollfirst, char *restrict buf, size_t len)
 {
+	const char *bufstart = buf;
 	size_t total = 0;
 	for (;;) {
 		ssize_t bufres = 1;
@@ -248,6 +250,7 @@ static int serial_getline(struct pollfd *pfd, int pollfirst, char *restrict buf,
 		buf += bufres;
 		len -= bufres;
 		if (len <= 0) {
+			ast_log(LOG_ERROR, "Buffer exhausted before complete line could be read? (read so far: '%s')\n", bufstart);
 			return -1;
 		}
 	}
@@ -883,11 +886,13 @@ static int serial_monitor(void *varg)
 			}
 		} while (!unloading && serial_sync(&pfd));
 		if (unloading) {
+			ast_debug(3, "Unload requested before initialization could complete\n");
 			return -1;
 		}
 	}
 
 	if (set_settings(&pfd)) {
+		ast_log(LOG_ERROR, "Failed to initialize device with SMDR settings\n");
 		return -1;
 	}
 
