@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # PhreakScript
-# (C) 2021-2024 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.2.1 (2024-12-30)
+# (C) 2021-2025 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
+# v1.2.2 (2025-01-24)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2025-01-24 1.2.2 Asterisk: Target 22.2.0
 # 2024-12-30 1.2.1 DAHDI Linux: Work around compilation failure for newer kernels
 # 2024-11-03 1.2.0 Asterisk: Install Asterisk 22 by default
 # 2024-10-16 1.1.8 wanpipe: Installation procedure improvements
@@ -1493,24 +1494,26 @@ github_pr() {
 
 # $2 = 1 to force
 asterisk_pr() {
-	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O /tmp/$1.pr.diff --no-cache
+	PR_PATCH_FILE=/tmp/$1.pr.diff
+	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O $PR_PATCH_FILE --no-cache
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff"
 	fi
 	if [ "$2" = "1" ]; then
-		git apply -v "/tmp/$1.pr.diff"
+		git apply -v $PR_PATCH_FILE
 		if [ $? -ne 0 ]; then
 			echoerr "Failed to apply patch using git apply, retrying directly using patch..."
-			patch -p1 -F 3 -f --verbose < "/tmp/$1.pr.diff"
+			patch -p1 -F 3 -f --verbose < $PR_PATCH_FILE
 		fi
 	else
-		git apply "/tmp/$1.pr.diff"
+		git apply $PR_PATCH_FILE
 	fi
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to apply Asterisk PR... this should be reported..."
+		cat $PR_PATCH_FILE
 		exit 2
 	fi
-	rm "/tmp/$1.pr.diff"
+	rm $PR_PATCH_FILE
 }
 
 git_custom_patch() {
@@ -1888,15 +1891,15 @@ install_dahdi() {
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32: xpp: Fix 32-bit builds
 
 	# Fix or skip compilation of the XPP driver for 32-bit
-	OS_ARCH=$( uname -m )
-	printf "Detected architecture: %s\n" "$OS_ARCH"
-	if [ "$OS_ARCH" = "armv7l" ]; then
+	# OS_ARCH=$( uname -m )
+	# printf "Detected architecture: %s\n" "$OS_ARCH"
+	#if [ "$OS_ARCH" = "armv7l" ]; then
 		# I can't test this build at the moment, so to play it safe, I'm going to keep it disabled in this case,
 		# given that the xpp drivers are seldom used and especially unlikely to be used by someone with this architecture.
 		# TODO Slightly related, once GitHub allows free arm64 builds, do more testing: https://github.com/orgs/community/discussions/19197
-		echoerr "Skipping compilation of XPP driver for this 32-bit architecture! ($OS_ARCH)"
-		mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
-	fi
+		#echoerr "Skipping compilation of XPP driver for this 32-bit architecture! ($OS_ARCH)"
+		#mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
+	#fi
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -2355,17 +2358,18 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	asterisk_pr_if 961 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
 	asterisk_pr_if 994 220200 210700 201200 182700 # FGD regression fix
 	asterisk_pr_if 245 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
+	asterisk_pr_if 971 220200 210700 201200 182700 # config.c fix issues w/ whitespace in comments
 	asterisk_pr_if 414 220200 210700 201200 182700 # IAX2 loopback warning
 	asterisk_pr_if 1030 220200 210700 201200 182700 # chan_dahdi: Fix wrong channel state when RINGING recieved
+	asterisk_pr_if 1055 220200 210700 201200 182700 # chan_iax2: Avoid unnecessarily backlogging frames
+	#asterisk_pr_if 918 220200 210700 201200 182700 # config.c #tryinclude fixes. Temporarily disabled since patch fails to apply: main/config.c:2750
+	#asterisk_pr_if 438 220200 210700 201200 182700 # Last Number Redial. This now conflicts with 272, so temp. disabled.
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
-	#asterisk_pr_unconditional 918 # config.c #tryinclude fixes. Temporarily disabled since patch fails to apply: main/config.c:2750
-	asterisk_pr_unconditional 971 # config.c fix issues w/ whitespace in comments
-	asterisk_pr_unconditional 1055 # chan_iax2: Avoid unnecessarily backlogging frames
-
+	asterisk_pr_unconditional 1086 # Fix for Fedora 42 (old style definitions for libdb)
+	asterisk_pr_unconditional 1089 # app_sms: Ignore false positive gcc warning
 	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
-	#asterisk_pr_unconditional 438 # Last Number Redial. This now conflicts with 272, so temp. disabled.
-	asterisk_pr_unconditional 292 # GROUP VARs
+	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
 	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then
@@ -3405,15 +3409,17 @@ elif [ "$cmd" = "install" ]; then
 	fi
 
 	if [ $? -ne 0 ]; then
-		$AST_MAKE NOISY_BUILD=1 # show actual compilation command that failed
-		if [ ! -f channels/chan_dahdi.o ]; then
-			echoerr "Compilation of chan_dahdi failed?"
-			ls -la /usr/include/dahdi
-			# Debug failed chan_dahdi compilation
-			# chan_dahdi.c:7677:18: error: unused variable 'x' [-Werror=unused-variable]
-			# 7677 |         int res, x;
-			sed -n 7677,7800p channels/chan_dahdi.c
-		fi
+		gcc -v
+		$AST_MAKE # Finish compiling antyhing that would build successfully, from the parallel build, so the noisy build only builds the offending target
+		$AST_MAKE NOISY_BUILD=1 # show actual compilation command that failed, with no parallelism
+		#if [ ! -f channels/chan_dahdi.o ]; then
+		#	echoerr "Compilation of chan_dahdi failed?" # Only suggest this if we got around to compiling some channel drivers to begin with
+		#	ls -la /usr/include/dahdi
+		#	# Debug failed chan_dahdi compilation
+		#	# chan_dahdi.c:7677:18: error: unused variable 'x' [-Werror=unused-variable]
+		#	# 7677 |         int res, x;
+		#	sed -n 7677,7800p channels/chan_dahdi.c
+		#fi
 		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
