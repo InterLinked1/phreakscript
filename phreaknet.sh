@@ -2412,7 +2412,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
 	asterisk_pr_unconditional 1086 # Fix for Fedora 42 (old style definitions for libdb)
-	asterisk_pr_unconditional 1089 # app_sms: Ignore false positive gcc warning
+	#asterisk_pr_unconditional 1089 # app_sms: Ignore false positive gcc warning
+	git_custom_patch "https://raw.githubusercontent.com/InterLinked1/phreakscript/refs/heads/fedora/patches/sms.diff"
+
 	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
 	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
 	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"

@@ -1,0 +1,13 @@
+diff --git a/apps/app_sms.c b/apps/app_sms.c
+index e02e82287e..60f6c6c53d 100644
+--- a/apps/app_sms.c
++++ b/apps/app_sms.c
+@@ -467,7 +467,7 @@ static int packsms8(unsigned char *o, int udhl, unsigned char *udh, int udl, uns
+ 		if (u < 0 || u > 0xFF) {
+ 			return -1;                      /* not valid */
+ 		}
+-		o[p++] = u;
++		o[p++] = (unsigned char) u;
+ 		if (p >= SMSLEN_8) {
+ 			return p;
+ 		}
