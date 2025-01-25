@@ -1467,7 +1467,10 @@ dahdi_patch() {
 
 git_patch() {
 	printf "Applying git patch: %s\n" "$1"
-	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$1" -O /tmp/$1 --no-cache
+	cp "$GIT_REPO_PATH/patches/$1" "/tmp/$1"
+	if [ $? -ne 0 ]; then
+		die "File $1 does not exist"
+	fi
 	git apply "/tmp/$1"
 	if [ $? -ne 0 ]; then
 		die "Failed to apply git patch $1... this should be reported..."
@@ -1517,16 +1520,17 @@ asterisk_pr() {
 }
 
 git_custom_patch() {
+	CUSTOM_PATCH_FILE=/tmp/tmp_git_patch.diff
 	printf "Applying git patch: %s\n" "$1"
-	wget -q "$1" -O /tmp/tmp_git_patch.diff --no-cache
-	if [ ! -f /tmp/tmp_git_patch.diff ]; then
+	wget -q "$1" -O $CUSTOM_PATCH_FILE --no-cache
+	if [ ! -f $CUSTOM_PATCH_FILE ]; then
 		die "Failed to download patch $1"
 	fi
-	git apply "/tmp/tmp_git_patch.diff"
+	git apply $CUSTOM_PATCH_FILE
 	if [ $? -ne 0 ]; then
 		die "Failed to apply git patch $1... this should be reported..."
 	fi
-	rm "/tmp/tmp_git_patch.diff"
+	rm $CUSTOM_PATCH_FILE
 }
 
 dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
@@ -1866,6 +1870,8 @@ install_dahdi() {
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 	fi
 
+	instantiate_repo
+
 	# Compiler fixes for 5.17/5.18:
 	if [ $DAHDI_MM_VER -lt 33 ]; then
 		phreak_fuzzy_patch "dahdi_pci.diff"
@@ -2107,9 +2113,9 @@ install_dahdi() {
 
 phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 	printf "Adding new module: %s\n" "$1"
-	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+	cp "$GIT_REPO_PATH/$1" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download module: $1"
+		echoerr "Failed to copy module: $1"
 		if [ "$2" != "1" ]; then # unless failure is acceptable, abort
 			exit 2
 		fi
@@ -2118,6 +2124,7 @@ phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 
 phreak_tree_module_branch() { # $1 = file to patch, $2 = whether failure is acceptable, $3 = branch name
 	printf "Adding new module: %s\n" "$1"
+	# Always need to download, since the local copy of the git repo is on the master branch
 	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/$3/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download module from branch $3, retrying with master..."
@@ -2154,9 +2161,9 @@ phreak_nontree_patch() { # $1 = patched file, $2 = patch name
 
 phreak_tree_patch() { # $1 = patched file, $2 = patch name
 	printf "Applying patch %s to %s\n" "$2" "$1"
-	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$2" -O "/tmp/$2" --no-cache
+	cp "$GIT_REPO_PATH/patches/$2" "/tmp/$2"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download patch: $2"
+		echoerr "Failed to copy patch: $2"
 		exit 2
 	fi
 	patch -u -b "$1" -i "/tmp/$2"
@@ -2169,7 +2176,7 @@ phreak_tree_patch() { # $1 = patched file, $2 = patch name
 
 phreak_fuzzy_patch() {
 	printf "Applying patch %s to %s\n" "$1" "$1"
-	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/$1" -O "/tmp/$1" --no-cache
+	cp "$GIT_REPO_PATH/patches/$1" "/tmp/$1"
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download patch: $1"
 		exit 2
@@ -2243,13 +2250,51 @@ add_experimental() {
 	custom_module "res/res_pjsip_sca_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca_body_generator.c"
 }
 
+# Instantiate an instance of the PhreakScript repository, if not already present
+# This is necessary since this script file is designed to be able to be used standalone,
+# without the rest of the repository necessarily being present.
+instantiate_repo() {
+	# GitHub no longers allows svn access (which was useful to download a subset of a repo)
+	# Settle for using a shallow clone
+	# At this point, this is more efficient than individually downloading all of the files
+	# used by phreak_tree_module and phreak_tree_patch.
+	if [ "${GIT_REPO_PATH}" = "" ]; then
+		# pushd is a bashism, can't use it!
+		ORIG_DIR="$PWD"
+		cd /tmp
+		if [ ! -d phreakscript ]; then
+			printf "GIT_REPO_PATH not already set and not found in /tmp, cloning...\n"
+			git clone --depth=1 https://github.com/InterLinked1/phreakscript.git
+		else
+			printf "GIT_REPO_PATH not already set but found in /tmp, updating...\n"
+			cd /tmp/phreakscript
+			git checkout master
+			git pull
+		fi
+		GIT_REPO_PATH=/tmp/phreakscript
+		if [ ! -d $GIT_REPO_PATH ]; then
+			die "Directory does not exist: $GIT_REPO_PATH"
+		fi
+		printf "GIT_REPO_PATH is now %s\n" "$GIT_REPO_PATH"
+		cd "$ORIG_DIR"
+	else
+		printf "GIT_REPO_PATH already provided: %s\n" "$GIT_REPO_PATH"
+		if [ ! -d "$GIT_REPO_PATH" ]; then
+			die "Directory does not exist: $GIT_REPO_PATH"
+		fi
+	fi
+}
+
 phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	### Inject custom PhreakNet patches to add additional functionality and features.
 	### If/when/as these are integrated upstream, they will be removed from this function. 
 
+	instantiate_repo
+
 	cd $AST_SOURCE_PARENT_DIR/$2
 
 	## Add Standalone PhreakNet Modules
+	# XXX In theory, something like cp $GIT_REPO_PATH/apps/*.c apps, etc. would also suffice, rather than enumerating
 	phreak_tree_module "apps/app_acts.c"
 	phreak_tree_module "apps/app_assert.c"
 	phreak_tree_module "apps/app_audichron.c"
@@ -3229,6 +3274,7 @@ elif [ "$cmd" = "install" ]; then
 			echoerr "Distro not supported for package audit"
 		fi
 	fi
+
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
 	quell_mysql
@@ -3735,6 +3781,7 @@ elif [ "$cmd" = "fullpatch" ]; then
 			filename="${filename}.c"
 		fi
 	fi
+	instantiate_repo
 	phreak_tree_module "$filename"
 elif [ "$cmd" = "runtest" ]; then
 	if [ ${#2} -eq 0 ]; then
