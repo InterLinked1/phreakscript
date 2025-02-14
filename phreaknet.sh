@@ -1757,6 +1757,8 @@ install_dahdi() {
 		fi
 	fi
 
+	instantiate_repo
+
 	if [ "$KSRC" != "" ]; then
 		if [ ! -d "$KSRC" ]; then
 			die "KSRC directory does not exist: $KSRC"
@@ -1869,8 +1871,6 @@ install_dahdi() {
 	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 	fi
-
-	instantiate_repo
 
 	# Compiler fixes for 5.17/5.18:
 	if [ $DAHDI_MM_VER -lt 33 ]; then
@@ -2399,19 +2399,16 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	printf "Applying patches applicable to %s -> %d (~%s)\n" "$AST_ALT_VER" "$AST_MM_VER" "$AST_MAJOR_VER"
 
-	## merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 399 210100 200600 182100)
-	asterisk_pr_if 961 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
-	asterisk_pr_if 994 220200 210700 201200 182700 # FGD regression fix
-	asterisk_pr_if 245 220200 210700 201200 182700 # config.c: fix template inheritance/overrides
-	asterisk_pr_if 971 220200 210700 201200 182700 # config.c fix issues w/ whitespace in comments
-	asterisk_pr_if 414 220200 210700 201200 182700 # IAX2 loopback warning
-	asterisk_pr_if 1030 220200 210700 201200 182700 # chan_dahdi: Fix wrong channel state when RINGING recieved
-	asterisk_pr_if 1055 220200 210700 201200 182700 # chan_iax2: Avoid unnecessarily backlogging frames
-	#asterisk_pr_if 918 220200 210700 201200 182700 # config.c #tryinclude fixes. Temporarily disabled since patch fails to apply: main/config.c:2750
-	#asterisk_pr_if 438 220200 210700 201200 182700 # Last Number Redial. This now conflicts with 272, so temp. disabled.
+	## Merged into master, but master only (won't be in a release version until next standard release)
+	if [ $AST_MAJOR_VER -lt 23 ]; then
+		asterisk_pr_unconditional 961 # config.c: fix template inheritance/overrides.
+		asterisk_pr_unconditional 245 # config.c: fix template inheritance/overrides.
+	fi
+
+	## Merged into master, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220300 210800 201300)
+	asterisk_pr_unconditional 1086 220300 210800 201300 # Fix for Fedora 42 (old style definitions for libdb)
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
-	asterisk_pr_unconditional 1086 # Fix for Fedora 42 (old style definitions for libdb)
 	asterisk_pr_unconditional 1089 # app_sms: Ignore false positive gcc warning
 	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
 	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
