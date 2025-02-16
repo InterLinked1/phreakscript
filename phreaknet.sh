@@ -2137,21 +2137,25 @@ install_dahdi() {
 	fi
 
 	# LibPRI # https://gist.github.com/debuggerboy/3028532
-	cd $AST_SOURCE_PARENT_DIR
-	wget http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz
-	tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
-	rm ${LIBPRI_SOURCE_NAME}.tar.gz
-	cd ${LIBPRI_SOURCE_NAME}
-	$AST_MAKE && $AST_MAKE install
+	if [ "$INSTALL_LIBPRI" != "0" ]; then
+		cd $AST_SOURCE_PARENT_DIR
+		wget http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz
+		tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
+		rm ${LIBPRI_SOURCE_NAME}.tar.gz
+		cd ${LIBPRI_SOURCE_NAME}
+		$AST_MAKE && $AST_MAKE install
+	fi
 
 	# LibSS7
-	cd $AST_SOURCE_PARENT_DIR
-	wget https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz
-	tar -zxvf ${LIBSS7_VERSION}.tar.gz
-	rm ${LIBSS7_VERSION}.tar.gz
-	ls -la
-	cd libss7-${LIBSS7_VERSION}
-	$AST_MAKE && $AST_MAKE install
+	if [ "$INSTALL_LIBSS7" != "0" ]; then
+		cd $AST_SOURCE_PARENT_DIR
+		wget https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz
+		tar -zxvf ${LIBSS7_VERSION}.tar.gz
+		rm ${LIBSS7_VERSION}.tar.gz
+		ls -la
+		cd libss7-${LIBSS7_VERSION}
+		$AST_MAKE && $AST_MAKE install
+	fi
 
 	# Wanpipe
 	if [ "$DAHDI_WANPIPE" = "1" ]; then
@@ -2465,7 +2469,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	asterisk_pr_unconditional 1089 # app_sms: Ignore false positive gcc warning
 	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
 	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
-	git_custom_patch "https://code.phreaknet.org/asterisk/dahdicleanup.diff"
+	git_patch "dahdicleanup.diff"
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then
 		if [ "$EXTERNAL_CODECS" = "1" ]; then
@@ -3525,7 +3529,6 @@ elif [ "$cmd" = "install" ]; then
 		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" utils # for astdb2sqlite3.c, #warning usage of non-standard #include <sys/cdefs.h> is deprecated [-Werror=cpp]
 		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" addons # for format_mp3, error: #warning redirecting incorrect #include <sys/signal.h> to <signal.h> [-Werror=cpp]
 		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" main # for ast_expr2.c, #warning usage of non-standard #include <sys/cdefs.h> is deprecated [-Werror=cpp]
-		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" channels # XXX: Temporary, for chan_dahdi.c:7840:18: error: unused variable 'x' [-Werror=unused-variable]
 	fi
 
 	# Compile Asterisk. This is the longest step, if you are installing for the first time.

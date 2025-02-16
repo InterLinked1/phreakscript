@@ -180,6 +180,16 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --devmode --sip --vanilla --user=asterisk
+  debian-dahdi-minimal:
+    runs-on: ubuntu-24.04
+    name: Debian 12, without libpri and libss7
+    container: debian:12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI (without libpri or libss7) and Asterisk (chan_dahdi)
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} INSTALL_LIBPRI=0 INSTALL_LIBSS7=0 phreaknet install --fast --dahdi --autokvers --drivers --devmode --lightweight --vanilla
   alpine-linux:
     runs-on: ubuntu-24.04
     name: Alpine Linux

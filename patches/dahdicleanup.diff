@@ -1,0 +1,360 @@
+diff --git a/channels/chan_dahdi.c b/channels/chan_dahdi.c
+index 4d9512aa8e..eb422d2677 100644
+--- a/channels/chan_dahdi.c
++++ b/channels/chan_dahdi.c
+@@ -68,8 +68,34 @@
+  * radio. Sig_analog does not currently handle any radio operations. If
+  * radio only uses analog signaling, then the radio handling logic could
+  * be placed in sig_analog and the duplicated code could be removed.
++ * Same comment for operator mode.
+  */
+ 
++/* Some number of years ago, sig_analog was moved to its own file
++ * but lots of remnants of it were never cleaned up in chan_dahdi.
++ * See note above, plus commits for reference:
++ * aaf5eb105ed55b7856dfd79b352a1669cb51d437
++ * b9e898017e0ed295d2ed738bf6b1addb4b503aa2
++ *
++ * This is part 1 of a 2-phase process to finally clean this horrible mess up.
++ * These macros indicate code that should or can be unreachable because sig_analog handles it.
++ * If an assertion is triggered, that means we got something wrong.
++ * After some time if no assertions are triggered, any code in branches
++ * following these macros can be removed to declutter obsolete code
++ * in chan_dahdi that unnecessarily duplicates sig_analog.
++ * This amounts to a significant fraction of dead code (2-3k lines) in chan_dahdi that we should be able to remove.
++ */
++#define SIG_ANALOG_HANDLED 1
++#define ANALOG_REACHABLE(p, expected) if ((expected)) { ast_debug(1, "Forcibly using analog handler at line %d (radio %d, oprmode %d)\n", __LINE__, p->radio, p->oprmode); } \
++	else { ast_log(LOG_WARNING, "Unexpectedly using analog handler at line %d (radio %d, oprmode %d)\n", __LINE__, p->radio, p->oprmode); ast_assert(0); }
++#define ANALOG_HANDLER(func, p, ...) func(p->sig_pvt, __VA_ARGS__)
++#define ANALOG_HANDLER_EVENT(func, p, ast, event) func(p->sig_pvt, ast, dahdievent_to_analogevent(event))
++#define ANALOG_UNREACHABLE_EVENT(func, expected, p, event) ANALOG_UNREACHABLE(func, expected, p, dahdievent_to_analogevent(event))
++#define ANALOG_UNREACHABLE(func, expected, p, ...) ({ \
++	ANALOG_REACHABLE(p, expected); \
++	return func(p->sig_pvt, __VA_ARGS__); \
++})
++
+ #if defined(HAVE_PRI)
+ #include "sig_pri.h"
+ #ifndef PRI_RESTART
+@@ -6477,6 +6503,7 @@ static int dahdi_hangup(struct ast_channel *ast)
+ 	p->ignoredtmf = 0;
+ 
+ 	if (idx > -1) {
++		if (p->channel != CHAN_PSEUDO) ANALOG_UNREACHABLE(analog_hangup, p->radio || p->oprmode, p, ast); /* Medium confidence. */
+ 		/* Real channel, do some fixup */
+ 		p->subs[idx].owner = NULL;
+ 		p->subs[idx].needanswer = 0;
+@@ -7539,6 +7566,7 @@ static int dahdi_ring_phone(struct dahdi_pvt *p)
+ 	return res;
+ }
+ 
++#ifndef SIG_ANALOG_HANDLED
+ static void *analog_ss_thread(void *data);
+ 
+ /*!
+@@ -7585,6 +7613,7 @@ static int attempt_transfer(struct dahdi_pvt *p)
+ 
+ 	return res;
+ }
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 
+ static int check_for_conference(struct dahdi_pvt *p)
+ {
+@@ -7796,12 +7825,22 @@ static void handle_alarms(struct dahdi_pvt *p, int alms)
+ 
+ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ {
+-	int res, x;
++	int res;
+ 	int idx, mysig;
++#if !defined(SIG_ANALOG_HANDLED) || defined(HAVE_PRI)
++	/* For analog, x isn't used if SIG_ANALOG_HANDLED is defined
++	 * as it's only used in dead code for analog.
++	 * However, there is PRI code that uses it. */
++	int x;
++#endif /* !defined(SIG_ANALOG_HANDLED) || defined(HAVE_PRI) */
++#ifndef SIG_ANALOG_HANDLED
+ 	char *c;
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 	struct dahdi_pvt *p = ast_channel_tech_pvt(ast);
++#ifndef SIG_ANALOG_HANDLED
+ 	pthread_t threadid;
+ 	struct ast_channel *chan;
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 	struct ast_frame *f;
+ 
+ 	idx = dahdi_get_index(ast, p, 0);
+@@ -7939,6 +7978,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ #endif
+ 		if (p->inalarm) break;
+ 		if ((p->radio || (p->oprmode < 0))) break;
++		ANALOG_REACHABLE(p, p->oprmode > 0);
++		return ANALOG_HANDLER_EVENT(analog_handle_event, p, ast, res);
++#ifndef SIG_ANALOG_HANDLED
+ 		if (ioctl(p->subs[idx].dfd,DAHDI_DIALING,&x) == -1) {
+ 			ast_debug(1, "DAHDI_DIALING ioctl failed on %s: %s\n",ast_channel_name(ast), strerror(errno));
+ 			return NULL;
+@@ -7991,6 +8033,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ 				}
+ 			}
+ 		}
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 		break;
+ 	case DAHDI_EVENT_ALARM:
+ 		switch (p->sig) {
+@@ -8049,6 +8092,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ 			}
+ 			break;
+ 		}
++		ANALOG_REACHABLE(p, p->oprmode > 0);
++		return ANALOG_HANDLER_EVENT(analog_handle_event, p, ast, res); /* __analog_handle_event */
++#ifndef SIG_ANALOG_HANDLED
+ 		switch (p->sig) {
+ 		case SIG_FXOLS:
+ 		case SIG_FXOGS:
+@@ -8147,6 +8193,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ 			dahdi_ec_disable(p);
+ 			return NULL;
+ 		}
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 		break;
+ 	case DAHDI_EVENT_RINGOFFHOOK:
+ 		if (p->inalarm) break;
+@@ -8168,6 +8215,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ 			p->subs[idx].f.subclass.integer = AST_CONTROL_RADIO_KEY;
+ 			break;
+  		}
++		ANALOG_REACHABLE(p, p->oprmode > 0);
++		return ANALOG_HANDLER_EVENT(analog_handle_event, p, ast, res); /* __analog_handle_event */
++#ifndef SIG_ANALOG_HANDLED
+ 		/* for E911, its supposed to wait for offhook then dial
+ 		   the second half of the dial string */
+ 		if (((mysig == SIG_E911) || (mysig == SIG_FGC_CAMA) || (mysig == SIG_FGC_CAMAMF)) && (ast_channel_state(ast) == AST_STATE_DIALING_OFFHOOK)) {
+@@ -8322,6 +8372,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ 		default:
+ 			ast_log(LOG_WARNING, "Don't know how to handle ring/off hook for signalling %d\n", p->sig);
+ 		}
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 		break;
+ 	case DAHDI_EVENT_RINGBEGIN:
+ 		switch (p->sig) {
+@@ -8377,6 +8428,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ 			}
+ 			break;
+ 		}
++		ANALOG_REACHABLE(p, 0);
++		return ANALOG_HANDLER_EVENT(analog_handle_event, p, ast, res); /* __analog_handle_event */
++#ifndef SIG_ANALOG_HANDLED
+ 		/* Remember last time we got a flash-hook */
+ 		p->flashtime = ast_tvnow();
+ 		switch (mysig) {
+@@ -8607,9 +8661,12 @@ winkflashdone:
+ 			ast_log(LOG_WARNING, "Don't know how to handle ring/off hook for signalling %d\n", p->sig);
+ 		}
+ 		break;
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 	case DAHDI_EVENT_HOOKCOMPLETE:
+ 		if (p->inalarm) break;
+ 		if ((p->radio || (p->oprmode < 0))) break;
++		ANALOG_REACHABLE(p, p->oprmode > 0);
++		return ANALOG_HANDLER_EVENT(analog_handle_event, p, ast, res); /* __analog_handle_event */
+ 		if (p->waitingfordt.tv_sec) break;
+ 		switch (mysig) {
+ 		case SIG_FXSLS:  /* only interesting for FXS */
+@@ -8720,6 +8777,8 @@ static struct ast_frame *__dahdi_exception(struct ast_channel *ast)
+ 
+ 
+ 	if ((!p->owner) && (!(p->radio || (p->oprmode < 0)))) {
++		/* It's okay to call analog_exception because we haven't called dahdi_get_event yet. */
++		ANALOG_UNREACHABLE(analog_exception, p->oprmode > 0, p, ast);
+ 		/* If nobody owns us, absorb the event appropriately, otherwise
+ 		   we loop indefinitely.  This occurs when, during call waiting, the
+ 		   other end hangs up our channel so that it no longer exists, but we
+@@ -9824,7 +9883,7 @@ static struct ast_channel *dahdi_new(struct dahdi_pvt *i, int state, int startpb
+ 	return tmp;
+ }
+ 
+-
++#ifndef SIG_ANALOG_HANDLED
+ static int my_getsigstr(struct ast_channel *chan, char *str, const char *term, int ms)
+ {
+ 	char c;
+@@ -9843,6 +9902,7 @@ static int my_getsigstr(struct ast_channel *chan, char *str, const char *term, i
+ 			return 1;
+ 	}
+ }
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 
+ static int dahdi_wink(struct dahdi_pvt *p, int idx)
+ {
+@@ -9910,6 +9970,7 @@ static int dahdi_dnd(struct dahdi_pvt *dahdichan, int flag)
+ 	return 0;
+ }
+ 
++#ifndef SIG_ANALOG_HANDLED
+ static int canmatch_featurecode(const char *pickupexten, const char *exten)
+ {
+ 	int extlen = strlen(exten);
+@@ -11130,6 +11191,7 @@ quit:
+ 	ast_mutex_unlock(&ss_thread_lock);
+ 	return NULL;
+ }
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 
+ struct mwi_thread_data {
+ 	struct dahdi_pvt *pvt;
+@@ -11155,7 +11217,6 @@ static void *mwi_thread(void *data)
+ {
+ 	struct mwi_thread_data *mtd = data;
+ 	struct callerid_state *cs;
+-	pthread_t threadid;
+ 	int samples = 0;
+ 	char *name, *number;
+ 	int flags;
+@@ -11227,7 +11288,12 @@ static void *mwi_thread(void *data)
+ 					if (dahdi_analog_lib_handles(mtd->pvt->sig, mtd->pvt->radio, mtd->pvt->oprmode)) {
+ 						result = analog_ss_thread_start(mtd->pvt->sig_pvt, chan);
+ 					} else {
++						ANALOG_REACHABLE(mtd->pvt, 1);
++						result = analog_ss_thread_start(mtd->pvt->sig_pvt, chan);
++#ifndef SIG_ANALOG_HANDLED
++						pthread_t threadid;
+ 						result = ast_pthread_create_detached(&threadid, NULL, analog_ss_thread, chan);
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 					}
+ 					if (result) {
+ 						ast_log(LOG_WARNING, "Unable to start simple switch thread on channel %d\n", mtd->pvt->channel);
+@@ -11646,10 +11712,12 @@ out:
+ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ {
+ 	int res;
++#ifndef SIG_ANALOG_HANDLED
+ 	pthread_t threadid;
+ 	struct ast_channel *chan;
+ 	ast_callid callid = 0;
+ 	int callid_created;
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 
+ 	/* Handle an event on a given channel for the monitor thread. */
+ 
+@@ -11661,6 +11729,8 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 	case DAHDI_EVENT_RINGOFFHOOK:
+ 		if (i->inalarm) break;
+ 		if (i->radio) break;
++		ANALOG_UNREACHABLE_EVENT(analog_handle_init_event, i->oprmode, i, event);
++#ifndef SIG_ANALOG_HANDLED
+ 		/* Got a ring/answer.  What kind of channel are we? */
+ 		switch (i->sig) {
+ 		case SIG_FXOLS:
+@@ -11760,6 +11830,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 				ast_log(LOG_WARNING, "Unable to play congestion tone on channel %d\n", i->channel);
+ 			return NULL;
+ 		}
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 		break;
+ 	case DAHDI_EVENT_NOALARM:
+ 		switch (i->sig) {
+@@ -11805,6 +11876,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 	case DAHDI_EVENT_ONHOOK:
+ 		if (i->radio)
+ 			break;
++		ANALOG_UNREACHABLE_EVENT(analog_handle_init_event, i->oprmode, i, event);
+ 		/* Back on hook.  Hang up. */
+ 		switch (i->sig) {
+ 		case SIG_FXOLS:
+@@ -11849,6 +11921,8 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 		}
+ 		break;
+ 	case DAHDI_EVENT_POLARITY:
++		ANALOG_UNREACHABLE(analog_handle_init_event, i->radio || i->oprmode, i, event);
++#ifndef SIG_ANALOG_HANDLED
+ 		switch (i->sig) {
+ 		case SIG_FXSLS:
+ 		case SIG_FXSKS:
+@@ -11880,6 +11954,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 				"polarity reversal on non-FXO (SIG_FXS) "
+ 				"interface %d\n", i->channel);
+ 		}
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 		break;
+ 	case DAHDI_EVENT_REMOVED: /* destroy channel, will actually do so in do_monitor */
+ 		ast_log(LOG_NOTICE,
+@@ -12132,14 +12207,16 @@ static void *do_monitor(void *data)
+ 							} else {
+ 								energy = calc_energy((unsigned char *) buf, res, AST_LAW(i));
+ 								if (!i->mwisendactive && energy > dtmfcid_level) {
+-									pthread_t threadid;
+-									struct ast_channel *chan;
+ 									ast_mutex_unlock(&iflock);
+ 									if (dahdi_analog_lib_handles(i->sig, i->radio, i->oprmode)) {
+ 										/* just in case this event changes or somehow destroys a channel, set doomed here too */
+ 										doomed = analog_handle_init_event(i->sig_pvt, ANALOG_EVENT_DTMFCID);
+ 										i->dtmfcid_holdoff_state = 1;
+ 									} else {
++										ANALOG_UNREACHABLE(analog_handle_init_event, i->radio || i->oprmode, i, ANALOG_EVENT_DTMFCID);
++#ifndef SIG_ANALOG_HANDLED
++										pthread_t threadid;
++										struct ast_channel *chan;
+ 										ast_callid callid = 0;
+ 										int callid_created = ast_callid_threadstorage_auto(&callid);
+ 										chan = dahdi_new(i, AST_STATE_PRERING, 0, SUB_REAL, 0, NULL, NULL, callid);
+@@ -12155,6 +12232,7 @@ static void *do_monitor(void *data)
+ 											}
+ 										}
+ 										ast_callid_threadstorage_auto_clean(callid, callid_created);
++#endif /* !defined(SIG_ANALOG_HANDLED) */
+ 									}
+ 									ast_mutex_lock(&iflock);
+ 								}
+diff --git a/channels/sig_analog.c b/channels/sig_analog.c
+index e477d5d0cf..6914449787 100644
+--- a/channels/sig_analog.c
++++ b/channels/sig_analog.c
+@@ -2798,7 +2798,13 @@ static void analog_publish_channel_alarm_clear(int channel)
+ 
+ static struct ast_frame *__analog_handle_event(struct analog_pvt *p, struct ast_channel *ast)
+ {
+-	int res, x;
++	int res = analog_get_event(p);
++	return analog_handle_event(p, ast, res);
++}
++
++struct ast_frame *analog_handle_event(struct analog_pvt *p, struct ast_channel *ast, int res)
++{
++	int x;
+ 	int mysig;
+ 	int idx;
+ 	char *c;
+@@ -2834,8 +2840,6 @@ static struct ast_frame *__analog_handle_event(struct analog_pvt *p, struct ast_
+ 	p->subs[idx].f.data.ptr = NULL;
+ 	f = &p->subs[idx].f;
+ 
+-	res = analog_get_event(p);
+-
+ 	ast_debug(1, "Got event %s(%d) on channel %d (index %u)\n", analog_event2str(res), res, p->channel, idx);
+ 
+ 	if (res & (ANALOG_EVENT_PULSEDIGIT | ANALOG_EVENT_DTMFUP)) {
+diff --git a/channels/sig_analog.h b/channels/sig_analog.h
+index 023170cf7f..629268b2d2 100644
+--- a/channels/sig_analog.h
++++ b/channels/sig_analog.h
+@@ -259,7 +259,6 @@ struct analog_callback {
+ /*! Global analog callbacks to the upper layer. */
+ extern struct analog_callback analog_callbacks;
+ 
+-
+ struct analog_subchannel {
+ 	struct ast_channel *owner;
+ 	struct ast_frame f;		/*!< One frame for each channel.  How did this ever work before? */
+@@ -391,6 +390,10 @@ int analog_answer(struct analog_pvt *p, struct ast_channel *ast);
+ 
+ struct ast_frame *analog_exception(struct analog_pvt *p, struct ast_channel *ast);
+ 
++/*! \brief Directly handle an analog event (without first querying DAHDI for the event) */
++/*! \note This is ONLY intended to be called from within dahdi_handle_event after we already called dahdi_get_event */
++struct ast_frame *analog_handle_event(struct analog_pvt *p, struct ast_channel *ast, int res);
++
+ struct ast_channel * analog_request(struct analog_pvt *p, int *callwait, const struct ast_channel *requestor);
+ 
+ int analog_available(struct analog_pvt *p);
