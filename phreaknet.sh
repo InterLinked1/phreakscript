@@ -319,6 +319,8 @@ elif [ "$OS_DIST_INFO" = "openSUSE Tumbleweed" ]; then
 	PAC_MAN="zypper"
 elif [ -r /etc/arch-release ]; then
 	PAC_MAN="pacman"
+elif [ -r /etc/alpine-release ]; then
+	PAC_MAN="apk"
 elif [ ! -f /etc/debian_version ]; then # Default is Debian
 	echoerr "Support for this platform ($OS_DIST_INFO) is limited... use at your own risk..."
 
@@ -360,6 +362,8 @@ update_packages() {
 		zypper update -y
 	elif [ "$PAC_MAN" = "pacman" ]; then
 		pacman -Syu --noconfirm
+	elif [ "$PAC_MAN" = "apk" ]; then
+		apk update
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg install -y
 		pkg upgrade -y
@@ -374,11 +378,13 @@ install_package() {
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		apt-get install -y $1
 	elif [ "$PAC_MAN" = "yum" ]; then
-		yum install -y $1
+		yum install -y --allowerasing $1
 	elif [ "$PAC_MAN" = "zypper" ]; then
 		zypper install -y $1
 	elif [ "$PAC_MAN" = "pacman" ]; then
 		pacman -Sy --noconfirm $1
+	elif [ "$PAC_MAN" = "apk" ]; then
+		apk add $1
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		pkg install -y $1
 	else
@@ -398,6 +404,8 @@ if ! which "which" > /dev/null; then
 		install_package "which"
 	elif [ "$PAC_MAN" = "pacman" ]; then
 		install_package "which"
+	elif [ "$PAC_MAN" = "apk" ]; then
+		install_package "apk"
 	fi
 	if ! which "which" > /dev/null; then
 		echoerr "which is still not installed?"
@@ -414,11 +422,17 @@ ensure_installed() {
 ensure_installed "wget"
 
 # Wget2 does not support --show-progress, uses --force-progress instead
-WGET_VERSION=$( wget --version | head -n 1 )
-if [ "${WGET_VERSION#*"Wget2"}" != "$WGET_VERSION" ]; then
-	WGET="$WGET --force-progress"
-else
-	WGET="$WGET --show-progress"
+if [ "$PAC_MAN" = "apk" ]; then
+	# Alpine's wget is part of BusyBox and doesn't have any progress options anyways
+	WGET="$WGET"
+fi
+if [ "$WGET" = "" ]; then
+	WGET_VERSION=$( wget --version | head -n 1 )
+	if [ "${WGET_VERSION#*"Wget2"}" != "$WGET_VERSION" ]; then
+		WGET="$WGET --force-progress"
+	else
+		WGET="$WGET --show-progress"
+	fi
 fi
 
 if [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
@@ -430,6 +444,13 @@ if ! which "getopt" > /dev/null; then
 	install_package "util-linux" # named the same in most every distro
 fi
 ensure_installed "hostname"
+
+AST_CONFIGURE_FLAGS="--with-jansson-bundled"
+if [ "$PAC_MAN" = "apk" ]; then
+	AST_CONFIGURE_FLAGS="$AST_CONFIGURE_FLAGS --without-pjproject-bundled --without-execinfo"
+else
+	AST_CONFIGURE_FLAGS="$AST_CONFIGURE_FLAGS --with-pjproject-bundled" # default
+fi
 
 phreakscript_info() {
 	printf "%s" "Hostname: "
@@ -972,6 +993,15 @@ install_prereq() {
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libedit"
 		fi
+	elif [ "$PAC_MAN" = "apk" ]; then
+		PREREQ_PACKAGES="$PREREQ_PACKAGES build-base git"
+		if [ "$CHAN_DAHDI" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES autoconf automake m4 libtool newt-dev"
+		fi
+		if [ "$1" = "1" ]; then
+			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-dev libxml2-dev subversion"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES util-linux-dev" # uuid development
+		fi
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		PREREQ_PACKAGES="$PREREQ_PACKAGES git gmake"
 		if [ "$CHAN_DAHDI" = "1" ]; then
@@ -994,9 +1024,6 @@ install_prereq() {
 	if [ "$PAC_MAN" = "yum" ]; then
 		# Stop on RHEL systems without an active subscription since packages are failing to install
 		if ! which git > /dev/null; then
-			if [ -f /etc/redhat-release ]; then
-				echoerr "Subscription required to use RHEL package manager"
-			fi
 			die "Git does not appear to be installed"
 		fi
 		if [ "$1" = "1" ]; then
@@ -1350,7 +1377,7 @@ install_testsuite_itself() {
 }
 
 configure_devmode() {
-	./configure --enable-dev-mode --with-jansson-bundled --with-pjproject-bundled
+	./configure --enable-dev-mode $AST_CONFIGURE_FLAGS
 	if [ $? -ne 0 ]; then
 		exit 2
 	fi
@@ -1739,6 +1766,32 @@ install_dahdi() {
 			install_package "kmod kernel-source"
 		elif [ "$PAC_MAN" = "pacman" ]; then
 			install_package "kmod linux-headers"
+		elif [ "$PAC_MAN" = "apk" ]; then
+			install_package "linux-headers linux-lts-dev"
+			apk search linux-headers
+			ls -la /usr/src
+			KERNEL_HEADERS_DETECTED_VER=$( ls /usr/src/ | grep linux-headers | cut -d'-' -f3- )
+			kernel_ver=$( uname -r | cut -d'.' -f1-5 )
+			if [ "$KERNEL_HEADERS_DETECTED_VER" != "$kernel_ver" ]; then
+				echoerr "Kernel headers mismatch present? ($KERNEL_HEADERS_DETECTED_VER != $kernel_ver)"
+				if [ "$AUTOSET_KVERS" = "1" ]; then
+					printf "Auto-setting KVERS=%s\n" "$KERNEL_HEADERS_DETECTED_VER"
+					KVERS="$KERNEL_HEADERS_DETECTED_VER"
+				fi
+				if [ "$KVERS" != "" ]; then
+					# Kernel version override for GitHub CI builds
+					ksrc_dir=$( ls /usr/src/ | grep linux-headers | grep "${KVERS}" | head -n 1 | tr -d '\n' )
+					printf "Kernel source dir: %s\n" "$ksrc_dir"
+					new_ksrc="/usr/src/${ksrc_dir}"
+					if [ "$new_ksrc" == "" ]; then
+						printf "Installed kernels:\n"
+						ls /usr/src/ | grep linux-headers
+						die "Couldn't autodetermine KSRC from KVERS"
+					fi
+					printf "Setting KSRC to %s\n" "$new_ksrc"
+					export KSRC="$new_ksrc"
+				fi
+			fi
 		elif [ "$PAC_MAN" = "pkg" ]; then
 			echoerr "DAHDI is not supported on FreeBSD! Proceed at your own risk!"
 			sleep 2
@@ -2416,7 +2469,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then
 		if [ "$EXTERNAL_CODECS" = "1" ]; then
-			phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues.asterisk.org/jira/secure/attachment/60464/translate.diff" # Bug fix to translation code
+			phreak_nontree_patch "main/translate.c" "translate.diff" "https://issues-archive.asterisk.org/attachments/29/ASTERISK-29455/00-translate.diff" # Bug fix to translation code
 		else
 			# WARNING: This will cause a crash due to ABI incompatibility if any external codecs are used. Use the older translate.diff patch in that case.
 			# This has been merged into master, but for the above reason will not appear in Asterisk until v21 when new binary codec modules are created for external codecs.
@@ -2961,6 +3014,12 @@ get_source() {
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		freebsd_port_patches
 	fi
+	if [ "$PAC_MAN" = "apk" ]; then
+		custom_fuzzy_patch "10-musl-mutex-init.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/10-musl-mutex-init.patch"
+		custom_fuzzy_patch "20-musl-astmm-fix.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/20-musl-astmm-fix.patch"
+		custom_fuzzy_patch "40-asterisk-cdefs.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/40-asterisk-cdefs.patch"
+		custom_fuzzy_patch "41-asterisk-ALLPERMS.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/41-asterisk-ALLPERMS.patch"
+	fi
 }
 
 # Minimum argument check
@@ -3182,12 +3241,15 @@ elif [ "$cmd" = "make" ]; then
 	if [ "$FILE_PATH" = "/usr/local/sbin/phreaknet" ]; then
 		die "PhreakScript is already installed, to reinstall, execute 'make' using the new script, e.g. ./phreaknet.sh make"
 	fi
+	if [ ! -d /usr/local/sbin ]; then # Doesn't exist out of the box on Alpine Linux
+		mkdir /usr/local/sbin
+	fi
 	ln -nsf $FILE_PATH /usr/local/sbin/phreaknet
 	if [ $? -eq 0 ]; then
 		echo "PhreakScript added to path."
 	else
-		echo "PhreakScript could not be added to path. Is it already there?"
-		echo "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
+		echoerr "PhreakScript could not be added to path. Is it already there?"
+		echoerr "If it's not, move the source file (phreaknet.sh) to /usr/local/src and try again"
 	fi
 elif [ "$cmd" = "man" ]; then
 	cd /tmp
@@ -3321,10 +3383,26 @@ elif [ "$cmd" = "install" ]; then
 	fi
 	./contrib/scripts/install_prereq install
 
+	if [ "$PAC_MAN" = "apk" ]; then
+		# No bundled pjproject for Alpine Linux
+		cd /usr/src
+		PJPROJECT_VER="2.15.1"
+		$WGET https://github.com/pjsip/pjproject/archive/refs/tags/$PJPROJECT_VER.tar.gz
+		tar -zxvf $PJPROJECT_VER.tar.gz && rm $PJPROJECT_VER.tar.gz
+		cd pjproject-$PJPROJECT_VER
+		./configure --prefix=/usr --enable-shared --enable-ext-sound --disable-opencore-amr --disable-pjsua2 CFLAGS="-O2 -DNDEBUG"
+		make dep
+		echo "export LDFLAGS += -lexecinfo" > user.mak # for backtrace using musl
+		make
+		make install
+		ldconfig
+		cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	fi
+
 	if [ "$DEVMODE" = "1" ]; then
 		configure_devmode
 	else
-		./configure --with-jansson-bundled --with-pjproject-bundled
+		./configure $AST_CONFIGURE_FLAGS
 	fi
 	if [ $? -ne 0 ]; then
 		exit 2
@@ -3441,28 +3519,27 @@ elif [ "$cmd" = "install" ]; then
 		sed -i "" -e 's|WRAP_LIBC_MALLOC|ASTMM_LIBC ASTMM_REDIRECT|g' addons/mp3/interface.c # for format_mp3
 		sed -i "" -e 's|\\s|s|g' build_tools/make_xml_documentation # fix sed command in this script to remove the backslash for BSD sed
 		$AST_MAKE "ASTLDFLAGS=-lcrypt -lsysinfo" main
-		if [ $? -eq 0 ]; then
-			$AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
-		fi
-	else
+	fi
+
+	if [ "$PAC_MAN" = "apk" ]; then
+		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" utils # for astdb2sqlite3.c, #warning usage of non-standard #include <sys/cdefs.h> is deprecated [-Werror=cpp]
+		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" addons # for format_mp3, error: #warning redirecting incorrect #include <sys/signal.h> to <signal.h> [-Werror=cpp]
+		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" main # for ast_expr2.c, #warning usage of non-standard #include <sys/cdefs.h> is deprecated [-Werror=cpp]
+		$AST_MAKE -j$(nproc) ASTCFLAGS="-w" channels # XXX: Temporary, for chan_dahdi.c:7840:18: error: unused variable 'x' [-Werror=unused-variable]
+	fi
+
+	# Compile Asterisk. This is the longest step, if you are installing for the first time.
+	if [ $? -eq 0 ]; then
 		$AST_MAKE -j$(nproc) main # compile 'main' subdirectory first
-		if [ $? -eq 0 ]; then
-			$AST_MAKE -j$(nproc) # compile Asterisk. This is the longest step, if you are installing for the first time. Also, don't let it take over the server.
-		fi
+	fi
+	if [ $? -eq 0 ]; then
+		$AST_MAKE -j$(nproc)
 	fi
 
 	if [ $? -ne 0 ]; then
 		gcc -v
 		$AST_MAKE # Finish compiling antyhing that would build successfully, from the parallel build, so the noisy build only builds the offending target
 		$AST_MAKE NOISY_BUILD=1 # show actual compilation command that failed, with no parallelism
-		#if [ ! -f channels/chan_dahdi.o ]; then
-		#	echoerr "Compilation of chan_dahdi failed?" # Only suggest this if we got around to compiling some channel drivers to begin with
-		#	ls -la /usr/include/dahdi
-		#	# Debug failed chan_dahdi compilation
-		#	# chan_dahdi.c:7677:18: error: unused variable 'x' [-Werror=unused-variable]
-		#	# 7677 |         int res, x;
-		#	sed -n 7677,7800p channels/chan_dahdi.c
-		#fi
 		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi

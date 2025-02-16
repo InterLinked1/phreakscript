@@ -180,6 +180,16 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --devmode --sip --vanilla --user=asterisk
+  alpine-linux:
+    runs-on: ubuntu-24.04
+    name: Alpine Linux
+    container: alpine:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode
   fedora-42:
     runs-on: ubuntu-24.04
     name: Fedora 42

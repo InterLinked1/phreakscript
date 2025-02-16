@@ -160,7 +160,7 @@ For further details, please refer to the Docs: https://docs.phreaknet.org/#phrea
 
 > [!CAUTION]
 > PhreakScript is primarily supported on Debian-based Linux systems, and DAHDI and Asterisk are best supported on these platforms.
-> Limited support is available for other Linux distros (Fedora, RHEL, Rocky Linux, SUSE, Arch Linux, etc.).
+> Limited support is available for other Linux distros (Fedora, RHEL, Rocky Linux, SUSE, Arch Linux, Alpine Linux, etc.).
 > Extremely limited support exists for FreeBSD, and BSDs (and UNIX in general) are not recommended for running Asterisk/DAHDI - use Linux instead if possible.
 
 ### License

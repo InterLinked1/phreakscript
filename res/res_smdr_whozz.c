@@ -30,6 +30,7 @@
 #include "asterisk.h"
 
 #include <pthread.h>
+#include <signal.h>
 
 #include "asterisk/file.h"
 #include "asterisk/pbx.h"
