@@ -180,6 +180,16 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --devmode --sip --vanilla --user=asterisk
+  debian-stable-asterisk-master:
+    runs-on: ubuntu-24.04
+    name: Debian 12, Asterisk master branch
+    container: debian:12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --sip --testsuite --version=master
   debian-dahdi-minimal:
     runs-on: ubuntu-24.04
     name: Debian 12, without libpri and libss7
