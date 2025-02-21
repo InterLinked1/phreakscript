@@ -2012,7 +2012,7 @@ install_dahdi() {
 	fi
 
 	# if KSRC/KVERS env vars are set, they will automatically propagate to children
-	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
+	$AST_MAKE $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		if [ -f drivers/dahdi/vpmadt032_loader/vpmadt032_x86_64.o_shipped ]; then
 			# If this is PHREAKSCRIPT-61, apply temporary workaround for newer kernels failing with:
@@ -2045,7 +2045,7 @@ install_dahdi() {
 			printf "COPY %s %s\n" drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o_shipped drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o
 			cp -n drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o_shipped drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o
 		fi
-		$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
+		$AST_MAKE $DAHDI_CFLAGS
 	fi
 	if [ $? -ne 0 ]; then
 		die "DAHDI Linux compilation failed, aborting install"
