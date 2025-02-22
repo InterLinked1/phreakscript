@@ -7,13 +7,10 @@ on:
     branches: [ master ]
   # Retest weekly to ensure nothing has broken
   schedule:
-    - cron: '0 1 15 * *'
+    - cron: '0 4 * * 6'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-
-# DAHDI not currently built in Fedora-based distros due to missing Azure kernel headers:
-# kernel-devel mismatch has been detected. Package provides 6.12.0-0.rc0.20240918git4a39ac5b7d62, but running kernel is 6.8.0-1014-azure
 
 jobs:
   dahdi-kernel-stable:

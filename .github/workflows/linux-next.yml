@@ -1,0 +1,39 @@
+name: linux-next daily CI
+
+on:
+  # Retest daily to catch kernel breakage ASAP
+  schedule:
+    - cron: '0 4 * * *'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  dahdi-kernel-next:
+    runs-on: ubuntu-24.04
+    name: DAHDI, next kernel
+    container: debian:12
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux-next
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build DAHDI
+       run: |
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
