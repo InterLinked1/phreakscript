@@ -359,7 +359,7 @@ update_packages() {
 	elif [ "$PAC_MAN" = "yum" ]; then
 		yum update -y
 	elif [ "$PAC_MAN" = "zypper" ]; then
-		zypper update -y
+		zypper --non-interactive update -y
 	elif [ "$PAC_MAN" = "pacman" ]; then
 		pacman -Syu --noconfirm
 	elif [ "$PAC_MAN" = "apk" ]; then
@@ -380,7 +380,7 @@ install_package() {
 	elif [ "$PAC_MAN" = "yum" ]; then
 		yum install -y --allowerasing $1
 	elif [ "$PAC_MAN" = "zypper" ]; then
-		zypper install -y $1
+		zypper --non-interactive install -y --force-resolution $1
 	elif [ "$PAC_MAN" = "pacman" ]; then
 		pacman -Sy --noconfirm $1
 	elif [ "$PAC_MAN" = "apk" ]; then
@@ -391,7 +391,8 @@ install_package() {
 		echoerr "Not sure how to satisfy requirement: $1"
 	fi
 	if [ $? -ne 0 ]; then
-		echoerr "Package installation failed: $1"
+		# If a required package can't be installed, fail fast and exit
+		die "Package installation failed: $1"
 	fi
 }
 
@@ -443,7 +444,11 @@ fi
 if ! which "getopt" > /dev/null; then
 	install_package "util-linux" # named the same in most every distro
 fi
-ensure_installed "hostname"
+if [ "$PAC_MAN" = "pacman" ]; then
+	ensure_installed "net-tools" # hostname
+else
+	ensure_installed "hostname"
+fi
 
 AST_CONFIGURE_FLAGS="--with-jansson-bundled"
 if [ "$PAC_MAN" = "apk" ]; then
