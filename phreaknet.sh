@@ -1845,7 +1845,8 @@ install_dahdi() {
 			sed -n 61,63p $MODFINAL_FILE
 			sed -n 61,63p $MODFINAL_FILE | grep "CONFIG_DEBUG_INFO_BTF_MODULES"
 			if [ $? -eq 0 ]; then
-				phreak_tree_patch $MODFINAL_FILE "modfinal.diff"
+				# The file only needs to be patched the first time, not on future installs
+				phreak_tree_patch_forward_only $MODFINAL_FILE "modfinal.diff"
 				sed -n 61,63p $MODFINAL_FILE
 			else
 				echoerr "Skipping modfinal patch, expected content differs on line 61"
@@ -1949,6 +1950,9 @@ install_dahdi() {
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/69.diff" # PR 69: DEFINE_SEMAPHORE for RHEL
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32: xpp: Fix 32-bit builds
 
+	# Not yet merged
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/77.diff"
+
 	# Fix or skip compilation of the XPP driver for 32-bit
 	# OS_ARCH=$( uname -m )
 	# printf "Detected architecture: %s\n" "$OS_ARCH"
@@ -2012,7 +2016,7 @@ install_dahdi() {
 	fi
 
 	# if KSRC/KVERS env vars are set, they will automatically propagate to children
-	$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
+	$AST_MAKE $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
 		if [ -f drivers/dahdi/vpmadt032_loader/vpmadt032_x86_64.o_shipped ]; then
 			# If this is PHREAKSCRIPT-61, apply temporary workaround for newer kernels failing with:
@@ -2045,7 +2049,7 @@ install_dahdi() {
 			printf "COPY %s %s\n" drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o_shipped drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o
 			cp -n drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o_shipped drivers/dahdi/vpmadt032_loader/vpmadt032_${MY_DAHDI_ARCH}.o
 		fi
-		$AST_MAKE -j$(nproc) $DAHDI_CFLAGS
+		$AST_MAKE $DAHDI_CFLAGS
 	fi
 	if [ $? -ne 0 ]; then
 		die "DAHDI Linux compilation failed, aborting install"
@@ -2228,6 +2232,17 @@ phreak_tree_patch() { # $1 = patched file, $2 = patch name
 		echoerr "Failed to apply patch $2"
 		exit 2
 	fi
+	rm "/tmp/$2"
+}
+
+phreak_tree_patch_forward_only() { # $1 = patched file, $2 = patch name
+	printf "Applying forward patch %s to %s\n" "$2" "$1"
+	cp "$GIT_REPO_PATH/patches/$2" "/tmp/$2"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to copy patch: $2"
+		exit 2
+	fi
+	patch -u -N -b "$1" -i "/tmp/$2"
 	rm "/tmp/$2"
 }
 
