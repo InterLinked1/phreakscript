@@ -1,0 +1,12 @@
+diff --git a/apps/Makefile b/apps/Makefile
+index 50b3fccc8f..8caa563c89 100644
+--- a/apps/Makefile
++++ b/apps/Makefile
+@@ -56,6 +56,7 @@ app_voicemail.o: _ASTCFLAGS+=$(AST_NO_FORMAT_TRUNCATION) -DFILE_STORAGE
+ app_voicemail_odbc.o: _ASTCFLAGS+=$(AST_NO_FORMAT_TRUNCATION) -DODBC_STORAGE
+ app_voicemail_imap.o: _ASTCFLAGS+=$(AST_NO_FORMAT_TRUNCATION) -DIMAP_STORAGE
+ app_while.o: _ASTCFLAGS+=$(AST_NO_FORMAT_TRUNCATION)
++app_sms.o: _ASTCFLAGS+=-fno-tree-vectorize
+ 
+ ifneq ($(findstring $(OSARCH), mingw32 cygwin ),)
+   LIBS+= -lres_ael_share.so -lres_speech.so
