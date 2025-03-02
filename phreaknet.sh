@@ -650,9 +650,9 @@ ast_kill() {
 start_wanpipe() {
 	if which wanrouter > /dev/null; then
 		printf "Starting wanpipe\n"
-		service wanrouter start
+		service wanrouter start 2>&1 > /dev/null
 		if [ $? -ne 0 ]; then
-			wanrouter start
+			wanrouter start # If the wanrouter service isn't installed, start manually
 		fi
 		wanrouter status
 	fi
@@ -660,7 +660,7 @@ start_wanpipe() {
 
 stop_wanpipe() {
 	if which wanrouter > /dev/null; then
-		service wanrouter status
+		service wanrouter status 2>&1 > /dev/null # The service may not be installed, but wanrouter may be running nonetheless
 		if [ $? -eq 0 ]; then
 			printf "Stopping wanpipe spans\n"
 			if ! wanrouter stop all; then # stop all T1 spans on wanpipe
@@ -779,7 +779,8 @@ start_telephony() {
 		printf "Starting driver: %s... " "$driver"
 		modprobe --first-time $driver
 		if [ $? -ne 0 ]; then
-			echoerr "\nFailed to start driver $driver"
+			# If modprobe fails, it will print an error ending in a newline, no need to add one here
+			echoerr "Failed to start driver $driver"
 		else
 			printf "started!\n"
 		fi
@@ -803,7 +804,8 @@ start_telephony() {
 		printf "Automatically assigning spans, ignoring /etc/dahdi/assigned-spans.conf\n"
 		num_spans=$( dahdi_span_assignments list | wc -l )
 		if [ $num_spans -gt 1 ]; then
-			echoerr "Detected that this machine has more than 1 DAHDI span.\nYou are HIGHLY ENCOURAGED to assign the span order explicitly in /etc/dahdi/assigned-spans.conf!"
+			echoerr "Detected that this machine has more than 1 DAHDI span."
+			echoerr "You are HIGHLY ENCOURAGED to assign the span order explicitly in /etc/dahdi/assigned-spans.conf!"
 			echoerr "To do this, add 'options dahdi auto_assign_spans=0' to /etc/modprobe.d/dahdi.conf and run 'phreaknet restart'"
 			sleep 1
 		fi
@@ -1945,18 +1947,6 @@ install_dahdi() {
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
 	fi
 
-	# Compiler fixes for 5.17/5.18:
-	if [ $DAHDI_MM_VER -lt 33 ]; then
-		phreak_fuzzy_patch "dahdi_pci.diff"
-		custom_fuzzy_patch "b6d9b417e1992868549d443efad11e4f1513c9d7.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/b6d9b417e1992868549d443efad11e4f1513c9d7.diff"
-		custom_fuzzy_patch "09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff" "https://gitea.osmocom.org/retronetworking/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
-		# Compiler fixes for newer kernels (5.15, 5.17, 5.18)
-		#git_custom_patch "https://github.com/osmocom/dahdi-linux/commit/09adb59cfe2aff9fc1c18cafb44ae0faf811adca.diff"
-
-		# Compiler fixes for 6.1+
-		phreak_fuzzy_patch "dahdi_kern_61.diff"
-	fi
-
 	# Merged in master, but not yet in a current release
 	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d7bbc8a96fe767bc4eee15dd43170f298282a4c3.diff" # RHEL fixes for const struct device *dev
 	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d932d9fbc8b3559829a76fffcedceb78d1fc1887.diff" # dahdi_spantype fix
@@ -1972,17 +1962,6 @@ install_dahdi() {
 	# Not yet merged
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/77.diff" # EXTRA_CFLAGS removal
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/79.diff" # vpmadt032 binary blob
-
-	# Fix or skip compilation of the XPP driver for 32-bit
-	# OS_ARCH=$( uname -m )
-	# printf "Detected architecture: %s\n" "$OS_ARCH"
-	#if [ "$OS_ARCH" = "armv7l" ]; then
-		# I can't test this build at the moment, so to play it safe, I'm going to keep it disabled in this case,
-		# given that the xpp drivers are seldom used and especially unlikely to be used by someone with this architecture.
-		# TODO Slightly related, once GitHub allows free arm64 builds, do more testing: https://github.com/orgs/community/discussions/19197
-		#echoerr "Skipping compilation of XPP driver for this 32-bit architecture! ($OS_ARCH)"
-		#mv $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Kbuild $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/xpp/Bad-Kbuild
-	#fi
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -2049,14 +2028,11 @@ install_dahdi() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
-	# New Features
-
-	# fix static inline function get_ver (GitHub dahdi-tools #11)
-	phreak_fuzzy_patch "dahdi_tools_inline_get_ver.diff"	
-
 	# Not yet merged
+	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-tools/pull/23.diff" # PR 23 (xpp/echo_loader.c: static get_ver)
 	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-tools/pull/22.diff" # PR 22 (dahdi_cfg: fix truncation warning)
 
+	# New Features
 	# hearpulsing
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		if [ "$HEARPULSING" = "1" ]; then
