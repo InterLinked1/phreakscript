@@ -242,6 +242,7 @@ CHAN_SIP=0
 ENHANCED_CHAN_SIP=0
 SIP_CISCO=0
 CHAN_SCCP=0
+RPT_MODULES=0
 CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
 EMPULSE=1 # Automatically enable EMPULSE, cause why not?
@@ -606,6 +607,7 @@ Options:
        --lightweight  install: Only install basic, required modules for basic Asterisk functionality
        --alsa         install: Ensure ALSA library detection exists in the build system. This does NOT readd the deprecated/removed chan_alsa module.
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
+       --rpt          install: Add radio repeater modules
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
        --generic      install: Use generic kernel headers that do not match the installed kernel version
@@ -951,12 +953,15 @@ install_prereq() {
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt-dev dwarves"
 		fi
 		if [ "$1" = "1" ]; then
-			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion libcurl4-openssl-dev"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion libcurl4-openssl-dev libvpb1"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
 				PREREQ_PACKAGES="$PREREQ_PACKAGES dnsutils bc mpg123 ntp tcpdump festival"
 			fi
 			if [ "$DEVMODE" = "1" ]; then
 				PREREQ_PACKAGES="$PREREQ_PACKAGES xmlstarlet" # only needed in developer mode for doc validation.
+			fi
+			if [ "$RPT_MODULES" = "1" ]; then
+				PREREQ_PACKAGES="$PREREQ_PACKAGES libusb-dev"
 			fi
 		fi
 		PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-dev" # Ubuntu also needs this package
@@ -1378,6 +1383,12 @@ install_testsuite_itself() {
 	fi
 
 	add_phreak_testsuite
+	if [ "$RPT_MODULES" = "1" ]; then
+		# Add radio tests
+		cd $AST_SOURCE_PARENT_DIR/testsuite
+		git apply $AST_SOURCE_PARENT_DIR/app_rpt/tests/apps/tests_apps.diff
+		cp -r $AST_SOURCE_PARENT_DIR/app_rpt/tests/apps/rpt tests/apps
+	fi
 	printf "%s\n" "Asterisk Test Suite installation complete"
 }
 
@@ -1499,9 +1510,12 @@ dahdi_patch() {
 
 git_patch() {
 	printf "Applying git patch: %s\n" "$1"
+	if [ "$GIT_REPO_PATH" = "" ]; then
+		die "Variable GIT_REPO_PATH is empty... bug!"
+	fi
 	cp "$GIT_REPO_PATH/patches/$1" "/tmp/$1"
 	if [ $? -ne 0 ]; then
-		die "File $1 does not exist"
+		die "File $GIT_REPO_PATH/patches/$1 does not exist"
 	fi
 	git apply "/tmp/$1"
 	if [ $? -ne 0 ]; then
@@ -2333,8 +2347,6 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	### Inject custom PhreakNet patches to add additional functionality and features.
 	### If/when/as these are integrated upstream, they will be removed from this function. 
 
-	instantiate_repo
-
 	cd $AST_SOURCE_PARENT_DIR/$2
 
 	## Add Standalone PhreakNet Modules
@@ -2959,6 +2971,9 @@ get_source() {
 		printf "chan_sip was not natively present in this version of Asterisk\n"
 		ENHANCED_CHAN_SIP=1 # chan_sip isn't present anymore, we need to readd it ourselves (if we're going to build chan_sip at all)
 	fi
+
+	instantiate_repo
+
 	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
 		if [ "$ENHANCED_CHAN_SIP" != "1" ]; then
 			echoerr "chan_sip is deprecated and was removed in Asterisk 21. Consider migrating to chan_pjsip at your convenience."
@@ -2970,9 +2985,40 @@ get_source() {
 			./chan_sip_reinclude.sh
 		fi
 	fi
+	if [ "$RPT_MODULES" = "1" ]; then
+		ALSA=1 # ALSA support in the build system is required for the USB radio channel drivers
+		modprobe snd-pcm-oss # /dev/dsp1 needs to exist for chan_simpleusb and chan_usbradio to work
+		grep "snd-pcm-oss" /etc/modules
+		if [ $? -ne 0 ]; then
+			echo "snd-pcm-oss" >> /etc/modules # load module at startup for USB
+		fi
+		if [ -d $AST_SOURCE_PARENT_DIR/app_rpt ]; then
+			cd $AST_SOURCE_PARENT_DIR/app_rpt
+			git pull
+		else
+			cd $AST_SOURCE_PARENT_DIR
+			git clone --depth 1 https://github.com/AllStarLink/app_rpt.git
+		fi
+		cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+		# Patch in the radio modules
+		git apply $AST_SOURCE_PARENT_DIR/app_rpt/apps/Makefile.diff
+		git apply $AST_SOURCE_PARENT_DIR/app_rpt/channels/Makefile.diff
+		git apply $AST_SOURCE_PARENT_DIR/app_rpt/res/Makefile.diff
+		git apply $AST_SOURCE_PARENT_DIR/app_rpt/utils/Makefile.diff
+		mkdir apps/app_rpt
+		mkdir channels/xpmr
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/apps/*.c apps
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/apps/app_rpt/* apps/app_rpt
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/channels/*.c $AST_SOURCE_PARENT_DIR/app_rpt/channels/*.h channels
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/channels/xpmr/* channels/xpmr
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/configs/samples/*.conf.sample configs/samples
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/include/asterisk/*.h include/asterisk
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/res/*.c $AST_SOURCE_PARENT_DIR/app_rpt/res/*.in res
+		cp $AST_SOURCE_PARENT_DIR/app_rpt/utils/*.c utils
+	fi
 	if [ "$ALSA" = "1" ]; then
 		# chan_alsa was removed in Asterisk 21, and with it, the support for ALSA lib detection in the build system. Add it back if needed.
-		lines=$(grep "HAVE_ALSA" include/asterisk/autoconfig.h | wc -l)
+		lines=$(grep "HAVE_ALSA" include/asterisk/autoconfig.h.in | wc -l)
 		if [ $lines -eq 0 ]; then
 			printf "Patching build system to detect ALSA library\n"
 			git_patch "alsa.diff"
@@ -3024,7 +3070,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -3057,6 +3103,7 @@ while true; do
 		--alsa ) ALSA=1; shift ;;
 		--audit ) PKG_AUDIT=1; shift ;;
 		--cisco ) SIP_CISCO=1; shift ;;
+		--rpt ) RPT_MODULES=1; shift ;;
 		--sccp ) CHAN_SCCP=1; shift ;;
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
@@ -3373,7 +3420,6 @@ elif [ "$cmd" = "install" ]; then
 	# Install Pre-Reqs
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		printf "%s %d" "libvpb1 libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
-		apt-get install -y libvpb1
 	fi
 	./contrib/scripts/install_prereq install
 
@@ -3466,7 +3512,7 @@ elif [ "$cmd" = "install" ]; then
 		# Now explicitly enable things we probably want.
 		# Core
 		menuselect/menuselect --enable app_bridgeaddchan --enable app_channelredirect --enable app_chanspy --enable app_confbridge --enable app_dial --enable app_exec menuselect.makeopts
-		menuselect/menuselect --enable app_flash --enable app_mixmonitor --enable app_originate --enable app_playback --enable app_playtones --enable app_read menuselect.makeopts
+		menuselect/menuselect --enable app_flash --enable app_mixmonitor --enable app_originate --enable app_playback --enable app_playtones --enable app_read --enable app_userevent menuselect.makeopts
 		menuselect/menuselect --enable chan_bridge_media --enable chan_dahdi --enable chan_iax2 --enable chan_pjsip menuselect.makeopts
 		menuselect/menuselect --enable codec_a_mu --enable codec_dahdi --enable codec_ulaw menuselect.makeopts
 		menuselect/menuselect --enable format_pcm --enable format_sln --enable format_wav menuselect.makeopts
@@ -3557,6 +3603,19 @@ elif [ "$cmd" = "install" ]; then
 		rm -f /usr/local/lib/asterisk/modules/*.so
 	fi
 	$AST_MAKE install # actually install modules and binary
+
+	if [ "$RPT_MODULES" = "1" ]; then
+		# Also install the radio sounds
+		if [ ! -d $AST_SOUNDS_DIR/rpt ]; then
+			printf "RPT sounds don't exist yet, adding them now...\n"
+			mkdir $AST_SOUNDS_DIR/rpt
+			cd $AST_SOUNDS_DIR/rpt
+			wget "http://downloads.allstarlink.org/asterisk-asl-sounds-en-ulaw.tar.gz"
+			# Sounds are extracted directly into the dir
+			tar -xvzf asterisk-asl-sounds-en-ulaw.tar.gz
+			rm asterisk-asl-sounds-en-ulaw.tar.gz
+		fi
+	fi
 
 	# Debugging: see where Asterisk got installed
 	which asterisk
@@ -3774,7 +3833,7 @@ elif [ "$cmd" = "sounds" ]; then
 	cd /tmp
 	mkdir -p patfleet
 	cd patfleet
-	git clone https://github.com/hharte/PatFleet-asterisk/
+	git clone --depth 1 https://github.com/hharte/PatFleet-asterisk/
 	cd PatFleet-asterisk/pa
 	mv dictate/* $AST_SOUNDS_DIR/dictate
 	mv digits/* $AST_SOUNDS_DIR/digits
@@ -3912,7 +3971,7 @@ elif [ "$cmd" = "mkdocs" ]; then
 		git pull
 		rm -rf /tmp/documentation/temp/site
 	else
-		git clone https://github.com/asterisk/documentation.git --depth 1
+		git clone --depth 1 https://github.com/asterisk/documentation.git
 		cd documentation
 	fi
 
@@ -3937,7 +3996,7 @@ elif [ "$cmd" = "pubdocs" ]; then
 	if [ -d publish-docs ]; then
 		rm -rf publish-docs
 	fi
-	git clone https://github.com/asterisk/publish-docs.git
+	git clone --depth 1 https://github.com/asterisk/publish-docs.git
 	cd publish-docs
 	echo $AST_SOURCE_PARENT_DIR
 	printf "%s\n" "Generating Confluence markup..."
