@@ -63,6 +63,8 @@
 					<description>
 						<para>Line number of SMDR channel as configured on the WHOZZ Calling? device.</para>
 						<para>Three-way calling is not supported. Please note that WHOZZ Calling? devices do not themselves support pulse dialing.</para>
+						<para>Note that if you wish to log unanswered incoming calls (outgoing calls are always assumed to be answered by the WHOZZ Calling
+						unit), you need to set <literal>unanswered = yes</literal> in <literal>cdr.conf</literal>.</para>
 					</description>
 				</configOption>
 				<configOption name="device">
@@ -133,6 +135,7 @@ struct whozz_line {
 	int lineno;							/*!< Line number on WHOZZ Calling? system */
 	struct ast_channel *chan;			/*!< Dummy channel for CDR */
 	const char *device;					/*!< Asterisk device */
+	unsigned int detect_dialing:1;		/*!< Whether to detect dialing in Asterisk, instead of relying on the WHOZZ Calling hardware */
 	enum line_state state;				/*!< Current line state */
 	enum ast_device_state startstate;	/*!< Starting device state of associated FXO device, if applicable */
 	enum ast_device_state answerstate;	/*!< Device state of associated FXO device, if applicable, at time of off-hook on incoming call */
@@ -283,15 +286,13 @@ static int serial_sync(struct pollfd *pfd)
 	return 0;
 }
 
-static int set_settings(struct pollfd *pfd)
+static int set_settings(struct pollfd *pfd, int reset)
 {
 	struct timeval when;
 	struct ast_tm tm;
 	ssize_t bufres;
 	char buf[64];
-
-	SERIAL_WRITE("V", 1);
-	SERIAL_READ_STRING(buf, sizeof(buf), 1);
+	char ch;
 
 /* Must wait at least 50 ms between setting each setting to non-volatile memory */
 #define SET_SETTING_DELAY 50000
@@ -299,8 +300,18 @@ static int set_settings(struct pollfd *pfd)
 #define SET_SETTING(c) \
 	if (!strchr(buf, c)) { \
 		ast_verb(5, "Setting WHOZZ Calling? register '%c'\n", c); \
+		ch = c; \
+		SERIAL_WRITE(&ch, 1); \
 		usleep(SET_SETTING_DELAY); \
 	}
+
+	if (reset) {
+		buf[0] = '\0';
+		SET_SETTING('R');
+	}
+
+	SERIAL_WRITE("V", 1);
+	SERIAL_READ_STRING(buf, sizeof(buf), 1);
 
 	SET_SETTING('E'); /* Echo off */
 	SET_SETTING('c'); /* Remove dashes from phone number, leading $ */
@@ -490,10 +501,12 @@ static int handle_hook(struct whozz_line *w, int outbound, int end, int duration
 				/* Substitute if needed */
 				pbx_substitute_variables_helper(w->chan, varval, subbuf, sizeof(subbuf) - 1);
 				/* Replace or add variable */
+				ast_debug(8, "Setting variable %s=%s\n", varkey, subbuf);
 				pbx_builtin_setvar_helper(w->chan, varkey, subbuf);
 			}
 
 			ast_channel_hangupcause_set(w->chan, AST_CAUSE_NORMAL);
+			ast_debug(5, "Finalized CDR for channel %s\n", ast_channel_name(w->chan));
 			ast_hangup(w->chan); /* Kill the channel and force the CDR to be processed, with variable substitution */
 			w->chan = NULL;
 		} else {
@@ -892,7 +905,7 @@ static int serial_monitor(void *varg)
 		}
 	}
 
-	if (set_settings(&pfd)) {
+	if (set_settings(&pfd, 0)) {
 		ast_log(LOG_ERROR, "Failed to initialize device with SMDR settings\n");
 		return -1;
 	}
@@ -946,7 +959,7 @@ static struct ast_custom_function acf_whozz = {
 	.read = whozz_line_state_read,
 };
 
-static char *handle_show_whozz(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+static char *handle_show_lines(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	struct whozz_line *w;
 
@@ -975,8 +988,39 @@ static char *handle_show_whozz(struct ast_cli_entry *e, int cmd, struct ast_cli_
 	return CLI_SUCCESS;
 }
 
+static char *handle_reset(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	struct pollfd pfd;
+
+	switch (cmd) {
+	case CLI_INIT:
+		e->command = "whozz reset";
+		e->usage =
+			"Usage: whozz reset\n"
+			"       Reset and reinitialize the connected unit.\n";
+		return NULL;
+	case CLI_GENERATE:
+		return NULL;
+	}
+	if (a->argc != 2) {
+		return CLI_SHOWUSAGE;
+	}
+
+	memset(&pfd, 0, sizeof(pfd));
+	pfd.fd = serial_fd;
+	pfd.events = POLLIN | POLLERR | POLLNVAL | POLLHUP;
+
+	if (set_settings(&pfd, 1)) {
+		ast_cli(a->fd, "Failed to reinitialize device with SMDR settings\n");
+		return CLI_FAILURE;
+	}
+
+	return CLI_SUCCESS;
+}
+
 static struct ast_cli_entry whozz_cli[] = {
-	AST_CLI_DEFINE(handle_show_whozz, "List WHOZZ Calling lines"),
+	AST_CLI_DEFINE(handle_show_lines, "List WHOZZ Calling lines"),
+	AST_CLI_DEFINE(handle_reset, "Reset and reinitialize the connected unit"),
 };
 
 static int load_config(void)
