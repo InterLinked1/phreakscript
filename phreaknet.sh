@@ -2440,7 +2440,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220300 210800 201300)
 	if [ $AST_MAJOR_VER -lt 23 ]; then
 		# Underlying problem code was removed entirely in master, so patch only needed for release versions
-		asterisk_pr_unconditional 1086 220300 210800 201300 # Fix for Fedora 42 (old style definitions for libdb)
+		asterisk_pr_if 1086 220300 210800 201300 # Fix for Fedora 42 (old style definitions for libdb)
 	fi
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
