@@ -630,6 +630,14 @@ get_newest_astdir() {
 	fi
 }
 
+get_newest_dahlindir() {
+	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
+		ls -d ./*/ | cut -c 3- | grep "^dahdi-linux" | tail -1 # FreeBSD doesn't have the same GNU ls options: https://stackoverflow.com/a/31603260/
+	else
+		ls -d -v */ | grep "^dahdi-linux" | tail -1
+	fi
+}
+
 cd_ast() {
 	cd $AST_SOURCE_PARENT_DIR
 	AST_SRC_DIR=`get_newest_astdir`
@@ -1674,8 +1682,15 @@ install_wanpipe() {
 		# Note: This link needs to be updated for new versions of wanpipe
 		wget https://web.archive.org/web/20240708051349/https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
 	fi
-	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
 	WANPIPE_DIR=`tar -tzf $WANPIPE_SOURCE_NAME.tgz | head -1 | cut -f1 -d"/"`
+	if [ -d $WANPIPE_DIR ]; then
+		if [ "$FORCE_INSTALL" != "1" ]; then
+			die "Directory $WANPIPE_DIR already exists... specify --force to overwrite"
+		fi
+		rm -rf $WANPIPE_DIR
+	fi
+	tar xvfz ${WANPIPE_SOURCE_NAME}.tgz
+
 	cd ${WANPIPE_DIR}
 	if [ $? -ne 0 ]; then
 		die "Failed to download/extract wanpipe"
@@ -1684,12 +1699,64 @@ install_wanpipe() {
 	#phreak_fuzzy_patch "af_wanpipe.diff"
 
 	#./Setup dahdi --silent
-	./Setup install --silent # Even if Setup dahdi fails, this can work
+	#./Setup install --silent # Even if Setup dahdi fails, this can work
+
+	# Manually build wanpipe since using Setup, KBUILD_EXTRA_SYMBOLS isn't set and this is required or symbols will be missing.
+	if [ "$DAHDI_LIN_SRC_DIR" = "" ]; then
+		# For standalone wanpipe install, this won't have been defined since we didn't just install DAHDI. Calculate it now.
+		cd $AST_SOURCE_PARENT_DIR
+		DAHDI_LIN_SRC_DIR=`get_newest_dahlindir`
+		cd ${WANPIPE_DIR}
+	fi
+
+	# Wanpipe requires the kernel headers to build, just like DAHDI Linux does
+	# XXX Missing logic for other distros
+	if [ "$PAC_MAN" = "apt-get" ]; then
+		# The headers are split into the common and arch specific dirs.
+		# wanpipe needs stuff in both, so combine them.
+		ksrc_dir1=$( ls /usr/src/ | grep linux-headers | grep "common" | tail -1 | tr -d '\n' )
+		ksrc_dir2=$( ls /usr/src/ | grep linux-headers | grep -v "common" | tail -1 | tr -d '\n' )
+		wanpipe_kdir1="/usr/src/${ksrc_dir1}"
+		wanpipe_kdir2="/usr/src/${ksrc_dir2}"
+
+		cd $AST_SOURCE_PARENT_DIR
+		if [ -d wanpipe_linux_headers ]; then
+			rm -rf wanpipe_linux_headers
+		fi
+		# It needs to be done in this order. Start with the arch-specific version,
+		# then add in the common one. If we do it the other way, even with cp -R,
+		# .config and possibly other stuff doesn't end up copied to the combined directory.
+		cp -R ${wanpipe_kdir2} wanpipe_linux_headers
+		cp -R ${wanpipe_kdir1}/* wanpipe_linux_headers
+		cd ${WANPIPE_DIR}
+
+		wanpipe_kdir="/usr/src/wanpipe_linux_headers"
+		printf "Setting KSRC to %s\n" "${wanpipe_kdir}"
+		# These files better both exist!
+		ls -la ${wanpipe_kdir}/.config && ls -la ${wanpipe_kdir}/include/linux/proc_fs.h
+		if [ $? -ne 0 ]; then
+			echoerr "Failed to merge headers directories?"
+			ls -la ${wanpipe_kdir1} ${wanpipe_kdir2} ${wanpipe_kdir1}/include/linux/proc_fs.h ${wanpipe_kdir2}/include/linux/proc_fs.h
+		fi
+	fi
+
+	# Compile and install
+	WANPIPE_MAKE_ARGS="dahdi DAHDI_DIR=$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR KBUILD_EXTRA_SYMBOLS=$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers/dahdi/Module.symvers"
+	if [ "${wanpipe_kdir}" != "" ]; then
+		WANPIPE_MAKE_ARGS="$WANPIPE_MAKE_ARGS KDIR=${wanpipe_kdir}"
+	fi
+	$AST_MAKE -j$(nproc) $WANPIPE_MAKE_ARGS && $AST_MAKE install
+	if [ $? -ne 0 ]; then
+		# If compilation fails, show the error at the bottom
+		echoerr "Wanpipe compilation failed:"
+		$AST_MAKE $WANPIPE_MAKE_ARGS VERBOSE=1 && $AST_MAKE install
+	fi
 
 	if [ $? -ne 0 ]; then
 		echoerr "wanpipe install failed: unsupported kernel?"
 		# No need to cat setup_drv_compile.log here, Setup automatically does so on failure
 		# XXX wanpipe currently fails to compile on kernels newer than 6.1.0. See [PHREAKSCRIPT-49]
+		cat setup_drv_compile.log # cat for now since we aren't using ./Setup
 		if [ "$IGNORE_FAILURES" = "1" ]; then
 			printf "Installation of other items will proceed anyways...\n"
 			sleep 1
@@ -2118,7 +2185,6 @@ install_dahdi() {
 		wget https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz
 		tar -zxvf ${LIBSS7_VERSION}.tar.gz
 		rm ${LIBSS7_VERSION}.tar.gz
-		ls -la
 		cd libss7-${LIBSS7_VERSION}
 		$AST_MAKE && $AST_MAKE install
 	fi
