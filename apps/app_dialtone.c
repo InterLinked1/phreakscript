@@ -218,7 +218,7 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 
 	if (ast_strlen_zero(data)) {
 		ast_log(LOG_WARNING, "DialTone requires an argument (variable)\n");
-		return 0;
+		return -1;
 	}
 
 	argcopy = ast_strdupa(data);
@@ -227,7 +227,11 @@ static int dialtone_exec(struct ast_channel *chan, const char *data)
 
 	if (ast_strlen_zero(arglist.variable)) {
 		ast_log(LOG_WARNING, "Invalid! Usage: DialTone(variable,context[,initialfilename][,subsequentfilename][,timeout][,options])\n\n");
-		return 0;
+		return -1;
+	}
+	if (!ast_strlen_zero(arglist.context) && !ast_context_find(arglist.context)) {
+		ast_log(LOG_ERROR, "Dialplan context '%s' does not exist\n", arglist.context);
+		return -1;
 	}
 	if (!ast_strlen_zero(arglist.maxdigits)) {
 		maxdigits = atoi(arglist.maxdigits);
