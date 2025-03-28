@@ -958,7 +958,7 @@ install_prereq() {
 	# libnewt-dev is needed for newt, which dahdi_tool requires. If it's not available, it won't get built.
 	# dwarves is needed for pahole, which DAHDI Linux install needs for BTF generation
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc pkg-config autoconf automake m4 libtool build-essential"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gawk gcc pkg-config autoconf automake m4 libtool build-essential"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt-dev dwarves"
 		fi
@@ -983,7 +983,7 @@ install_prereq() {
 		if [ -f /etc/redhat-release ] && [ "$RHEL_MAJOR_VERSION" = "8" ]; then # RHEL or Rocky Linux major version 8
 			RHEL_MAJOR_VERSION_8=1
 		fi
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gcc gcc-c++ pkg-config autoconf automake m4 libtool"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gawk gcc gcc-c++ pkg-config autoconf automake m4 libtool"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel"
 			if [ $RHEL_MAJOR_VERSION_8 -eq 0 ]; then
@@ -1006,7 +1006,7 @@ install_prereq() {
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel libuuid-devel libxml2-devel sqlite3-devel"
 		fi
 	elif [ "$PAC_MAN" = "pacman" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gcc pkg-config autoconf automake m4 libtool"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gawk gcc pkg-config autoconf automake m4 libtool"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt pahole"
 		fi
