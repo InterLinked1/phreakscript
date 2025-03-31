@@ -1,5 +1,5 @@
 diff --git a/channels/chan_dahdi.c b/channels/chan_dahdi.c
-index 4d9512aa8e..eb422d2677 100644
+index d96683413c..6d3aa1dc58 100644
 --- a/channels/chan_dahdi.c
 +++ b/channels/chan_dahdi.c
 @@ -68,8 +68,34 @@
@@ -37,7 +37,7 @@ index 4d9512aa8e..eb422d2677 100644
  #if defined(HAVE_PRI)
  #include "sig_pri.h"
  #ifndef PRI_RESTART
-@@ -6477,6 +6503,7 @@ static int dahdi_hangup(struct ast_channel *ast)
+@@ -6499,6 +6525,7 @@ static int dahdi_hangup(struct ast_channel *ast)
  	p->ignoredtmf = 0;
  
  	if (idx > -1) {
@@ -45,7 +45,7 @@ index 4d9512aa8e..eb422d2677 100644
  		/* Real channel, do some fixup */
  		p->subs[idx].owner = NULL;
  		p->subs[idx].needanswer = 0;
-@@ -7539,6 +7566,7 @@ static int dahdi_ring_phone(struct dahdi_pvt *p)
+@@ -7561,6 +7588,7 @@ static int dahdi_ring_phone(struct dahdi_pvt *p)
  	return res;
  }
  
@@ -53,7 +53,7 @@ index 4d9512aa8e..eb422d2677 100644
  static void *analog_ss_thread(void *data);
  
  /*!
-@@ -7585,6 +7613,7 @@ static int attempt_transfer(struct dahdi_pvt *p)
+@@ -7607,6 +7635,7 @@ static int attempt_transfer(struct dahdi_pvt *p)
  
  	return res;
  }
@@ -61,7 +61,7 @@ index 4d9512aa8e..eb422d2677 100644
  
  static int check_for_conference(struct dahdi_pvt *p)
  {
-@@ -7796,12 +7825,22 @@ static void handle_alarms(struct dahdi_pvt *p, int alms)
+@@ -7818,12 +7847,22 @@ static void handle_alarms(struct dahdi_pvt *p, int alms)
  
  static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  {
@@ -85,7 +85,7 @@ index 4d9512aa8e..eb422d2677 100644
  	struct ast_frame *f;
  
  	idx = dahdi_get_index(ast, p, 0);
-@@ -7939,6 +7978,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -7961,6 +8000,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  #endif
  		if (p->inalarm) break;
  		if ((p->radio || (p->oprmode < 0))) break;
@@ -95,7 +95,7 @@ index 4d9512aa8e..eb422d2677 100644
  		if (ioctl(p->subs[idx].dfd,DAHDI_DIALING,&x) == -1) {
  			ast_debug(1, "DAHDI_DIALING ioctl failed on %s: %s\n",ast_channel_name(ast), strerror(errno));
  			return NULL;
-@@ -7991,6 +8033,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -8013,6 +8055,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  				}
  			}
  		}
@@ -103,7 +103,7 @@ index 4d9512aa8e..eb422d2677 100644
  		break;
  	case DAHDI_EVENT_ALARM:
  		switch (p->sig) {
-@@ -8049,6 +8092,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -8071,6 +8114,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  			}
  			break;
  		}
@@ -113,7 +113,7 @@ index 4d9512aa8e..eb422d2677 100644
  		switch (p->sig) {
  		case SIG_FXOLS:
  		case SIG_FXOGS:
-@@ -8147,6 +8193,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -8169,6 +8215,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  			dahdi_ec_disable(p);
  			return NULL;
  		}
@@ -121,7 +121,7 @@ index 4d9512aa8e..eb422d2677 100644
  		break;
  	case DAHDI_EVENT_RINGOFFHOOK:
  		if (p->inalarm) break;
-@@ -8168,6 +8215,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -8190,6 +8237,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  			p->subs[idx].f.subclass.integer = AST_CONTROL_RADIO_KEY;
  			break;
   		}
@@ -131,7 +131,7 @@ index 4d9512aa8e..eb422d2677 100644
  		/* for E911, its supposed to wait for offhook then dial
  		   the second half of the dial string */
  		if (((mysig == SIG_E911) || (mysig == SIG_FGC_CAMA) || (mysig == SIG_FGC_CAMAMF)) && (ast_channel_state(ast) == AST_STATE_DIALING_OFFHOOK)) {
-@@ -8322,6 +8372,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -8344,6 +8394,7 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  		default:
  			ast_log(LOG_WARNING, "Don't know how to handle ring/off hook for signalling %d\n", p->sig);
  		}
@@ -139,7 +139,7 @@ index 4d9512aa8e..eb422d2677 100644
  		break;
  	case DAHDI_EVENT_RINGBEGIN:
  		switch (p->sig) {
-@@ -8377,6 +8428,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+@@ -8399,6 +8450,9 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
  			}
  			break;
  		}
@@ -149,7 +149,7 @@ index 4d9512aa8e..eb422d2677 100644
  		/* Remember last time we got a flash-hook */
  		p->flashtime = ast_tvnow();
  		switch (mysig) {
-@@ -8607,9 +8661,12 @@ winkflashdone:
+@@ -8629,9 +8683,12 @@ winkflashdone:
  			ast_log(LOG_WARNING, "Don't know how to handle ring/off hook for signalling %d\n", p->sig);
  		}
  		break;
@@ -162,7 +162,7 @@ index 4d9512aa8e..eb422d2677 100644
  		if (p->waitingfordt.tv_sec) break;
  		switch (mysig) {
  		case SIG_FXSLS:  /* only interesting for FXS */
-@@ -8720,6 +8777,8 @@ static struct ast_frame *__dahdi_exception(struct ast_channel *ast)
+@@ -8742,6 +8799,8 @@ static struct ast_frame *__dahdi_exception(struct ast_channel *ast)
  
  
  	if ((!p->owner) && (!(p->radio || (p->oprmode < 0)))) {
@@ -171,7 +171,7 @@ index 4d9512aa8e..eb422d2677 100644
  		/* If nobody owns us, absorb the event appropriately, otherwise
  		   we loop indefinitely.  This occurs when, during call waiting, the
  		   other end hangs up our channel so that it no longer exists, but we
-@@ -9824,7 +9883,7 @@ static struct ast_channel *dahdi_new(struct dahdi_pvt *i, int state, int startpb
+@@ -9846,7 +9905,7 @@ static struct ast_channel *dahdi_new(struct dahdi_pvt *i, int state, int startpb
  	return tmp;
  }
  
@@ -180,7 +180,7 @@ index 4d9512aa8e..eb422d2677 100644
  static int my_getsigstr(struct ast_channel *chan, char *str, const char *term, int ms)
  {
  	char c;
-@@ -9843,6 +9902,7 @@ static int my_getsigstr(struct ast_channel *chan, char *str, const char *term, i
+@@ -9865,6 +9924,7 @@ static int my_getsigstr(struct ast_channel *chan, char *str, const char *term, i
  			return 1;
  	}
  }
@@ -188,7 +188,7 @@ index 4d9512aa8e..eb422d2677 100644
  
  static int dahdi_wink(struct dahdi_pvt *p, int idx)
  {
-@@ -9910,6 +9970,7 @@ static int dahdi_dnd(struct dahdi_pvt *dahdichan, int flag)
+@@ -9932,6 +9992,7 @@ static int dahdi_dnd(struct dahdi_pvt *dahdichan, int flag)
  	return 0;
  }
  
@@ -196,7 +196,7 @@ index 4d9512aa8e..eb422d2677 100644
  static int canmatch_featurecode(const char *pickupexten, const char *exten)
  {
  	int extlen = strlen(exten);
-@@ -11130,6 +11191,7 @@ quit:
+@@ -11152,6 +11213,7 @@ quit:
  	ast_mutex_unlock(&ss_thread_lock);
  	return NULL;
  }
@@ -204,7 +204,7 @@ index 4d9512aa8e..eb422d2677 100644
  
  struct mwi_thread_data {
  	struct dahdi_pvt *pvt;
-@@ -11155,7 +11217,6 @@ static void *mwi_thread(void *data)
+@@ -11177,7 +11239,6 @@ static void *mwi_thread(void *data)
  {
  	struct mwi_thread_data *mtd = data;
  	struct callerid_state *cs;
@@ -212,7 +212,7 @@ index 4d9512aa8e..eb422d2677 100644
  	int samples = 0;
  	char *name, *number;
  	int flags;
-@@ -11227,7 +11288,12 @@ static void *mwi_thread(void *data)
+@@ -11249,7 +11310,12 @@ static void *mwi_thread(void *data)
  					if (dahdi_analog_lib_handles(mtd->pvt->sig, mtd->pvt->radio, mtd->pvt->oprmode)) {
  						result = analog_ss_thread_start(mtd->pvt->sig_pvt, chan);
  					} else {
@@ -225,7 +225,7 @@ index 4d9512aa8e..eb422d2677 100644
  					}
  					if (result) {
  						ast_log(LOG_WARNING, "Unable to start simple switch thread on channel %d\n", mtd->pvt->channel);
-@@ -11646,10 +11712,12 @@ out:
+@@ -11668,10 +11734,12 @@ out:
  static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
  {
  	int res;
@@ -238,7 +238,7 @@ index 4d9512aa8e..eb422d2677 100644
  
  	/* Handle an event on a given channel for the monitor thread. */
  
-@@ -11661,6 +11729,8 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+@@ -11683,6 +11751,8 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
  	case DAHDI_EVENT_RINGOFFHOOK:
  		if (i->inalarm) break;
  		if (i->radio) break;
@@ -247,7 +247,7 @@ index 4d9512aa8e..eb422d2677 100644
  		/* Got a ring/answer.  What kind of channel are we? */
  		switch (i->sig) {
  		case SIG_FXOLS:
-@@ -11760,6 +11830,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+@@ -11782,6 +11852,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
  				ast_log(LOG_WARNING, "Unable to play congestion tone on channel %d\n", i->channel);
  			return NULL;
  		}
@@ -255,15 +255,15 @@ index 4d9512aa8e..eb422d2677 100644
  		break;
  	case DAHDI_EVENT_NOALARM:
  		switch (i->sig) {
-@@ -11805,6 +11876,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
- 	case DAHDI_EVENT_ONHOOK:
- 		if (i->radio)
- 			break;
-+		ANALOG_UNREACHABLE_EVENT(analog_handle_init_event, i->oprmode, i, event);
- 		/* Back on hook.  Hang up. */
- 		switch (i->sig) {
- 		case SIG_FXOLS:
-@@ -11849,6 +11921,8 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+@@ -11850,6 +11921,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 		case SIG_FXSGS:
+ 		case SIG_FXSKS:
+ 		case SIG_FXOKS:
++			ANALOG_UNREACHABLE_EVENT(analog_handle_init_event, i->oprmode, i, event);
+ 			dahdi_ec_disable(i);
+ 			/* Diddle the battery for the zhone */
+ #ifdef ZHONE_HACK
+@@ -11871,6 +11943,8 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
  		}
  		break;
  	case DAHDI_EVENT_POLARITY:
@@ -272,7 +272,7 @@ index 4d9512aa8e..eb422d2677 100644
  		switch (i->sig) {
  		case SIG_FXSLS:
  		case SIG_FXSKS:
-@@ -11880,6 +11954,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+@@ -11902,6 +11976,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
  				"polarity reversal on non-FXO (SIG_FXS) "
  				"interface %d\n", i->channel);
  		}
@@ -280,7 +280,7 @@ index 4d9512aa8e..eb422d2677 100644
  		break;
  	case DAHDI_EVENT_REMOVED: /* destroy channel, will actually do so in do_monitor */
  		ast_log(LOG_NOTICE,
-@@ -12132,14 +12207,16 @@ static void *do_monitor(void *data)
+@@ -12154,14 +12229,16 @@ static void *do_monitor(void *data)
  							} else {
  								energy = calc_energy((unsigned char *) buf, res, AST_LAW(i));
  								if (!i->mwisendactive && energy > dtmfcid_level) {
@@ -299,7 +299,7 @@ index 4d9512aa8e..eb422d2677 100644
  										ast_callid callid = 0;
  										int callid_created = ast_callid_threadstorage_auto(&callid);
  										chan = dahdi_new(i, AST_STATE_PRERING, 0, SUB_REAL, 0, NULL, NULL, callid);
-@@ -12155,6 +12232,7 @@ static void *do_monitor(void *data)
+@@ -12177,6 +12254,7 @@ static void *do_monitor(void *data)
  											}
  										}
  										ast_callid_threadstorage_auto_clean(callid, callid_created);
@@ -308,7 +308,7 @@ index 4d9512aa8e..eb422d2677 100644
  									ast_mutex_lock(&iflock);
  								}
 diff --git a/channels/sig_analog.c b/channels/sig_analog.c
-index e477d5d0cf..6914449787 100644
+index c21b8cae12..112a09c008 100644
 --- a/channels/sig_analog.c
 +++ b/channels/sig_analog.c
 @@ -2798,7 +2798,13 @@ static void analog_publish_channel_alarm_clear(int channel)
