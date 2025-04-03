@@ -1730,11 +1730,11 @@ static int pop_legacy_handler(struct ast_channel *chan)
 	return 0;
 }
 
-static struct ast_str *phreaknet_lookup_full(const char *number, const char *flags, const char *clid, int ani2, const char *cnam, const char *cvs)
+static struct ast_str *phreaknet_lookup_full(const char *number, const char *flags, const char *clid, int ani2, const char *cnam, const char *cvs, const char *ss)
 {
 	static const char *version = NULL;
 	static const char *version_num = NULL;
-	char url[319]; /* min to make gcc happy */
+	char url[324]; /* min to make gcc happy */
 
 	/* Fetch the first time only */
 	if (!version) {
@@ -1745,9 +1745,9 @@ static struct ast_str *phreaknet_lookup_full(const char *number, const char *fla
 	}
 
 	snprintf(url, sizeof(url), "https://api.phreaknet.org/v1/?key=%s&asterisk=%s&asteriskv=%s"
-		"&number=%s&clid=%s&ani2=%d&cnam=%s&cvs=%s&nodevia=%s&flags=%s&threshold=%f%s",
+		"&number=%s&clid=%s&ani2=%d&cnam=%s&cvs=%s&nodevia=%s&flags=%s&threshold=%f&ss=%s%s",
 		interlinked_api_key, version, version_num,
-		number, clid, ani2, cnam, cvs, mainphreaknetdisa, flags, blacklist_threshold, module_flags.requesttoken ? "&request_key" : "");
+		number, clid, ani2, cnam, cvs, mainphreaknetdisa, flags, blacklist_threshold, ss, module_flags.requesttoken ? "&request_key" : "");
 
 	return curl_get(url, NULL);
 }
@@ -1776,9 +1776,11 @@ static struct ast_str *phreaknet_lookup(struct ast_channel *chan, const char *nu
 {
 	char *clid, *cnam;
 	char cvs[3];
+	char ss[2];
 	char filtered_cnam[128] = "";
 	int ani2;
 	const char *clidverif;
+	const char *ssvarval;
 
 	ani2 = ast_channel_caller(chan)->ani2;
 	clid = ast_channel_caller(chan)->id.number.str;
@@ -1787,6 +1789,8 @@ static struct ast_str *phreaknet_lookup(struct ast_channel *chan, const char *nu
 	ast_channel_lock(chan);
 	clidverif = pbx_builtin_getvar_helper(chan, "clidverif");
 	ast_copy_string(cvs, S_OR(clidverif, ""), sizeof(cvs));
+	ssvarval = pbx_builtin_getvar_helper(chan, "ssverstat");
+	ast_copy_string(ss, S_OR(ssvarval, ""), sizeof(ss));
 	ast_channel_unlock(chan);
 
 	if (!ast_strlen_zero(cnam) && safe_encoded_string(cnam, filtered_cnam, sizeof(filtered_cnam))) {
@@ -1794,7 +1798,7 @@ static struct ast_str *phreaknet_lookup(struct ast_channel *chan, const char *nu
 		return NULL;
 	}
 
-	return phreaknet_lookup_full(number, flags, clid, ani2, filtered_cnam, cvs);
+	return phreaknet_lookup_full(number, flags, clid, ani2, filtered_cnam, cvs, ss);
 }
 
 #define lookup_number(chan, number, flags, buf, len) lookup_number_token(chan, number, flags, buf, len, NULL, 0)

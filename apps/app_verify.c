@@ -597,8 +597,6 @@ static int reload_verify(int reload)
 			}
 		}
 
-		ast_debug(1, "New profile: '%s'\n", cat);
-
 		if (!v) {
 			/* Make one then */
 			v = alloc_profile(cat);
@@ -629,7 +627,6 @@ static int reload_verify(int reload)
 		/* Search Config */
 		var = ast_variable_browse(cfg, cat);
 		while (var) {
-			ast_debug(2, "Logging parameter %s with value %s from lineno %d\n", var->name, var->value, var->lineno);
 			profile_set_param(v, var->name, var->value, var->lineno, 1);
 			var = var->next;
 		} /* End while(var) loop */
@@ -648,7 +645,7 @@ static int reload_verify(int reload)
 	return 0;
 }
 
-/* Copied from func_curl.c. Should be public API? */
+/* Copied from func_curl.c */
 static int url_is_vulnerable(const char *url)
 {
 	if (strpbrk(url, "\r\n")) {
@@ -1011,14 +1008,38 @@ static int v_success(char *name, int in)
 	return 0;
 }
 
+static const char *stir_shaken_name(char c)
+{
+	switch (c) {
+	case 'A':
+		return "Full Attestation";
+	case 'B':
+		return "Partial Attestation";
+	case 'C':
+		return "Gateway Attestation";
+	case 'D':
+		return "No Validation";
+	case 'E':
+		return "Empty (No parameter)";
+	case 'F':
+		return "Failed Validation";
+	default:
+		break;
+	}
+	ast_assert(0);
+	return "";
+}
+
 static char ss_handle_verstat(const char *verstat)
 {
 	ast_assert(!ast_strlen_zero(verstat));
-	if (!strcmp(verstat, "TN-Validation-Passed") || !strcmp(verstat, "TN-Validation-Passed-A")) {
+	/* Treat TN-Validation-Passed as 'C' since Passed on its own doesn't convey a particular attestation,
+	 * it just means the validation was done successfully. So, if that's all the info we have, assume the worst. */
+	if (!strcmp(verstat, "TN-Validation-Passed-A")) {
 		return 'A';
 	} else if (!strcmp(verstat, "TN-Validation-Passed-B")) {
 		return 'B';
-	} else if (!strcmp(verstat, "TN-Validation-Passed-C")) {
+	} else if (!strcmp(verstat, "TN-Validation-Passed-C") || !strcmp(verstat, "TN-Validation-Passed")) {
 		return 'C';
 	} else if (!strcmp(verstat, "No-TN-Validation")) {
 		return 'D';
@@ -1079,6 +1100,84 @@ static void stir_shaken_stat_inc(int type, char c)
 		}
 	}
 	ast_mutex_unlock(&ss_lock);
+}
+
+static char parse_pai_header(struct ast_channel *chan, const char *headername)
+{
+	int res;
+	char headerfunc[48];
+	char headerval[512] = "";
+	char *verstat = NULL; /* At the moment, not used anymore */
+
+	if (!strcmp(ast_channel_tech(chan)->type, "PJSIP")) {
+		snprintf(headerfunc, sizeof(headerfunc), "PJSIP_HEADER(read,%s,1)", headername);
+	} else { /* SIP */
+		snprintf(headerfunc, sizeof(headerfunc), "SIP_HEADER(%s,1)", headername);
+	}
+	res = ast_func_read(chan, headerfunc, headerval, sizeof(headerval));
+	if (res || ast_strlen_zero(headerval)) {
+		return 0;
+	}
+	return parse_hdr_for_verstat(headername, headerval, &verstat);
+}
+
+static void parse_stir_shaken(struct ast_channel *chan, const char *stirshaken_var)
+{
+	char attestation_hdr[128] = "";
+	int res;
+	char ss_verstat;
+
+	/* STIR/SHAKEN references (including carrier implementations) consulted, in no particular order:
+	 * https://www.carrierx.com/documentation/how-it-works/stir-shaken#introduction
+	 * https://help.webex.com/en-us/article/8j6te9/Spam-or-fraud-call-indication-in-Webex-Calling
+	 * https://www.metaswitch.com/knowledge-center/reference/what-is-stir/shaken
+	 * https://www.vitelity.com/frequently-asked-questions-about-stir-shaken/
+	 * https://doc.didww.com/services/did/stir-shaken.html
+	 * https://support.telnyx.com/en/articles/5402969-stir-shaken-with-telnyx
+	 * https://transnexus.com/whitepapers/shaken-vs/
+	 * https://www.plivo.com/docs/sip-trunking/concepts/stir-shaken
+	 */
+
+	if (strcmp(ast_channel_tech(chan)->type, "PJSIP") && strcmp(ast_channel_tech(chan)->type, "SIP")) {
+		ast_log(LOG_WARNING, "STIR/SHAKEN only supported on PJSIP channels\n");
+		return;
+	}
+
+#define VALID_ATTESTATION(c) (c == 'A' || c == 'B' || c == 'C')
+
+	/* Check P-Attestation-Indicator header.
+	 * If it has an attestation value, we can use that directly. */
+	if (!strcmp(ast_channel_tech(chan)->type, "PJSIP")) {
+		res = ast_func_read(chan, "PJSIP_HEADER(read,P-Attestation-Indicator,1)", attestation_hdr, sizeof(attestation_hdr));
+	} else { /* SIP */
+		res = ast_func_read(chan, "SIP_HEADER(P-Attestation-Indicator,1)", attestation_hdr, sizeof(attestation_hdr));
+	}
+	if (!res && !ast_strlen_zero(attestation_hdr)) {
+		ss_verstat = attestation_hdr[0];
+		if (VALID_ATTESTATION(ss_verstat)) {
+			goto done;
+		}
+		ast_log(LOG_WARNING, "Invalid P-Attestation-Indicator header value '%s'\n", attestation_hdr);
+	}
+
+	/* Check the P-Asserted-Identity header, then the From header if it's not present there */
+	ss_verstat = parse_pai_header(chan, "P-Asserted-Identity");
+	if (!ss_verstat) {
+		ss_verstat = parse_pai_header(chan, "From");
+	}
+
+done:
+	if (ss_verstat) {
+		char ss_result[2];
+		ast_verb(4, "STIR/SHAKEN attestation rating is '%c' (%s)\n", ss_verstat, stir_shaken_name(ss_verstat));
+		snprintf(ss_result, sizeof(ss_result), "%c", ss_verstat);
+		pbx_builtin_setvar_helper(chan, stirshaken_var, ss_result);
+		stir_shaken_stat_inc(0, ss_verstat);
+	} else {
+		ast_debug(2, "No STIR/SHAKEN information available\n");
+		pbx_builtin_setvar_helper(chan, stirshaken_var, "E");
+		stir_shaken_stat_inc(0, 'E');
+	}
 }
 
 #define VERIFY_STRDUP(field) ast_copy_string(field, v->field, sizeof(field));
@@ -1187,57 +1286,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 
 	/* Analyze STIR/SHAKEN result, if applicable */
 	if (!ast_strlen_zero(stirshaken_var)) {
-		char ss_verstat = 0;
-		char *verstat = NULL;
-		char from_hdr[512];
-		char pai_hdr[512];
-		char ss_result[2];
-		int unsupported = 0;
-
-		from_hdr[0] = pai_hdr[0] = '\0';
-
-		if (!strcmp(ast_channel_tech(chan)->type, "PJSIP")) {
-			ast_func_read(chan, "PJSIP_HEADER(read,From,1)", from_hdr, sizeof(from_hdr));
-			ast_func_read(chan, "PJSIP_HEADER(read,P-Asserted-Identity,1)", pai_hdr, sizeof(pai_hdr));
-		} else if (!strcmp(ast_channel_tech(chan)->type, "SIP")) {
-			ast_func_read(chan, "SIP_HEADER(From,1)", from_hdr, sizeof(from_hdr));
-			ast_func_read(chan, "SIP_HEADER(P-Asserted-Identity,1)", pai_hdr, sizeof(pai_hdr));
-		} else {
-			ast_log(LOG_WARNING, "STIR/SHAKEN only supported on PJSIP channels\n");
-			unsupported = 1;
-		}
-		if (!unsupported) {
-			/* STIR/SHAKEN references (including carrier implementations) consulted, in no particular order:
-			 * https://www.carrierx.com/documentation/how-it-works/stir-shaken#introduction
-			 * https://help.webex.com/en-us/article/8j6te9/Spam-or-fraud-call-indication-in-Webex-Calling
-			 * https://www.metaswitch.com/knowledge-center/reference/what-is-stir/shaken
-			 * https://www.vitelity.com/frequently-asked-questions-about-stir-shaken/
-			 * https://doc.didww.com/services/did/stir-shaken.html
-			 * https://support.telnyx.com/en/articles/5402969-stir-shaken-with-telnyx
-			 * https://transnexus.com/whitepapers/shaken-vs/
-			 * https://www.plivo.com/docs/sip-trunking/concepts/stir-shaken
-			 */
-
-			if (ast_strlen_zero(from_hdr)) {
-				ast_log(LOG_WARNING, "From header is empty?\n"); /* How can there not be a From header? */
-			} else {
-				ss_verstat = parse_hdr_for_verstat("From", from_hdr, &verstat);
-			}
-			if (!ss_verstat) { /* Didn't find anything in the From header, let's try the PAI header now */
-				ss_verstat = parse_hdr_for_verstat("P-Asserted-Identity", pai_hdr, &verstat);
-			}
-
-			if (ss_verstat) {
-				ast_verb(4, "STIR/SHAKEN rating is '%c' (%s)\n", ss_verstat, S_OR(verstat, "UNKNOWN"));
-				snprintf(ss_result, sizeof(ss_result), "%c", ss_verstat);
-				pbx_builtin_setvar_helper(chan, stirshaken_var, ss_result);
-				stir_shaken_stat_inc(0, ss_verstat);
-			} else {
-				ast_debug(2, "No STIR/SHAKEN information available\n");
-				pbx_builtin_setvar_helper(chan, stirshaken_var, "E");
-				stir_shaken_stat_inc(0, 'E');
-			}
-		}
+		parse_stir_shaken(chan, stirshaken_var);
 	} else if (!ast_strlen_zero(remote_stirshaken_var)) {
 		/* If remote result available, use that purely to update the statistics. */
 		char result[3];
@@ -1253,6 +1302,8 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 			stir_shaken_stat_inc(1, ss_verstat);
 			/* Don't automatically set the local var to the remote var, setinvars will do this, if requested. */
 		}
+	} else {
+		ast_debug(3, "No STIR/SHAKEN analysis requested\n");
 	}
 
 	if (method == 2) {
@@ -1841,28 +1892,6 @@ static int outverify_exec(struct ast_channel *chan, const char *data)
 	return 0;
 }
 
-static const char *stir_shaken_name(char c)
-{
-	switch (c) {
-	case 'A':
-		return "A: Full Attestation";
-	case 'B':
-		return "B: Partial Attestation";
-	case 'C':
-		return "C: Gateway Attestation";
-	case 'D':
-		return "D: No Validation";
-	case 'E':
-		return "E: Empty (No parameter)";
-	case 'F':
-		return "F: Failed Validation";
-	default:
-		break;
-	}
-	ast_assert(0);
-	return "";
-}
-
 static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	unsigned int total[2];
@@ -1883,7 +1912,7 @@ static char *handle_show_stirshaken(struct ast_cli_entry *e, int cmd, struct ast
 
 	ast_cli(a->fd, "%-30s %14s %14s\n", "STIR/SHAKEN Rating", "# Direct Calls", "Passthru Calls");
 	for (c = 'A'; c <= 'F'; c++) {
-		ast_cli(a->fd, "%-30s %14u %14u\n", stir_shaken_name(c), stir_shaken_stats[0][c - 'A'], stir_shaken_stats[1][c - 'A']);
+		ast_cli(a->fd, "%c: %-27s %14u %14u\n", c, stir_shaken_name(c), stir_shaken_stats[0][c - 'A'], stir_shaken_stats[1][c - 'A']);
 		total[0] += stir_shaken_stats[0][c - 'A'];
 		total[1] += stir_shaken_stats[1][c - 'A'];
 	}
