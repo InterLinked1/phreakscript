@@ -1734,7 +1734,7 @@ static struct ast_str *phreaknet_lookup_full(const char *number, const char *fla
 {
 	static const char *version = NULL;
 	static const char *version_num = NULL;
-	char url[256];
+	char url[319]; /* min to make gcc happy */
 
 	/* Fetch the first time only */
 	if (!version) {
@@ -1776,7 +1776,7 @@ static struct ast_str *phreaknet_lookup(struct ast_channel *chan, const char *nu
 {
 	char *clid, *cnam;
 	char cvs[3];
-	char filtered_cnam[32] = "";
+	char filtered_cnam[128] = "";
 	int ani2;
 	const char *clidverif;
 
@@ -1790,6 +1790,7 @@ static struct ast_str *phreaknet_lookup(struct ast_channel *chan, const char *nu
 	ast_channel_unlock(chan);
 
 	if (!ast_strlen_zero(cnam) && safe_encoded_string(cnam, filtered_cnam, sizeof(filtered_cnam))) {
+		ast_log(LOG_ERROR, "Failed to encode CNAM string '%s'\n", cnam);
 		return NULL;
 	}
 
@@ -2007,8 +2008,8 @@ static int call_failed(struct ast_channel *chan)
 	ast_channel_lock(chan);
 	/* These *should* always exist... */
 	varval = pbx_builtin_getvar_helper(chan, "DIALSTATUS");
-	varval2 = pbx_builtin_getvar_helper(chan, "HANGUPCAUSE");
-	ast_debug(3, "Dial disposition: %s (%s)\n", varval, varval2);
+	varval2 = pbx_builtin_getvar_helper(chan, "HANGUPCAUSE"); /* Not always set */
+	ast_debug(3, "Dial disposition: %s (%s)\n", varval, S_OR(varval2, ""));
 	if (varval) {
 		if (!strcmp(varval, "CONGESTION") || !strcmp(varval, "CHANUNAVAIL")) {
 			ast_channel_unlock(chan);
@@ -2068,7 +2069,7 @@ static int dial_exec(struct ast_channel *chan, const char *data)
 		ast_set_flag(&authflags, OPT_AUTH_RSA);
 	}
 	if (lookup_number_token(chan, args.number, args.trunkflags, lookup, sizeof(lookup), dialopts, sizeof(dialopts))) {
-		ast_log(LOG_WARNING, "Lookup failed for %s\n", S_OR(args.number, ""));
+		ast_log(LOG_ERROR, "Lookup failed for %s\n", S_OR(args.number, ""));
 		pbx_builtin_setvar_helper(chan, "DIALSTATUS", "CHANUNAVAIL");
 		return 0;
 	}
