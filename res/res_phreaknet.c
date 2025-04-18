@@ -337,7 +337,7 @@ static struct ast_str *curl_get(const char *url, const char *data)
 	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 	curl_easy_cleanup(curl);
 
-	ast_debug(3, "Response: %s\n", ast_str_buffer(str));
+	ast_debug(5, "Response: %s\n", ast_str_buffer(str));
 	if (http_code / 100 != 2) {
 		ast_log(LOG_ERROR, "Failed to retrieve URL '%s': HTTP response code %ld\n", url, http_code);
 		ast_free(str);
@@ -804,6 +804,12 @@ static int update_rsa_pubkeys(void)
 		return -1;
 	}
 
+	/* Reload keys before making the API request and calling ast_key_get to see if the key exists.
+	 * This way, if a key was removed manually since keys were last loaded,
+	 * ast_key_get will no longer return that the key exists,
+	 * and we'll process a key creation, rather than an update. */
+	ast_module_reload("res_crypto");
+
 	ast_debug(1, "Synchronizing RSA public keys\n");
 
 	snprintf(url, sizeof(url), "https://api.phreaknet.org/v1/rsa?key=%s&fetchall&version=%s", interlinked_api_key, ast_get_version());
@@ -894,6 +900,7 @@ static int update_rsa_pubkeys(void)
 		}
 		fprintf(fp, "%s", key);
 		fclose(fp);
+		/* close() not needed here, fclose() will also close fd */
 		unlink(tmp_filename);
 
 		/* XXX Future improvement would be to delete public keys that no longer exist (and remove from chan_iax2 config) */

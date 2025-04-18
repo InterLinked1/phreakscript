@@ -4185,7 +4185,10 @@ elif [ "$cmd" = "keygen" ]; then
 	else
 		printf "%s\n" "No InterLinked API key and/or CLLI on file, skipping upload of public key..."
 	fi
-	touch $AST_CONFIG_DIR/iax-phreaknet-rsa-in.conf
+	if [ ! -f $AST_CONFIG_DIR/iax-phreaknet-rsa-in.conf ]; then
+		# Instantiate the file with an empty 'inkeys' setting, so that any config modifications of iax.conf will put the keys there instead of in iax.conf
+		echo "inkeys = " > $AST_CONFIG_DIR/iax-phreaknet-rsa-in.conf
+	fi
 	# touch $AST_CONFIG_DIR/iax-phreaknet-rsa-out.conf # no longer necessary for >= 18.9
 	# Determine what user Asterisk is running as.
 	# cut on ; before = so that we properly handled commented out lines.
