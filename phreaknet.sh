@@ -3097,10 +3097,11 @@ get_source() {
 		freebsd_port_patches
 	fi
 	if [ "$PAC_MAN" = "apk" ]; then
-		custom_fuzzy_patch "10-musl-mutex-init.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/10-musl-mutex-init.patch"
-		custom_fuzzy_patch "20-musl-astmm-fix.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/20-musl-astmm-fix.patch"
-		custom_fuzzy_patch "40-asterisk-cdefs.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/40-asterisk-cdefs.patch"
-		custom_fuzzy_patch "41-asterisk-ALLPERMS.patch" "https://git.alpinelinux.org/aports/plain/main/asterisk/41-asterisk-ALLPERMS.patch"
+		# Use GitLab mirror instead of Alpine Linux for reliability
+		custom_fuzzy_patch "10-musl-mutex-init.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/10-musl-mutex-init.patch"
+		custom_fuzzy_patch "20-musl-astmm-fix.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/20-musl-astmm-fix.patch"
+		custom_fuzzy_patch "40-asterisk-cdefs.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/40-asterisk-cdefs.patch"
+		custom_fuzzy_patch "41-asterisk-ALLPERMS.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/41-asterisk-ALLPERMS.patch"
 	fi
 }
 
