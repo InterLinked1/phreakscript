@@ -2536,7 +2536,7 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
 	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI
-	git_patch "19655-asterisk.c-Prevent-duplicate-Asterisk-processes-fro.patch" # Prevent duplicate Asterisk process creation
+	git_patch "asterisk-prevent-duplicate-processes.diff" # Prevent duplicate Asterisk process creation
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ] && [ $AST_MAJOR_VER -ge 21 ]; then
 		printf "Installing 21+ patches for experimental features\n"

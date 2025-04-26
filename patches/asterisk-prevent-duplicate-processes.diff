@@ -1,0 +1,55 @@
+diff --git a/main/asterisk.c b/main/asterisk.c
+index b0f8a14311..ee89c45ad9 100644
+--- a/main/asterisk.c
++++ b/main/asterisk.c
+@@ -1709,6 +1709,37 @@ static int ast_tryconnect(void)
+ 		return 1;
+ }
+ 
++static int ast_is_starting(void)
++{
++	/* Don't use kill since that only works if Asterisk was started as the same user. */
++	struct stat st;
++	FILE *f;
++	long file_pid;
++	char procpath[PATH_MAX];
++
++	/* Get current value from PID file */
++	f = fopen(ast_config_AST_PID, "r");
++	if (!f) {
++		return 0; /* PID file doesn't exist? No way to tell. */
++	}
++	if (fscanf(f, "%ld", &file_pid) < 1) {
++		file_pid = 0; /* Failure */
++	}
++	fclose(f);
++	if (!file_pid) {
++		return 0;
++	}
++
++	/* Check if such a process is running */
++	snprintf(procpath, sizeof(procpath), "/proc/%ld", file_pid);
++	if (stat(procpath, &st) == -1 && errno == ENOENT) {
++		/* Process doesn't exist */
++		return 0;
++	}
++	return 1;
++}
++
++
+ /*! \brief Urgent handler
+  *
+  * Called by soft_hangup to interrupt the poll, read, or other
+@@ -4080,6 +4111,12 @@ int main(int argc, char *argv[])
+ 		exit(1);
+ 	}
+ 
++	if (ast_is_starting()) {
++		fprintf(stderr, "Asterisk is currently starting.  Use 'asterisk -r' to connect momentarily.\n");
++		printf("%s", term_quit());
++		exit(1);
++	}
++
+ #ifdef HAVE_CAP
+ 	child_cap = cap_from_text("cap_net_admin-eip");
+ #endif
