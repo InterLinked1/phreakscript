@@ -13,6 +13,40 @@ on:
   workflow_dispatch:
 
 jobs:
+  dahdi-kernel-stable:
+    runs-on: ubuntu-24.04
+    name: DAHDI, stable kernel
+    container: debian:12
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel_branch: [
+          'linux-rolling-stable'
+          ]
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 --branch ${{matrix.kernel_branch}} git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build DAHDI
+       run: |
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers
   dahdi-kernel-mainline:
     runs-on: ubuntu-24.04
     name: DAHDI, mainline kernel
@@ -69,3 +103,23 @@ jobs:
        run: |
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
+  fedora-42:
+    runs-on: ubuntu-24.04
+    name: Fedora 42
+    container: fedora:42
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode
+  archlinux:
+    runs-on: ubuntu-24.04
+    name: Arch Linux
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --devmode --sip

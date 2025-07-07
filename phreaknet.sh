@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2025 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.2.2 (2025-01-24)
+# v1.3.0 (2025-07-07)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2025-07-07 1.3.0 Use GitHub API to download patches
 # 2025-01-24 1.2.2 Asterisk: Target 22.2.0
 # 2024-12-30 1.2.1 DAHDI Linux: Work around compilation failure for newer kernels
 # 2024-11-03 1.2.0 Asterisk: Install Asterisk 22 by default
@@ -229,6 +230,9 @@ AST_SOUNDS_DIR="$AST_VARLIB_DIR/sounds/en"
 AST_MOH_DIR="$AST_VARLIB_DIR/moh"
 AST_MAKE="make"
 WGET="wget -q"
+CURL="curl --silent --show-error -L -f"
+CURL_HEADERS_DUMPFILE="/tmp/ps_patchreq_headers.txt"
+CURL_DEBUG="curl -L --verbose"
 XMLSTARLET="/usr/bin/xmlstarlet"
 PATH="/sbin:$PATH" # in case su used without path
 
@@ -270,7 +274,7 @@ FREEPBX_GUI=0
 GENERIC_HEADERS=0
 AUTOSET_KVERS=0
 EXTERNAL_CODECS=0
-RTPULSING=1
+RTPULSING=0 # Disabled temporarily, patches must be rebased
 HEARPULSING=1
 HAVE_COMPATIBLE_SPANDSP=1
 PACMAN_UPDATED=0 # Internal flag
@@ -310,6 +314,8 @@ if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 	AST_CONFIG_DIR="/usr/local/etc/asterisk"
 	AST_MAKE="gmake"
 	XMLSTARLET="/usr/local/bin/xml"
+elif [ -f /etc/amazon-linux-release ]; then
+	PAC_MAN="yum"
 elif [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
 	PAC_MAN="yum"
 elif [ -f /etc/redhat-release ]; then
@@ -446,12 +452,14 @@ if ! which "getopt" > /dev/null; then
 	install_package "util-linux" # named the same in most every distro
 fi
 if [ "$PAC_MAN" = "pacman" ]; then
-	ensure_installed "net-tools" # hostname
+	if ! which "hostname" > /dev/null; then
+		install_package "net-tools"
+	fi
 else
 	ensure_installed "hostname"
 fi
 
-AST_CONFIGURE_FLAGS="--with-jansson-bundled"
+AST_CONFIGURE_FLAGS="--with-jansson-bundled --with-libjwt-bundled"
 if [ "$PAC_MAN" = "apk" ]; then
 	AST_CONFIGURE_FLAGS="$AST_CONFIGURE_FLAGS --without-pjproject-bundled --without-execinfo"
 else
@@ -958,7 +966,7 @@ install_prereq() {
 	# libnewt-dev is needed for newt, which dahdi_tool requires. If it's not available, it won't get built.
 	# dwarves is needed for pahole, which DAHDI Linux install needs for BTF generation
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gawk gcc pkg-config autoconf automake m4 libtool build-essential"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git patch gawk gcc pkg-config autoconf automake m4 libtool build-essential curl"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt-dev dwarves"
 		fi
@@ -991,7 +999,7 @@ install_prereq() {
 			fi
 		fi
 		if [ "$1" = "1" ]; then
-			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libuuid-devel libxml2-devel sqlite-devel"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libuuid-devel libxml2-devel sqlite-devel openssl-devel"
 			if [ $RHEL_MAJOR_VERSION_8 -eq 0 ]; then
 				PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel" # Required on Fedora, may fail initially on Rocky Linux 8.9
 			fi
@@ -1003,7 +1011,7 @@ install_prereq() {
 		fi
 		if [ "$1" = "1" ]; then
 			# TODO Some of these should be in Asterisk's install_prereq script
-			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel libuuid-devel libxml2-devel sqlite3-devel"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel libuuid-devel libxml2-devel sqlite3-devel openssl-devel"
 		fi
 	elif [ "$PAC_MAN" = "pacman" ]; then
 		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gawk gcc pkg-config autoconf automake m4 libtool"
@@ -1014,12 +1022,12 @@ install_prereq() {
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libedit"
 		fi
 	elif [ "$PAC_MAN" = "apk" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES build-base git"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES build-base git curl"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES autoconf automake m4 libtool newt-dev"
 		fi
 		if [ "$1" = "1" ]; then
-			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-dev libxml2-dev subversion"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-dev libxml2-dev subversion openssl-dev"
 			PREREQ_PACKAGES="$PREREQ_PACKAGES util-linux-dev" # uuid development
 		fi
 	elif [ "$PAC_MAN" = "pkg" ]; then
@@ -1074,6 +1082,27 @@ install_prereq() {
 	fi
 }
 
+download_github_file() { # $1 = repo, e.g. asterisk/asterisk, $2 = branch, $3 = file, $4 = destination file (default: same as $3)
+	dstfile="$4"
+	if [ "$dstfile" = "" ]; then
+		dstfile="$3"
+	fi
+	# XXX doesn't work quite:
+	$CURL -o "$dstfile" -H "Accept: application/vnd.github.v3.raw" "https://api.github.com/repos/$1/contents/$3?ref=$2"
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download https://api.github.com/repos/$1/contents/$3?ref=$2 - falling back to direct download"
+		$WGET "https://raw.githubusercontent.com/$1/$2/$3" -O "$dstfile"
+	fi
+}
+
+download_github_module() { # $1 = repo, e.g. asterisk/asterisk, $2 = branch, $3 = file, $4 = destination module filename
+	download_github_file "$1" "$2" "$3" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$4"
+}
+
+download_boilerplate() {
+	download_github_file "InterLinked1/phreaknet-boilerplate" "master" $1 $2
+}
+
 install_boilerplate() {
 	if [ ! -d $AST_CONFIG_DIR/dialplan ]; then
 		mkdir -p $AST_CONFIG_DIR/dialplan
@@ -1103,21 +1132,21 @@ install_boilerplate() {
 	printf "%s" "Installing boilerplate code to "
 	pwd
 	printf "\n"
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/verification.conf -O verification.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet.conf -O phreaknet.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-aux.conf -O phreaknet-aux.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/dialplan/phreaknet-coin.conf -O phreaknet-coin.conf --no-cache
+	download_boilerplate "dialplan/verification.conf" verification.conf
+	download_boilerplate "dialplan/phreaknet.conf" phreaknet.conf
+	download_boilerplate "dialplan/phreaknet-aux.conf" phreaknet-aux.conf
+	download_boilerplate "dialplan/phreaknet-coin.conf" phreaknet-coin.conf
 	cd $AST_CONFIG_DIR
 	pwd
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/asterisk.conf -O $AST_CONFIG_DIR/asterisk.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/modules.conf -O $AST_CONFIG_DIR/modules.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/chan_dahdi.conf -O $AST_CONFIG_DIR/chan_dahdi.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/iax.conf -O $AST_CONFIG_DIR/iax.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/sip.conf -O $AST_CONFIG_DIR/sip.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/pjsip.conf -O $AST_CONFIG_DIR/pjsip.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/musiconhold.conf -O $AST_CONFIG_DIR/musiconhold.conf --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/extensions.conf -O $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE --no-cache
-	$WGET https://raw.githubusercontent.com/InterLinked1/phreaknet-boilerplate/master/verify.conf -O $AST_CONFIG_DIR/verify.conf --no-cache
+	download_boilerplate "asterisk.conf" $AST_CONFIG_DIR/asterisk.conf
+	download_boilerplate "modules.conf" $AST_CONFIG_DIR/modules.conf
+	download_boilerplate "chan_dahdi.conf" $AST_CONFIG_DIR/chan_dahdi.conf
+	download_boilerplate "iax.conf" $AST_CONFIG_DIR/iax.conf
+	download_boilerplate "sip.conf" $AST_CONFIG_DIR/sip.conf
+	download_boilerplate "pjsip.conf" $AST_CONFIG_DIR/pjsip.conf
+	download_boilerplate "musiconhold.conf" $AST_CONFIG_DIR/musiconhold.conf
+	download_boilerplate "extensions.conf" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
+	download_boilerplate "verify.conf" $AST_CONFIG_DIR/verify.conf
 	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
 }
 
@@ -1355,11 +1384,6 @@ install_testsuite_itself() {
 	fi
 	cd testsuite
 
-	# Apply patch if needed to fix SIPP compilation and python3 detection
-	grep "3.5.2" contrib/scripts/install_prereq
-	$WGET https://patch-diff.githubusercontent.com/raw/asterisk/testsuite/pull/48.patch
-	git apply 48.patch
-
 	./contrib/scripts/install_prereq install
 	if [ $? -ne 0 ]; then
 		die "Failed to install test suite"
@@ -1448,76 +1472,6 @@ install_samples() {
 	fi
 }
 
-dahdi_undo() {
-	printf "Restoring drivers by undoing PATCH: %s\n" "$3"
-	wget -q "https://github.com/asterisk/dahdi-linux/commit/$4.patch" -O /tmp/$2.patch --no-cache
-	patch -u -b -p 1 --reverse -i /tmp/$2.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to reverse DAHDI patch... this should be reported..."
-		exit 2
-	fi
-	rm /tmp/$2.patch
-}
-
-dahdi_undo_force() {
-	printf "Restoring drivers by undoing PATCH: %s\n" "$3"
-	wget -q "https://github.com/asterisk/dahdi-linux/commit/$4.patch" -O /tmp/$2.patch --no-cache
-	patch -u -b -p 1 --reverse -i /tmp/$2.patch
-	rm /tmp/$2.patch
-}
-
-dahdi_custom_undo() {
-	printf "Applying custom reverse DAHDI patch: %s\n" "$3"
-	wget -q "$4" -O /tmp/$2.patch --no-cache
-	patch -u -p 1 --reverse -i /tmp/$2.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to reverse custom DAHDI patch... this should be reported..."
-		exit 2
-	fi
-	rm /tmp/$2.patch
-}
-
-dahdi_custom_patch() {
-	printf "Applying custom DAHDI patch: %s\n" "$1"
-	if [ ! -f "$AST_SOURCE_PARENT_DIR/$2" ]; then
-		echoerr "File $AST_SOURCE_PARENT_DIR/$2 does not exist"
-		exit 2
-	fi
-	wget -q "$3" -O /tmp/$1.patch --no-cache
-	patch -u -b "$AST_SOURCE_PARENT_DIR/$2" -i /tmp/$1.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply DAHDI patch (patch -u -b $AST_SOURCE_PARENT_DIR/$2 -i /tmp/$1.patch)... this should be reported..."
-		exit 2
-	fi
-	rm /tmp/$1.patch
-}
-
-custom_patch() {
-	printf "Applying custom patch: %s\n" "$1"
-	if [ ! -f "$2" ]; then
-		echoerr "File $2 does not exist"
-		exit 2
-	fi
-	wget -q "$3" -O /tmp/$1.patch --no-cache
-	patch -u -b "$2" -i /tmp/$1.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply custom patch (patch -u -b $2 -i /tmp/$1.patch)... this should be reported..."
-		exit 2
-	fi
-	rm /tmp/$1.patch
-}
-
-dahdi_patch() {
-	printf "Applying unmerged DAHDI patch: %s\n" "$1"
-	wget -q "https://github.com/asterisk/dahdi-linux/commit/$1.patch" -O /tmp/$1.patch --no-cache
-	patch -u -b -p 1 -i /tmp/$1.patch
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply DAHDI patch... this should be reported..."
-		exit 2
-	fi
-	rm /tmp/$1.patch
-}
-
 git_patch() {
 	printf "Applying git patch: %s\n" "$1"
 	if [ "$GIT_REPO_PATH" = "" ]; then
@@ -1529,79 +1483,193 @@ git_patch() {
 	fi
 	git apply "/tmp/$1"
 	if [ $? -ne 0 ]; then
-		die "Failed to apply git patch $1... this should be reported..."
+		die "Failed to apply git patch $1 - this should be reported..."
 	fi
 	rm "/tmp/$1"
 }
 
-github_pr() {
-	printf "Applying GitHub pull request for %s\n" "$1"
-	wget -q "$2" -O /tmp/$1.pr.diff --no-cache
-	git apply "/tmp/$1.pr.diff"
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply GitHub PR ($1)... this should be reported..."
-		if [ "$3" != "try" ]; then
-			exit 2
-		else
-			# This could be something that needs to be looked into, or maybe this was merged and is no longer relevant.
-			printf "Will continue momentarily...\n"
-			sleep 10
-		fi
+# In most cases, the rate limit is only an issue in the GitHub runners...
+github_waitfor_ratelimit_reset() {
+	echoerr "Download failed, checking if we were rate-limited..."
+	if [ ! -f $CURL_HEADERS_DUMPFILE ]; then
+		echoerr "$CURL_HEADERS_DUMPFILE doesn't exist?"
+		return
 	fi
-	rm "/tmp/$1.pr.diff"
+	remaining=$( grep "x-ratelimit-remaining: 0" $CURL_HEADERS_DUMPFILE )
+	if [ $? -ne 0 ]; then
+		grep "x-ratelimit-remaining: " $CURL_HEADERS_DUMPFILE
+		remaining=$( grep "x-ratelimit-remaining: " $CURL_HEADERS_DUMPFILE | cut -d':' -f2 | xargs | tr -d '\r' | tr -d '\n' )
+		printf "Download failed, but have $remaining rate limit remaining...\n"
+		return
+	fi
+	resetepoch=$( grep "x-ratelimit-reset: " $CURL_HEADERS_DUMPFILE | cut -d':' -f2 | xargs | tr -d '\r' | tr -d '\n' )
+	if [ $? -ne 0 ]; then
+		echoerr "Headers missing from $CURL_HEADERS_DUMPFILE"
+		cat $CURL_HEADERS_DUMPFILE
+		return
+	fi
+	now=$( date +"%s" | tr -d '\n' )
+	waitsecs=$( expr $resetepoch - $now )
+	if [ $waitsecs -gt 0 ]; then # sanity check the result
+		echoerr "Waiting $waitsecs seconds for rate-limit reset..."
+		sleep $waitsecs
+	fi
 }
 
-# $2 = 1 to force
-asterisk_pr() {
-	PR_PATCH_FILE=/tmp/$1.pr.diff
-	wget -q "https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff" -O $PR_PATCH_FILE --no-cache
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to download https://patch-diff.githubusercontent.com/raw/asterisk/asterisk/pull/$1.diff"
+download_github_patch() { # $1 = GitHub repo, e.g. asterisk/asterisk, $2 = REF, $3 = output file
+	if [ -f $2 ]; then
+		rm $2 # Remove any previously downloaded patch file
 	fi
+	if [ -f $CURL_HEADERS_DUMPFILE ]; then
+		rm $CURL_HEADERS_DUMPFILE
+	fi
+	$CURL --dump-header $CURL_HEADERS_DUMPFILE -o "$3" -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/commits/$2"
+	if [ ! -s $3 ] && [ ! -f $3 ]; then
+		github_waitfor_ratelimit_reset
+		# Try again
+		$CURL --dump-header $CURL_HEADERS_DUMPFILE -o "$3" -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/commits/$2"
+		if [ ! -s $3 ] && [ ! -f $3 ]; then # May need to try twice...
+			github_waitfor_ratelimit_reset
+			$CURL --dump-header $CURL_HEADERS_DUMPFILE -o "$3" -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/commits/$2"
+		fi
+	fi
+	if [ ! -s $3 ]; then
+		if [ ! -f $3 ]; then
+			$CURL_DEBUG --dump-header $CURL_HEADERS_DUMPFILE -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/commits/$2" # show what happened
+			die "Failed to download patch $2 (https://github.com/$1/commit/$2.patch) to $3"
+		fi
+		die "Failed to download patch $2 - downloaded empty file instead..."
+	fi
+}
+
+download_github_pr() { # $1 = GitHub repo, e.g. asterisk/asterisk, $2 = PR, $3 = output file
+	if [ -f $CURL_HEADERS_DUMPFILE ]; then
+		rm $CURL_HEADERS_DUMPFILE
+	fi
+	# patch-diff.githubusercontent.com is rate limited strictly now so use the GitHub API instead, even unauthenticated
+	$CURL --dump-header $CURL_HEADERS_DUMPFILE -o "$3" -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/pulls/$2"
+	if [ ! -s $3 ] && [ ! -f $3 ]; then
+		github_waitfor_ratelimit_reset
+		# Try again
+		$CURL --dump-header $CURL_HEADERS_DUMPFILE -o "$3" -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/pulls/$2"
+		if [ ! -s $3 ] && [ ! -f $3 ]; then # May need to try twice...
+			github_waitfor_ratelimit_reset
+			$CURL --dump-header $CURL_HEADERS_DUMPFILE -o "$3" -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/pulls/$2"
+		fi
+	fi
+	if [ ! -s $3 ]; then
+		if [ ! -f $3 ]; then
+			$CURL_DEBUG --dump-header $CURL_HEADERS_DUMPFILE -o "$3" -H "Accept: application/vnd.github.patch" "https://api.github.com/repos/$1/pulls/$2"
+			die "Failed to download PR $2 to $3"
+		fi
+		die "Failed to download PR $2 - downloaded empty file instead..."
+	fi
+}
+
+apply_temp_patch() { # $1 = patch file, will be deleted afterwards, $2 = 1 to force apply patches that won't apply with just 'git apply'
 	if [ "$2" = "1" ]; then
-		git apply -v $PR_PATCH_FILE
+		git apply -v $1
 		if [ $? -ne 0 ]; then
 			echoerr "Failed to apply patch using git apply, retrying directly using patch..."
-			patch -p1 -F 3 -f --verbose < $PR_PATCH_FILE
+			patch -p1 -F 3 -f --verbose < $1
 		fi
 	else
-		git apply $PR_PATCH_FILE
+		git apply $1
 	fi
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply Asterisk PR... this should be reported..."
-		cat $PR_PATCH_FILE
-		exit 2
+		cat $1
+		die "Failed to apply patch... this should be reported..."
 	fi
-	rm $PR_PATCH_FILE
+	rm $1
 }
 
-git_custom_patch() {
-	CUSTOM_PATCH_FILE=/tmp/tmp_git_patch.diff
-	printf "Applying git patch: %s\n" "$1"
-	wget -q "$1" -O $CUSTOM_PATCH_FILE --no-cache
-	if [ ! -f $CUSTOM_PATCH_FILE ]; then
-		die "Failed to download patch $1"
+revert_temp_patch() { # $1 = patch file, will be deleted afterwards, $2 = 1 to ignore failure
+	patch -u -b -p 1 --reverse -i $1
+	if [ $? -ne 0 ] && [ "$2" != "1" ]; then
+		die "Failed to reverse patch... this should be reported..."
 	fi
-	git apply $CUSTOM_PATCH_FILE
+	rm $1
+}
+
+asterisk_pr() { # $1 = PR number, $2 = 1 to force
+	PATCH_FILE=/tmp/$1.pr.diff
+	download_github_pr "asterisk/asterisk" $1 $PATCH_FILE
+	apply_temp_patch "$PATCH_FILE"
+}
+
+github_apply_commit() { # $1 = repo, e.g. asterisk/asterisk, $2 = commit hash
+	PATCH_FILE=/tmp/$2.diff
+	download_github_patch "$1" "$2" "$PATCH_FILE"
+	apply_temp_patch "$PATCH_FILE"
+}
+
+github_apply_pr() { # $1 = repo, e.g. asterisk/asterisk, $2 = PR number
+	PATCH_FILE=/tmp/$2.pr.diff
+	download_github_pr "$1" "$2" "$PATCH_FILE"
+	apply_temp_patch "$PATCH_FILE" "$PATCH_FILE"
+}
+
+dahlin_apply_commit() {
+	printf "Applying DAHDI Linux commit $1\n"
+	github_apply_commit "asterisk/dahdi-linux" "$1"
+}
+
+dahlin_apply_pr() {
+	printf "Applying DAHDI Linux PR $1\n"
+	github_apply_pr "asterisk/dahdi-linux" "$1"
+}
+
+dahtool_apply_pr() {
+	printf "Applying DAHDI Tools PR $1\n"
+	github_apply_pr "asterisk/dahdi-tools" "$1"
+}
+
+dahdi_undo() { # $1 = description, $2 = REF
+	printf "Restoring drivers by undoing PATCH: %s\n" "$1"
+	PATCH_FILE=/tmp/$2.diff
+	download_github_patch "asterisk/dahdi-linux" "$2" "$PATCH_FILE"
+	revert_temp_patch "$PATCH_FILE"
+}
+
+dahdi_undo_ignore_failures() { # $1 = description, $2 = REF
+	printf "Restoring drivers by undoing PATCH: %s\n" "$1"
+	PATCH_FILE=/tmp/$2.diff
+	download_github_patch "asterisk/dahdi-linux" "$2" "$PATCH_FILE"
+	revert_temp_patch "$PATCH_FILE" 1
+}
+
+dahdi_custom_undo() { # $1 = description, $2 = patch file
+	printf "Applying custom reverse DAHDI patch: %s\n" "$1"
+	patch -u -p 1 --reverse -i $2
 	if [ $? -ne 0 ]; then
-		die "Failed to apply git patch $1... this should be reported..."
+		die "Failed to reverse custom DAHDI patch... this should be reported..."
 	fi
-	rm $CUSTOM_PATCH_FILE
+}
+
+dahdi_custom_patch() { # $1 = patch name, $2 = file to patch, $3 = patch file
+	printf "Applying custom DAHDI patch: %s\n" "$1"
+	if [ ! -f "$AST_SOURCE_PARENT_DIR/$2" ]; then
+		die "File $AST_SOURCE_PARENT_DIR/$2 does not exist"
+	fi
+	patch -u -b "$AST_SOURCE_PARENT_DIR/$2" -i $3
+	if [ $? -ne 0 ]; then
+		die "Failed to apply DAHDI patch (patch -u -b $AST_SOURCE_PARENT_DIR/$2 -i /tmp/$1.patch)... this should be reported..."
+	fi
 }
 
 dahdi_unpurge() { # undo "great purge" of 2018: $1 = DAHDI_LIN_SRC_DIR
 	printf "%s\n" "Reverting patches that removed driver support in DAHDI..."
-	dahdi_custom_undo $1 "dahdi_pci_module" "Remove unnecessary dahdi_pci_module macro" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_pci_module.diff"
-	dahdi_custom_undo $1 "dahdi_irq_handler" "Remove unnecessary DAHDI_IRQ_HANDLER macro" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/dahdi_irq_handler.diff"
-	dahdi_undo $1 "devtype" "Remove struct devtype for unsupported drivers" "75620dd9ef6ac746745a1ecab4ef925a5b9e2988"
-	dahdi_undo $1 "wcb" "Remove support for all but wcb41xp wcb43xp and wcb23xp." "29cb229cd3f1d252872b7f1924b6e3be941f7ad3"
-	dahdi_undo $1 "wctdm" "Remove support for wctdm800, wcaex800, wctdm410, wcaex410." "a66e88e666229092a96d54e5873d4b3ae79b1ce3"
+	dahdi_custom_undo "Remove unnecessary dahdi_pci_module macro" "${GIT_REPO_PATH}/patches/dahdi_pci_module.diff"
+	dahdi_custom_undo "Remove unnecessary DAHDI_IRQ_HANDLER macro" "${GIT_REPO_PATH}/patches/dahdi_irq_handler.diff"
+	dahdi_undo "Remove struct devtype for unsupported drivers" "75620dd9ef6ac746745a1ecab4ef925a5b9e2988"
+	dahdi_undo "Remove support for all but wcb41xp wcb43xp and wcb23xp." "29cb229cd3f1d252872b7f1924b6e3be941f7ad3"
+	dahdi_undo "Remove support for wctdm800, wcaex800, wctdm410, wcaex410." "a66e88e666229092a96d54e5873d4b3ae79b1ce3"
 
 	# The tor2 and pciradio patches do not revert cleanly on their own. We need to finish it off manually with additional patches:
-	dahdi_undo_force $1 "tor2" "Remove support for tor2." "60d058cc7a064b6e07889f76dd9514059c303e0f"
-	dahdi_custom_patch "tor2_Kbuild" "$1/drivers/dahdi/Kbuild" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/tor2_Kbuild.diff"
-	dahdi_undo_force $1 "pciradio" "Remove support for pciradio." "bfdfc4728c033381656b59bf83aa37187b5dfca8"
-	dahdi_custom_patch "pciradio_Kbuild" "$1/drivers/dahdi/Kbuild" "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/patches/pciradio_Kbuild.diff"
+	dahdi_undo_ignore_failures "Remove support for tor2." "60d058cc7a064b6e07889f76dd9514059c303e0f"
+	dahdi_custom_patch "tor2_Kbuild" "$1/drivers/dahdi/Kbuild" "${GIT_REPO_PATH}/patches/tor2_Kbuild.diff"
+	dahdi_undo_ignore_failures "Remove support for pciradio." "bfdfc4728c033381656b59bf83aa37187b5dfca8"
+	dahdi_custom_patch "pciradio_Kbuild" "$1/drivers/dahdi/Kbuild" "${GIT_REPO_PATH}/patches/pciradio_Kbuild.diff"
 
 	printf "%s\n" "Finished undoing DAHDI removals!"
 }
@@ -1987,8 +2055,7 @@ install_dahdi() {
 	tar -zxvf $DAHLIN_SRC_NAME && rm $DAHLIN_SRC_NAME
 	tar -zxvf $DAHTOOL_SRC_NAME && rm $DAHTOOL_SRC_NAME
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
-		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
-		exit 2
+		die "Directory not found: $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
 	fi
 
 	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as opposed to bundled)
@@ -2015,20 +2082,21 @@ install_dahdi() {
 	fi
 
 	# Merged in master, but not yet in a current release
-	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d7bbc8a96fe767bc4eee15dd43170f298282a4c3.diff" # RHEL fixes for const struct device *dev
-	git_custom_patch "https://github.com/asterisk/dahdi-linux/commit/d932d9fbc8b3559829a76fffcedceb78d1fc1887.diff" # dahdi_spantype fix
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/57.diff" # PR 57: RHEL build fixes
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/58.diff" # PR 58: non-RHEL build fixes for older kernels
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/60.diff" # PR 60: Fix old style declaration error on newer systems
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/62.diff" # PR 62: Rename MAX to MAX_ATTEMPTS to avoid macro redefinition
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/64.diff" # PR 64: More struct device to const struct device
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/66.diff" # PR 66: Add braces around empty if body
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/69.diff" # PR 69: DEFINE_SEMAPHORE for RHEL
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/32.patch" # PR 32: xpp: Fix 32-bit builds
+	dahlin_apply_commit "d7bbc8a96fe767bc4eee15dd43170f298282a4c3" # RHEL fixes for const struct device *dev
+	dahlin_apply_commit "d932d9fbc8b3559829a76fffcedceb78d1fc1887" # dahdi_spantype fix
+	dahlin_apply_pr 32 # PR 32: xpp: Fix 32-bit builds
+	dahlin_apply_pr 57 # PR 57: RHEL build fixes
+	dahlin_apply_pr 58 # PR 58: non-RHEL build fixes for older kernels
+	dahlin_apply_pr 60 # PR 60: Fix old style declaration error on newer systems
+	dahlin_apply_pr 62 # PR 62: Rename MAX to MAX_ATTEMPTS to avoid macro redefinition
+	dahlin_apply_pr 64 # PR 64: More struct device to const struct device
+	dahlin_apply_pr 66 # PR 66: Add braces around empty if body
+	dahlin_apply_pr 69 # PR 69: DEFINE_SEMAPHORE for RHEL
 
 	# Not yet merged
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/77.diff" # EXTRA_CFLAGS removal
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-linux/pull/79.diff" # vpmadt032 binary blob
+	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
+	dahlin_apply_pr 79 # vpmadt032 binary blob
+	dahlin_apply_pr 92 # del_timer_sync wrapper
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -2090,14 +2158,13 @@ install_dahdi() {
 
 	# DAHDI Tools
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
-		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
-		exit 2
+		die "Directory not found: $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
 	# Not yet merged
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-tools/pull/23.diff" # PR 23 (xpp/echo_loader.c: static get_ver)
-	git_custom_patch "https://patch-diff.githubusercontent.com/raw/asterisk/dahdi-tools/pull/22.diff" # PR 22 (dahdi_cfg: fix truncation warning)
+	dahtool_apply_pr 22 # PR 22 (dahdi_cfg: fix truncation warning)
+	dahtool_apply_pr 23 # PR 23 (xpp/echo_loader.c: static get_ver)
 
 	# New Features
 	# hearpulsing
@@ -2211,39 +2278,15 @@ phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 	fi
 }
 
-phreak_tree_module_branch() { # $1 = file to patch, $2 = whether failure is acceptable, $3 = branch name
-	printf "Adding new module: %s\n" "$1"
-	# Always need to download, since the local copy of the git repo is on the master branch
-	wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/$3/$1" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to download module from branch $3, retrying with master..."
-		# Fall back to master in case the branch name is stale. If that fails, abort.
-		phreak_tree_module "$1" "$2"
-	fi
-}
-
-custom_module() { # $1 = filename, $2 = URL to download
-	printf "Adding new module: %s\n" "$1"
-	wget -q "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to download module: $1"
-		if [ "$2" != "1" ]; then # unless failure is acceptable, abort
-			exit 2
-		fi
-	fi
-}
-
 phreak_nontree_patch() { # $1 = patched file, $2 = patch name
 	printf "Applying patch %s to %s\n" "$2" "$1"
 	wget -q "$3" -O "/tmp/$2" --no-cache
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download patch: $2"
-		exit 2
+		die "Failed to download patch: $2"
 	fi
 	patch -u -b "$1" -i "/tmp/$2"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply patch $2"
-		exit 2
+		die "Failed to apply patch $2"
 	fi
 	rm "/tmp/$2"
 }
@@ -2252,13 +2295,11 @@ phreak_tree_patch() { # $1 = patched file, $2 = patch name
 	printf "Applying patch %s to %s\n" "$2" "$1"
 	cp "$GIT_REPO_PATH/patches/$2" "/tmp/$2"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to copy patch: $2"
-		exit 2
+		die "Failed to copy patch: $2"
 	fi
 	patch -u -b "$1" -i "/tmp/$2"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply patch $2"
-		exit 2
+		die "Failed to apply patch $2"
 	fi
 	rm "/tmp/$2"
 }
@@ -2267,8 +2308,7 @@ phreak_tree_patch_forward_only() { # $1 = patched file, $2 = patch name
 	printf "Applying forward patch %s to %s\n" "$2" "$1"
 	cp "$GIT_REPO_PATH/patches/$2" "/tmp/$2"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to copy patch: $2"
-		exit 2
+		die "Failed to copy patch: $2"
 	fi
 	patch -u -N -b "$1" -i "/tmp/$2"
 	rm "/tmp/$2"
@@ -2278,14 +2318,12 @@ phreak_fuzzy_patch() {
 	printf "Applying patch %s to %s\n" "$1" "$1"
 	cp "$GIT_REPO_PATH/patches/$1" "/tmp/$1"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download patch: $1"
-		exit 2
+		die "Failed to download patch: $1"
 	fi
 	patch -p1 < "/tmp/$1"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply patch $1"
 		ls -la "/tmp/$1"
-		exit 2
+		die "Failed to apply patch $1"
 	fi
 	rm "/tmp/$1"
 }
@@ -2294,14 +2332,12 @@ custom_fuzzy_patch() {
 	printf "Applying patch %s to %s\n" "$1" "$1"
 	wget -q "$2" -O "/tmp/$1" --no-cache
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to download patch: $1"
-		exit 2
+		die "Failed to download patch: $1"
 	fi
 	patch -p1 < "/tmp/$1"
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to apply patch $1"
 		ls -la "/tmp/$1"
-		exit 2
+		die "Failed to apply patch $1"
 	fi
 	rm "/tmp/$1"
 }
@@ -2340,6 +2376,20 @@ asterisk_pr_if() {
 asterisk_pr_unconditional() {
 	printf "Applying PR %d unconditionally\n" $1
 	asterisk_pr $1
+}
+
+custom_module() { # $1 = filename, $2 = URL to download
+	printf "Adding new module: %s\n" "$1"
+	$WGET "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+	if [ $? -ne 0 ]; then
+		wget "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+	fi
+	if [ $? -ne 0 ]; then
+		echoerr "Failed to download module: $1"
+		if [ "$2" != "1" ]; then # unless failure is acceptable, abort
+			exit 2
+		fi
+	fi
 }
 
 add_experimental() {
@@ -2385,11 +2435,11 @@ instantiate_repo() {
 	fi
 }
 
-phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
+phreak_patches() {
 	### Inject custom PhreakNet patches to add additional functionality and features.
 	### If/when/as these are integrated upstream, they will be removed from this function. 
 
-	cd $AST_SOURCE_PARENT_DIR/$2
+	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 
 	## Add Standalone PhreakNet Modules
 	# XXX In theory, something like cp $GIT_REPO_PATH/apps/*.c apps, etc. would also suffice, rather than enumerating
@@ -2461,13 +2511,9 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 	## Third Party Modules
 	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
-		custom_module "apps/app_tdd.c" "https://raw.githubusercontent.com/dgorski/app_tdd/main/app_tdd.c"
-		# TODO: Remove once PR is merged
-		#cd apps # Since this repo has app_tdd in the root directory, we need to match it to use git apply
-		#github_pr "app_tdd_compiler_fix" "https://patch-diff.githubusercontent.com/raw/dgorski/app_tdd/pull/21.diff" "try"
-		#cd ..
+		download_github_module "dgorski/app_tdd" "main" "app_tdd.c" "apps/app_tdd.c"
 	fi
-	custom_module "apps/app_fsk.c" "https://raw.githubusercontent.com/alessandrocarminati/app-fsk/master/app_fsk_18.c"
+	download_github_module "alessandrocarminati/app-fsk" "master" "app_fsk_18.c" "apps/app_fsk.c"
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		sed -i '' '/defaultenabled/d' apps/app_fsk.c
 	else
@@ -2501,17 +2547,13 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 	if [ $AST_MAJOR_VER -lt 23 ]; then
 		asterisk_pr_unconditional 961 # config.c: fix template inheritance/overrides.
 		asterisk_pr_unconditional 245 # config.c: fix template inheritance/overrides.
+		asterisk_pr_unconditional 1223 # func_callerid: Format ANI2 as two digits (MASTER ONLY)
 	fi
 
-	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220300 210800 201300)
-	if [ $AST_MAJOR_VER -lt 23 ]; then
-		# Underlying problem code was removed entirely in master, so patch only needed for release versions
-		asterisk_pr_if 1086 220300 210800 201300 # Fix for Fedora 42 (old style definitions for libdb)
-	fi
+	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
-	asterisk_pr_unconditional 1089 # app_sms: Ignore false positive gcc warning
-	#asterisk_pr_unconditional 272 # Call Waiting Deluxe. This also now conflicts (with the latest revisions), so temp. disabled.
+
 	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
 	git_patch "dahdicleanup.diff"
 
@@ -2546,11 +2588,10 @@ phreak_patches() { # $1 = $PATCH_DIR, $2 = $AST_SRC_DIR
 
 freebsd_port_patch() {
 	filename=$( basename $1 )
-	$WGET "$1" -O "$filename" --no-cache
+	download_github_file "freebsd/freebsd-ports" "master" "$1" "$filename"
 	affectedfile=$( head -n 2 $filename | tail -n 1 | cut -d' ' -f2 )
 	if [ ! -f "$affectedfile" ]; then
-		echoerr "File does not exist: $affectedfile (patched by $filename)"
-		exit 2
+		die "File does not exist: $affectedfile (patched by $filename)"
 	fi
 	patch $affectedfile -i $filename
 	rm "$filename"
@@ -2559,21 +2600,20 @@ freebsd_port_patch() {
 freebsd_port_patches() { # https://github.com/freebsd/freebsd-ports/tree/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files
 	# todo: some of these are obsolete and some can be integrated upstream
 	printf "%s\n" "Applying FreeBSD Port Patches..."
-	pwd
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-Makefile"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-agi_Makefile"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-channels_chan__dahdi.c"
+	freebsd_port_patch "net/asterisk18/files/patch-Makefile"
+	freebsd_port_patch "net/asterisk18/files/patch-agi_Makefile"
+	freebsd_port_patch "net/asterisk18/files/patch-channels_chan__dahdi.c"
 	if [ "$CHAN_SIP" = "1" ]; then
-		freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-channels_sip_include_sip.h"
+		freebsd_port_patch "net/asterisk18/files/patch-channels_sip_include_sip.h"
 	fi
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-configure"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-contrib_Makefile"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_Makefile"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_asterisk.exports.in"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_http.c"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-main_lock.c"
-	freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile"
-	#freebsd_port_patch "https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/patch-third-party_pjproject_Makefile.rules"
+	freebsd_port_patch "net/asterisk18/files/patch-configure"
+	freebsd_port_patch "net/asterisk18/files/patch-contrib_Makefile"
+	freebsd_port_patch "net/asterisk18/files/patch-main_Makefile"
+	freebsd_port_patch "net/asterisk18/files/patch-main_asterisk.exports.in"
+	freebsd_port_patch "net/asterisk18/files/patch-main_http.c"
+	freebsd_port_patch "net/asterisk18/files/patch-main_lock.c"
+	freebsd_port_patch "net/asterisk18/files/patch-third-party_pjproject_Makefile"
+	#freebsd_port_patch "net/asterisk18/files/patch-third-party_pjproject_Makefile.rules"
 	printf "%s\n" "FreeBSD patching complete..."
 }
 
@@ -2635,9 +2675,8 @@ paste_post() { # $1 = file to upload, $2 = 1 to delete file on success, $3 = aut
 			printf '\a' # alert the user
 			read -r -p "InterLinked API key: " INTERLINKED_APIKEY
 			if [ ${#INTERLINKED_APIKEY} -lt 30 ]; then
-				echoerr "InterLinked API key too short. Not going to attempt uploading paste..."
 				ls $1
-				exit 2
+				die "InterLinked API key too short. Not going to attempt uploading paste..."
 			fi
 		fi
 	fi
@@ -2717,13 +2756,11 @@ get_backtrace() { # $1 = "1" to upload
 	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer necessarily simply just /tmp/core-full.txt
 	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
 		echoerr "No core dumps found"
-		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
-		exit 2
+		die "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
 	fi
 	if [ ${#corefullpath} -eq 0 ] || [ ! -f "$corefullpath" ]; then
 		echoerr "Core dump failed to get backtrace, aborting..."
-		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
-		exit 2
+		die "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
 	fi
 	if [ "$1" = "1" ]; then # backtrace
 		printf "%s\n" "Uploading paste of backtrace..."
@@ -2987,8 +3024,7 @@ get_source() {
 		rm $EFF_SOURCE_NAME.tar.gz
 	fi
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
-		printf "Directory not found: %s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
-		exit 2
+		die "Directory not found: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
 	fi
 	AST_SRC_DIR2=`get_newest_astdir`
 	AST_SRC_DIR2=`printf "%s" "$AST_SRC_DIR2" | cut -d'/' -f1`
@@ -2997,8 +3033,7 @@ get_source() {
 			echoerr "Deleting $AST_SRC_DIR2 to prevent ordering conflict"
 			rm -rf $AST_SRC_DIR2
 		else
-			echoerr "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
-			exit 2
+			die "Directory $AST_SRC_DIR2 conflicts with installation of $AST_SRC_DIR. Please rename or delete and restart installation."
 		fi
 		sleep 1 # don't tight loop in case something goes wrong.
 		AST_SRC_DIR2=`get_newest_astdir`
@@ -3022,7 +3057,7 @@ get_source() {
 		else
 			echoerr "chan_sip was deprecated and removed in Asterisk 21. It is still present for your usage, but consider migrating to chan_pjsip at your convenience."
 			printf "Fetching chan_sip to readd to source tree\n"
-			wget https://raw.githubusercontent.com/InterLinked1/chan_sip/master/chan_sip_reinclude.sh
+			download_github_file "InterLinked1/chan_sip" "master" "chan_sip_reinclude.sh"
 			chmod +x chan_sip_reinclude.sh
 			./chan_sip_reinclude.sh
 		fi
@@ -3072,7 +3107,7 @@ get_source() {
 			die "chan_sip is not present in this source, please add the --sip option"
 		fi
 		# https://usecallmanager.nz/patching-asterisk.html and https://github.com/usecallmanagernz/patches
-		wget -q "https://raw.githubusercontent.com/usecallmanagernz/patches/master/asterisk/$CISCO_CM_SIP.patch" -O /tmp/$CISCO_CM_SIP.patch
+		download_github_file "usecallmanagernz/patches" "master" "asterisk/$CISCO_CM_SIP.patch" "/tmp/$CISCO_CM_SIP.patch"
 		patch --strip=1 < /tmp/$CISCO_CM_SIP.patch
 		if [ $? -ne 0 ]; then
 			echoerr "WARNING: Call Manager patch may have failed to apply correctly"
@@ -3088,7 +3123,7 @@ get_source() {
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		# Add PhreakNet patches
 		printf "%s\n" "Beginning custom patches..."
-		phreak_patches $PATCH_DIR $AST_SRC_DIR # custom patches
+		phreak_patches # custom patches
 		printf "%s\n" "Custom patching completed..."
 	else
 		echoerr "Skipping feature patches..."
@@ -3194,12 +3229,19 @@ fi
 if which curl > /dev/null; then # only execute if we have curl
 	self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
 	# Only download the first few lines of the file, to get the latest version number, and only check every so often
-	recent=$( find /tmp/phreaknet_upstream_version.txt -mmin -720 2>/dev/null | wc -l )
+	if [ -f /tmp/phreaknet_upstream_version.txt ]; then
+		recent=$( find /tmp/phreaknet_upstream_version.txt -mmin -720 2>/dev/null | wc -l )
+	else
+		recent=0
+	fi
 	if [ "$recent" != "1" ]; then
 		printf " *** Checking if a higher numbered version is available..."
-		curl --silent https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.sh -r 0-210 > /tmp/phreaknet_upstream_version.txt
+		$CURL -o "/tmp/phreaknet_upstream_version.txt" -H "Accept: application/vnd.github.v3.raw" "https://api.github.com/repos/InterLinked1/phreakscript/contents/phreaknet.sh" -r 0-210
 		# Compare current version with latest upstream version
 		upstream=`grep -m1 "# v" /tmp/phreaknet_upstream_version.txt | cut -d'v' -f2`
+		if [ -f /tmp/phreaknet_upstream_version.txt ]; then
+			touch /tmp/phreaknet_upstream_version.txt # if curl doesn't reset the timestamp, do it ourselves
+		fi
 		if [ "$self" != "$upstream" ] && [ "$cmd" != "update" ]; then
 			# Pull from GitHub here for version check for a) speed and b) stability reasons
 			# In this case, it's possible that our version number could actually be ahead of master, since we update from the dev upstream. We need to compare the versions, not merely check if they differ.
@@ -3337,7 +3379,7 @@ elif [ "$cmd" = "make" ]; then
 	fi
 elif [ "$cmd" = "man" ]; then
 	cd /tmp
-	wget "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.1.md"
+	download_github_file "InterLinked1/phreakscript" "master" "phreaknet.1.md"
 	ensure_installed pandoc
 	# f option required for double dash to work correctly: https://github.com/jgm/pandoc/issues/5404
 	pandoc phreaknet.1.md -f markdown-smart -s -t man -o phreaknet.1
@@ -3349,7 +3391,7 @@ elif [ "$cmd" = "man" ]; then
 	mandb
 elif [ "$cmd" = "mancached" ]; then
 	cd /tmp
-	wget "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreaknet.1"
+	download_github_file "InterLinked1/phreakscript" "master" "phreaknet.1"
 	if [ ! -d /usr/local/man/man1 ]; then
 		mkdir /usr/local/man/man1
 	fi
@@ -3359,7 +3401,7 @@ elif [ "$cmd" = "mancached" ]; then
 elif [ "$cmd" = "source" ]; then
 	if [ $(id -u) -ne 0 ]; then
 		# check for source prereqs: git and svn
-		{ git --version >/dev/null && svn help >/dev/null; } || { echoerr "Please install git and subversion packages and try again."; exit 2; }
+		{ git --version >/dev/null && svn help >/dev/null; } || { die "Please install git and subversion packages and try again."; }
 	else
 		# we are already root, so just install prereqs
 		install_prereq 1
@@ -3381,7 +3423,7 @@ elif [ "$cmd" = "install" ]; then
 	preinstall_warn=0
 
 	if [ "$RTPULSING" != "1" ]; then
-		echoerr "Real time pusling is not compatible or has been disabled for this build."
+		echoerr "Real time pulsing is not compatible or has been disabled for this build."
 		sleep 1
 	fi
 	if [ "$HAVE_COMPATIBLE_SPANDSP" != "1" ]; then
@@ -3625,18 +3667,16 @@ elif [ "$cmd" = "install" ]; then
 		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then # run just make validate-docs for doc validation
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
-		echoerr "Compilation or doc validation failed"
-		exit 2
+		die "Compilation or doc validation failed"
 	fi
 	if [ "$DEVMODE" = "1" ]; then
 		$AST_MAKE full # some XML syntax warnings aren't shown unless make full is run
 	fi
 	if [ $? -ne 0 ]; then
-		if [ "$DEVMODE" = "1" ]; then
+		if [ "$DEVMODE" = "1" ] && [ -f doc/core-en_US.xml ]; then
 			$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml # by default, it doesn't tell you whether the docs failed to validate. So if validation failed, print that out.
 		fi
-		echoerr "Compilation or doc validation failed"
-		exit 2
+		die "Compilation or doc validation failed"
 	fi
 
 	# Install Asterisk
@@ -3683,7 +3723,7 @@ elif [ "$cmd" = "install" ]; then
 	$AST_MAKE config # install init script (to run Asterisk as a service)
 	ldconfig # update shared libraries cache
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		wget https://raw.githubusercontent.com/freebsd/freebsd-ports/7abe6caf38ac7e552642372be9b4136c4354d0fd/net/asterisk18/files/asterisk.in
+		wget net/asterisk18/files/asterisk.in
 		cp asterisk.in /usr/local/etc/rc.d/asterisk
 		chmod +x /usr/local/etc/rc.d/asterisk
 	fi
@@ -3759,8 +3799,7 @@ elif [ "$cmd" = "install" ]; then
 			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
 			$AST_MAKE -j$(nproc) && $AST_MAKE install && $AST_MAKE reload
 			if [ $? -ne 0 ]; then
-				echoerr "Failed to install chan_sccp"
-				exit 2
+				die "Failed to install chan_sccp"
 			fi
 		fi
 	fi
@@ -3954,14 +3993,12 @@ elif [ "$cmd" = "fullpatch" ]; then
 	phreak_tree_module "$filename"
 elif [ "$cmd" = "runtest" ]; then
 	if [ ${#2} -eq 0 ]; then
-		echoerr "Missing argument."
-		exit 2
+		die "Missing argument."
 	fi
 	run_testsuite_test_only "$2" 0
 elif [ "$cmd" = "stresstest" ]; then
 	if [ ${#2} -eq 0 ]; then
-		echoerr "Missing argument."
-		exit 2
+		die "Missing argument."
 	fi
 	run_testsuite_test_only "$2" 1
 elif [ "$cmd" = "runtests" ]; then
@@ -3973,12 +4010,10 @@ elif [ "$cmd" = "docgen" ]; then
 	AST_SRC_DIR=`get_newest_astdir`
 	cd $AST_SRC_DIR
 	if [ $? -ne 0 ]; then
-		echoerr "Couldn't find Asterisk source directory?"
-		exit 2
+		die "Couldn't find Asterisk source directory?"
 	fi
 	if [ ! -f doc/core-en_US.xml ]; then
-		printf "%s\n" "Failed to find any XML documentation. Has Asterisk been installed yet?"
-		exit 2
+		die "Failed to find any XML documentation. Has Asterisk been installed yet?"
 	fi
 	$XMLSTARLET val -d doc/appdocsxml.dtd -e doc/core-en_US.xml
 	if [ $? -ne 0 ]; then
@@ -3988,17 +4023,15 @@ elif [ "$cmd" = "docgen" ]; then
 		apt-get install -y php php8.2-xml # XXX TODO: Should determine correct version dynamically
 	fi
 	printf "%s\n" "Obtaining latest version of astdocgen..."
-	wget -q "https://raw.githubusercontent.com/InterLinked1/astdocgen/master/astdocgen.php" -O astdocgen.php --no-cache
+	download_github_file "InterLinked1/astdocgen" "master" "astdocgen.php"
 	chmod +x astdocgen.php
 	./astdocgen.php -f doc/core-en_US.xml -x -s > /tmp/astdocgen.xml
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to generate XML dump"
-		exit 2
+		die "Failed to generate XML dump"
 	fi
 	./astdocgen.php -f /tmp/astdocgen.xml -h > doc/index.html
 	if [ $? -ne 0 ]; then
-		echoerr "Failed to generate HTML documentation"
-		exit 2
+		die "Failed to generate HTML documentation"
 	fi
 	rm /tmp/astdocgen.xml
 	printf "HTML documentation has been generated and is now saved to %s%s\n" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR" "doc/index.html"
@@ -4044,14 +4077,13 @@ elif [ "$cmd" = "pubdocs" ]; then
 	echo $AST_SOURCE_PARENT_DIR
 	printf "%s\n" "Generating Confluence markup..."
 	if [ ! -f "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml" ]; then
-		echoerr "File does not exist: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml"
 		ls -d -v $AST_SOURCE_PARENT_DIR/*/ | grep "asterisk-" | tail -1 ###### not FreeBSD compatible
-		exit 2
+		die "File does not exist: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml"
 	fi
 	./astxml2wiki.py --username=wikibot --server=https://wiki.asterisk.org/wiki/rpc/xmlrpc '--prefix=Asterisk 18' --space=AST --file=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/doc/core-en_US.xml --password=d --debug > confluence.txt
 	printf "%s\n" "Converting Confluence to HTML..."
 	if [ ! -f confluence2html ]; then
-		wget https://raw.githubusercontent.com/rmloveland/confluence2html/master/confluence2html
+		download_github_file "rmloveland/confluence2html" "master" "confluence2html"
 	fi
 	chmod +x confluence2html
 	PERL_MM_USE_DEFAULT=1 cpan -i CPAN
@@ -4212,7 +4244,7 @@ elif [ "$cmd" = "fail2ban" ]; then
 	if [ -f /etc/fail2ban/filter.d/asterisk.conf ]; then
 		die "Existing fail2ban configuration for Asterisk already found, exiting..."
 	fi
-	wget -q "https://raw.githubusercontent.com/fail2ban/fail2ban/master/config/filter.d/asterisk.conf" -O /etc/fail2ban/filter.d/asterisk.conf
+	download_github_file "fail2ban/fail2ban" "master" "config/filter.d/asterisk.conf" /etc/fail2ban/filter.d/asterisk.conf
 elif [ "$cmd" = "ban" ]; then
 	if [ ${#2} -lt 1 ]; then
 		die "Must specify an IP address or CIDR range"
@@ -4221,7 +4253,7 @@ elif [ "$cmd" = "ban" ]; then
 elif [ "$cmd" = "update" ]; then
 	assert_root
 	if [ ! -f "/tmp/phreakscript_update.sh" ] || [ $(stat -c%s "/tmp/phreakscript_update.sh") -eq 0 ]; then
-		wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_update.sh" -O /tmp/phreakscript_update.sh
+		download_github_file "InterLinked1/phreakscript" "master" "phreakscript_update.sh" /tmp/phreakscript_update.sh
 		chmod +x /tmp/phreakscript_update.sh
 	fi
 	printf "%s\n" "Updating PhreakScript..."
@@ -4237,7 +4269,7 @@ elif [ "$cmd" = "update" ]; then
 		if [ ! -f /etc/bash_completion.d/phreaknet ]; then # try to add auto-completion
 			if [ -f /etc/bash.bashrc ]; then
 				printf "Downloading auto-completion binding script\n"
-				wget -q "https://raw.githubusercontent.com/InterLinked1/phreakscript/master/phreakscript_autocomplete.sh" -O /tmp/phreakscript_autocomplete.sh
+				download_github_file "InterLinked1/phreakscript" "master" "phreakscript_autocomplete.sh" /tmp/phreakscript_autocomplete.sh
 				mv /tmp/phreakscript_autocomplete.sh /etc/bash_completion.d/phreaknet
 				# by default, auto completion isn't active, so activate it:
 				# there has GOT to be a much better way to do this, but technically this will work:
@@ -4301,8 +4333,7 @@ elif [ "$cmd" = "genpatch" ]; then
 	printf '\a'
 	read -r -p "Full path to file that will be patched idempotently: " file1
 	if [ ! -f $file1 ]; then
-		echoerr "File $file1 does not exist!"
-		exit 2
+		die "File $file1 does not exist!"
 	fi
 	base=`basename $file1`
 	mkdir /tmp/patch_${EPOCHSECONDS}_0
@@ -4396,11 +4427,9 @@ elif [ "$cmd" = "trace" ]; then
 	fi
 	if [ "$DEBUG_LEVEL" -eq "$DEBUG_LEVEL" ] 2> /dev/null; then
         if [ $DEBUG_LEVEL -lt 0 ]; then
-			echoerr "Invalid debug level: $DEBUG_LEVEL"
-			exit 2
+			die "Invalid debug level: $DEBUG_LEVEL"
 		elif [ $DEBUG_LEVEL -gt 10 ]; then
-			echoerr "Invalid debug level: $DEBUG_LEVEL"
-			exit 2
+			die "Invalid debug level: $DEBUG_LEVEL"
 		else
 			if [ $DEBUG_LEVEL -gt 0 ]; then
 				asterisk -rx "logger add channel $channel notice,warning,error,verbose,debug,dtmf"
@@ -4410,8 +4439,7 @@ elif [ "$cmd" = "trace" ]; then
 			fi
 		fi
 	else
-		echoerr "Debug level must be numeric: $DEBUG_LEVEL"
-		exit 2
+		die "Debug level must be numeric: $DEBUG_LEVEL"
 	fi
 	asterisk -rx "core set verbose $VERBOSE_LEVEL"
 	asterisk -rx "iax2 set debug on" # this might not actually appear in the trace, but doesn't hurt...
@@ -4421,8 +4449,7 @@ elif [ "$cmd" = "trace" ]; then
 	printf "%s\n" "CLI trace terminated..."
 	asterisk -rx "logger remove channel $channel"
 	if [ ! -f /var/log/asterisk/$channel ]; then
-		echoerr "CLI log trace file not found, aborting..."
-		exit 2
+		die "CLI log trace file not found, aborting..."
 	fi
 	settings=`asterisk -rx 'core show settings'`
 	printf "\n" >> /var/log/asterisk/$channel
@@ -4446,8 +4473,7 @@ elif [ "$cmd" = "dialplanfiles" ]; then
 	asterisk -rx "core set debug 0"
 	asterisk -rx "logger remove channel $channel"
 	if [ ! -f /var/log/asterisk/$channel ]; then
-		echoerr "CLI log trace file not found, aborting..."
-		exit 2
+		die "CLI log trace file not found, aborting..."
 	fi
 	grep "config.c: Parsing " /var/log/asterisk/$channel
 	rm /var/log/asterisk/$channel
@@ -4518,8 +4544,7 @@ elif [ "$cmd" = "rundump" ]; then
 	corefullpath=$( grep "full.txt" /tmp/ast_coredumper.txt | cut -d' ' -f2 ) # the file is no longer necessarily simply just /tmp/core-full.txt
 	if [ ! -f /tmp/ast_coredumper.txt ] || [ ${#corefullpath} -le 1 ]; then
 		echoerr "Failed to get core dump of running process"
-		printf "%s\n" "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
-		exit 2
+		die "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
 	fi
 	cat /tmp/ast_coredumper.txt
 	rm -f /tmp/ast_coredumper.txt
@@ -4571,7 +4596,7 @@ elif [ "$cmd" = "apiban" ]; then # install apiban-client: https://github.com/pal
 		wget https://github.com/palner/apiban/raw/v0.7.0/clients/go/apiban-iptables-client
 	fi
 	if [ ! -f config.json ]; then
-		wget https://raw.githubusercontent.com/palner/apiban/v0.7.0/clients/go/apiban-iptables/config.json
+		download_github_file "palner/apiban" "v0.7.0" "clients/go/apiban-iptables/config.json"
 	fi
 	if [ ${#APIBAN_KEY} -gt 0 ]; then
 		sed -i "s/MY API KEY/$APIBAN_KEY/" config.json
@@ -4785,6 +4810,5 @@ elif [ "$cmd" = "about" ]; then
 	printf "\n"
 	phreakscript_info
 else
-	echoerr "Invalid command: $cmd, type phreaknet help for usage."
-	exit 2
+	die "Invalid command: $cmd, type phreaknet help for usage."
 fi

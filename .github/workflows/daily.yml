@@ -9,23 +9,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  fedora-42:
+  ubuntu-latest:
     runs-on: ubuntu-24.04
-    name: Fedora 42
-    container: fedora:42
+    name: Ubuntu 24.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Build DAHDI and Asterisk
-        run: |
-          ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode --sip
-  fedora-42-master:
-    runs-on: ubuntu-24.04
-    name: Fedora 42 Master
-    container: fedora:42
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build DAHDI and Asterisk
-        run: |
-          ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode --sip --version=master
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build DAHDI and Asterisk
+       run: |
+          sudo ./phreaknet.sh make
+          sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --dahdi --drivers --devmode --sip

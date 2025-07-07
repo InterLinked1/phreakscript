@@ -37,8 +37,7 @@ jobs:
           'linux-6.9.y',
           'linux-6.10.y',
           'linux-6.11.y',
-          'linux-rolling-lts',
-          'linux-rolling-stable'
+          'linux-rolling-lts'
           ]
     steps:
      - name: Install packages
@@ -151,16 +150,6 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode
-  fedora-42:
-    runs-on: ubuntu-24.04
-    name: Fedora 42
-    container: fedora:42
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build DAHDI and Asterisk
-        run: |
-          ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode
   alma-9-5:
     runs-on: ubuntu-24.04
     name: Alma Linux 9.5
@@ -201,16 +190,6 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --devmode --sip
-  archlinux:
-    runs-on: ubuntu-24.04
-    name: Arch Linux
-    container: archlinux:latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build DAHDI and Asterisk
-        run: |
-          ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --devmode --sip
 # FreeBSD CI disabled since libuuid headers can't get installed in CI?
 #  freebsd-14:
 #    runs-on: ubuntu-24.04
