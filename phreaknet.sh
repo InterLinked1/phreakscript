@@ -1498,6 +1498,9 @@ github_waitfor_ratelimit_reset() {
 	remaining=$( grep "x-ratelimit-remaining: 0" $CURL_HEADERS_DUMPFILE )
 	if [ $? -ne 0 ]; then
 		grep "x-ratelimit-remaining: " $CURL_HEADERS_DUMPFILE
+		if [ $? -ne 0 ]; then
+			cat $CURL_HEADERS_DUMPFILE
+		fi
 		remaining=$( grep "x-ratelimit-remaining: " $CURL_HEADERS_DUMPFILE | cut -d':' -f2 | xargs | tr -d '\r' | tr -d '\n' )
 		printf "Download failed, but have $remaining rate limit remaining...\n"
 		return
@@ -2452,6 +2455,7 @@ phreak_patches() {
 	phreak_tree_module "apps/app_ccsa.c"
 	phreak_tree_module "apps/app_dahdimonitor.c"
 	phreak_tree_module "apps/app_dialtone.c"
+	phreak_tree_module "apps/app_ffplayer.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_george.c"
 	phreak_tree_module "apps/app_hookstate.c"

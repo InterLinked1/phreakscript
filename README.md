@@ -60,6 +60,7 @@ PhreakScript installs:
       - ``PreDial``
       - ``SetMWI``
       - ``PlayDigits``
+      - ``FFPlayer``
       - ``StreamSilence``
       - ``RevertivePulse``
       - ``OnHook``
