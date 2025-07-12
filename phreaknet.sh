@@ -1514,6 +1514,7 @@ github_waitfor_ratelimit_reset() {
 	now=$( date +"%s" | tr -d '\n' )
 	waitsecs=$( expr $resetepoch - $now )
 	if [ $waitsecs -gt 0 ]; then # sanity check the result
+		cat $CURL_HEADERS_DUMPFILE # Dump headers, including x-github-request-id for debugging
 		echoerr "Waiting $waitsecs seconds for rate-limit reset..."
 		sleep $waitsecs
 	fi
@@ -2100,6 +2101,7 @@ install_dahdi() {
 	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
 	dahlin_apply_pr 79 # vpmadt032 binary blob
 	dahlin_apply_pr 92 # del_timer_sync wrapper
+	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -2558,6 +2560,7 @@ phreak_patches() {
 	fi
 
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
+	asterisk_pr_if 1302 220600 211100 201600 # sig_analog: Fix STP, ST2P, ST3P for fgccamamf
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
 

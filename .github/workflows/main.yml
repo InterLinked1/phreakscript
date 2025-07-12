@@ -31,8 +31,6 @@ jobs:
           'linux-5.19.y',
           'linux-6.1.y',
           'linux-6.5.y',
-          'linux-6.6.y',
-          'linux-6.7.y',
           'linux-6.8.y',
           'linux-6.9.y',
           'linux-6.10.y',
@@ -63,6 +61,152 @@ jobs:
        run: |
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers
+  dahdi-nonfatal-stable:
+    runs-on: ubuntu-24.04
+    name: DAHDI, nonfatal, stable kernel
+    container: debian:12
+    strategy:
+      fail-fast: false
+      matrix:
+        # This patch doesn't revert cleanly in 6.12 through 6.14, but that's fine as long as we test newer kernels
+        kernel_branch: [
+          'linux-6.15.y',
+          'linux-rolling-stable'
+          ]
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc curl
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 --branch ${{matrix.kernel_branch}} git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+     # We download the objtool patch from GitLab instead of GitHub, to avoid its stupid and unpredictable rate limits in the CI
+     - name: Revert objtool patch
+       run: |
+          cd /usr/src/linux
+          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
+          cat /tmp/objtool.patch
+          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build DAHDI
+       run: |
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers
+  dahdi-nonfatal-mainline:
+    runs-on: ubuntu-24.04
+    name: DAHDI, nonfatal, mainline kernel
+    container: debian:12
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc curl
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+     - name: Revert objtool patch
+       run: |
+          cd /usr/src/linux
+          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
+          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build DAHDI
+       run: |
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers
+  dahdi-nonfatal-next:
+    runs-on: ubuntu-24.04
+    name: DAHDI, nonfatal, next kernel
+    container: debian:12
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc curl
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Revert objtool patch
+       run: |
+          cd /usr/src/linux-next
+          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
+          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux-next
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build DAHDI
+       run: |
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
+  dahdi-next-fortified:
+    runs-on: ubuntu-24.04
+    name: DAHDI, fortified
+    container: fedora:42
+    steps:
+     - name: Install packages
+       run: |
+          dnf -y update
+          dnf -y upgrade
+          dnf -y install git gcc make flex bison wget openssl-devel elfutils-libelf-devel bc curl
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Revert objtool patch
+       run: |
+          cd /usr/src/linux-next
+          dnf -y install patch
+          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
+          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux-next
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          gcc -v
+          ./scripts/config --set-val CONFIG_FORTIFY_SOURCE y
+          make -j$(nproc) modules_prepare
+          cat .config
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build DAHDI
+       run: |
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
   ubuntu-latest:
     runs-on: ubuntu-24.04
     name: Ubuntu 24.04
