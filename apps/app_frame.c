@@ -129,11 +129,26 @@
 	</application>
 	<application name="SendFrame" language="en_US">
 		<synopsis>
-			Sends an arbitrary control frame on a channel.
+			Sends an arbitrary frame on a channel.
 		</synopsis>
 		<syntax>
 			<parameter name="frame" required="true">
-				<para>The type of frame for which to wait.</para>
+				<para>The type of frame to send.</para>
+				<para>The following frame types may be sent:</para>
+				<enumlist>
+					<enum name = "DTMF_BEGIN" />
+					<enum name = "DTMF_END" />
+					<enum name = "VOICE" />
+					<enum name = "VIDEO" />
+					<enum name = "NULL" />
+					<enum name = "IAX" />
+					<enum name = "TEXT" />
+					<enum name = "TEXT_DATA" />
+					<enum name = "IMAGE" />
+					<enum name = "HTML" />
+					<enum name = "CNG" />
+					<enum name = "MODEM" />
+				</enumlist>
 				<para>The following CONTROL frames may be sent:</para>
 				<enumlist>
 					<enum name = "TAKEOFFHOOK" />
@@ -146,7 +161,7 @@
 			</parameter>
 		</syntax>
 		<description>
-			<para>Sends an arbitrary control frame on a channel.</para>
+			<para>Sends an arbitrary frame on a channel.</para>
 			<example title="Send Wink">
 			same => n,SendFrame(WINK)
 			</example>
@@ -216,9 +231,25 @@ static int sendframe_exec(struct ast_channel *chan, const char *data)
 	argcopy = ast_strdupa(data);
 	AST_STANDARD_APP_ARGS(args, argcopy);
 	if (ast_strlen_zero(args.frametype)) {
-		ast_log(LOG_WARNING, "Invalid! Usage: SendFrame(frametype[,timeout])\n");
+		ast_log(LOG_WARNING, "Invalid! Usage: SendFrame(frametype)\n");
 		return -1;
 	}
+	for (i = 0; i < ARRAY_LEN(frametype2str); i++) {
+		if (strcasestr(args.frametype, frametype2str[i].str)) {
+			/* Send a non-control frame */
+			int res;
+			struct ast_frame f = { frametype2str[i].type, };
+			f.subclass.integer = '0';
+			ast_channel_lock(chan);
+			res = ast_write(chan, &f);
+			ast_channel_unlock(chan);
+			if (res) {
+				ast_log(LOG_WARNING, "Failed to write %s frame on %s\n", frametype2str[i].str, ast_channel_name(chan));
+			}
+			return 0;
+		}
+	}
+	/* Send a control frame */
 	for (i = 0; i < ARRAY_LEN(controlframetype2str); i++) {
 		if (strcasestr(args.frametype, controlframetype2str[i].str)) {
 			subtype = controlframetype2str[i].type;
