@@ -1,0 +1,16 @@
+; res_telos_1a2.conf
+; Configuration file for Asterisk resource module for Telos 1A2 Module Interface
+
+;[general]
+;device = /dev/ttyS0 ; Serial device to use (at 1200 baud). Default is /dev/ttyS0
+
+;[line1]
+;line = 1 ; 1A2 line number
+;device = DAHDI/1 ; FXO device that can be used to access this line
+;moh_class = default ; Music on hold class, to play music on hold when this 1A2 line is on hold (via the FXO device). There is no default.
+;hold_context = 1a2hold ; Dialplan context to execute for 1A2 lines on hold. Extension s will be executed at priority 1. If moh_class is also specified, hold_context takes precedence.
+
+;[line2]
+;line = 2
+;device = DAHDI/2
+;moh_class = default

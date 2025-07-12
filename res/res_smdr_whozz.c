@@ -147,6 +147,7 @@ struct whozz_line {
 static AST_RWLIST_HEAD_STATIC(lines, whozz_line);
 
 static pthread_t serial_thread = AST_PTHREADT_NULL;
+static int thread_running = 0;
 
 static char serial_device[256] = "/dev/ttyS0"; /* Default serial port on a Linux system (especially if there's only one) */
 static int serial_fd = -1;
@@ -342,7 +343,6 @@ static int set_settings(struct pollfd *pfd, int reset)
 	return 0;
 }
 
-/*! \brief A channel technology used for the unit tests */
 static struct ast_channel_tech whozz_smdr_cdr_chan_tech = {
 	.type = "WHOZZ",
 	.description = "WHOZZ SMDR CDR",
@@ -922,9 +922,11 @@ static void *__serial_monitor(void *varg)
 	while (!ast_fully_booted && !unloading) {
 		usleep(50000);
 	}
+	thread_running = 1;
 	if (!unloading) {
 		serial_monitor(varg);
 	}
+	thread_running = 0;
 	if (!unloading) {
 		ast_log(LOG_ERROR, "Serial monitor thread exited prematurely, refresh module to reinitialize\n");
 	}
@@ -978,6 +980,7 @@ static char *handle_show_lines(struct ast_cli_entry *e, int cmd, struct ast_cli_
 	}
 
 	ast_cli(a->fd, "Serial device is %s (fd %d)\n", serial_device, serial_fd);
+	ast_cli(a->fd, "Serial status is %s\n", thread_running ? "RUNNING" : "ABORTED");
 	ast_cli(a->fd, "%4s %-8s %s\n", "Line", "State", "Associated Device");
 	AST_RWLIST_RDLOCK(&lines);
 	AST_RWLIST_TRAVERSE(&lines, w, entry) {

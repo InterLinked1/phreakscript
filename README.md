@@ -23,7 +23,9 @@ PhreakScript installs:
    - Analog enhancements
       - Real time dial pulsing support
       - "Hearpulsing" patches
-	  - SMDR support for "WHOZZ Calling?" call accounting devices
+      - SMDR support for "WHOZZ Calling?" call accounting devices
+      - Supervision test and hook state applications
+      - 1A2 key system music on hold support
    - SIP enhancements
       - Automatic dialplan context to digit map generation (`res_digitmap`)
 	  - Broadworks compatible device feature key synchronization (PJSIP) (with `--experimental` flag)
@@ -93,6 +95,7 @@ PhreakScript installs:
       - ``TECH_EXISTS``
       - ``DTMF_FLASH``
       - ``DTMF_TRACE``
+      - ``1A2_LINE_STATE``
       - ``NUM2DEVICE``
       - ``TEXT_QUERY``
       - ``COIN_DETECT``
