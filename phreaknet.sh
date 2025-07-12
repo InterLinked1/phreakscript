@@ -2100,6 +2100,7 @@ install_dahdi() {
 	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
 	dahlin_apply_pr 79 # vpmadt032 binary blob
 	dahlin_apply_pr 92 # del_timer_sync wrapper
+	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
