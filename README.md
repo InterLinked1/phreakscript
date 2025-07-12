@@ -60,6 +60,9 @@ PhreakScript installs:
       - ``PlayDigits``
       - ``StreamSilence``
       - ``RevertivePulse``
+      - ``OnHook``
+      - ``OffHook``
+      - ``SupervisionTest``
       - ``SendFrame``
       - ``WaitForFrame``
       - ``WaitForDeposit``

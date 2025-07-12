@@ -2454,6 +2454,7 @@ phreak_patches() {
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_george.c"
+	phreak_tree_module "apps/app_hookstate.c"
 	phreak_tree_module "apps/app_keyprefetch.c"
 	phreak_tree_module "apps/app_loopplayback.c"
 	phreak_tree_module "apps/app_mail.c"
