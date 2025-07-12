@@ -1192,6 +1192,7 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 	int curl, method, extendtrust, allowtoken, sanitychecks, threshold, blacklist_failopen;
 	char name[AST_MAX_CONTEXT], verifyrequest[PATH_MAX], verifycontext[AST_MAX_CONTEXT], local_var[AST_MAX_CONTEXT], stirshaken_var[AST_MAX_CONTEXT], remote_stirshaken_var[AST_MAX_CONTEXT], remote_var[AST_MAX_CONTEXT], via_remote_var[AST_MAX_CONTEXT], token_remote_var[AST_MAX_CONTEXT], validatetokenrequest[PATH_MAX], code_good[PATH_MAX], code_fail[PATH_MAX], code_spoof[PATH_MAX], exceptioncontext[PATH_MAX], setinvars[PATH_MAX], failgroup[PATH_MAX], failureaction[PATH_MAX], failurefile[PATH_MAX], failurelocation[PATH_MAX], successregex[PATH_MAX], blacklist_endpoint[PATH_MAX], loglevel[AST_MAX_CONTEXT], logmsg[PATH_MAX];
 	float blacklist_threshold;
+	char via[64] = { 0 };
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(profile);
@@ -1397,7 +1398,6 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		}
 	} else { /* reverse */
 		char remote_result[64] = { 0 };
-		char via[64] = { 0 };
 		char peerip[50]; /* more than the max IP address size */
 		char *dialstring, *peer;
 		char ip[50];
@@ -1559,11 +1559,19 @@ static int verify_exec(struct ast_channel *chan, const char *data)
 		}
 success: /* only as a branch, if we fall through to here, that doesn't necessarily mean success */
 		verify_set_var(chan, local_var, vresult);
-		ast_verb(3, "Verification result for %s (%s) is '%s' (SUCCESS)\n", callerid, name, vresult ? vresult : "(null)");
+		if (viaverify) {
+			ast_verb(3, "Verification result for %s (%s, via %s) is '%s' (SUCCESS)\n", callerid, name, via, vresult ? vresult : "(null)");
+		} else {
+			ast_verb(3, "Verification result for %s (%s) is '%s' (SUCCESS)\n", callerid, name, vresult ? vresult : "(null)");
+		}
 		goto done;
 fail:
 		verify_set_var(chan, local_var, viaverify ? code_spoof : code_fail);
-		ast_verb(3, "Verification result for %s (%s) is '%s' (FAILURE)\n", callerid, name, viaverify ? (*code_spoof ? code_spoof : "(null)") : (*code_fail ? code_fail : "(null)"));
+		if (viaverify) {
+			ast_verb(3, "Verification result for %s (%s, via %s) is '%s' (FAILURE)\n", callerid, name, via, viaverify ? (*code_spoof ? code_spoof : "(null)") : (*code_fail ? code_fail : "(null)"));
+		} else {
+			ast_verb(3, "Verification result for %s (%s) is '%s' (FAILURE)\n", callerid, name, viaverify ? (*code_spoof ? code_spoof : "(null)") : (*code_fail ? code_fail : "(null)"));
+		}
 	}
 
 done:

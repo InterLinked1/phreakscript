@@ -2002,11 +2002,10 @@ static int outverify(struct ast_channel *chan, const char *lookup)
 	varval = pbx_builtin_getvar_helper(chan, "OUTVERIFYSTATUS");
 	/* Protect against channel attacks, bad lookups, local IP attacks, etc. Bail on bad lookup. */
 	proceed = !strcmp(varval, "PROCEED");
-	ast_channel_unlock(chan);
-
 	if (!proceed) {
-		ast_log(LOG_WARNING, "Lookup failed validation: %s\n", lookup);
+		ast_log(LOG_WARNING, "Lookup failed validation: %s (OUTVERIFYSTATUS = %s)\n", lookup, S_OR(varval, ""));
 	}
+	ast_channel_unlock(chan);
 
 	return proceed ? 0 : 1;
 }
