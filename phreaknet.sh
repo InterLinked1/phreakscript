@@ -455,7 +455,8 @@ if [ "$PAC_MAN" = "pacman" ]; then
 	if ! which "hostname" > /dev/null; then
 		install_package "net-tools"
 	fi
-else
+elif [ "$PAC_MAN" != "pkg" ]; then
+	# `hostname' is part of base on FreeBSD; do not install
 	ensure_installed "hostname"
 fi
 
