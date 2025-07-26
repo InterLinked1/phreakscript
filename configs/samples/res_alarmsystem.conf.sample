@@ -80,6 +80,14 @@
 ;device = DAHDI/24
 ;disarm_delay = 0 ; Do not require the system to be disarmed when this sensor is triggered (reporting is informational only)
 
+;[waterpump] ; Section defining a water pump overflow relay, which closes when an overflow could occur
+;type = sensor
+;sensor_id = 3
+;clientid = myclient
+;device = DAHDI/25
+;disarm_delay = 1 ; Immediately trigger alarm when this sensor is triggered, since an inoperational pump could result in flooding
+;concurrent_device = DAHDI/44r8 ; Dial a bell chime with cadence 8 and keep ringing it (sounding alarm) while this sensor is triggered
+
 ;[keypad] ; Section defining alarm keypad settings. An alarm keypad can be instantiated by using AlarmKeypad()
 ;type = keypad
 ;client = myclient ; Client associated with these keypad settings

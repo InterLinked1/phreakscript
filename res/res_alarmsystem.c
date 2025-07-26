@@ -273,6 +273,15 @@
 						<para>Consequently, to have a sensor that always triggers a breach alarm immediately, set this option to 1 second.</para>
 					</description>
 				</configOption>
+				<configOption name="concurrent_device">
+					<synopsis>Device to dial concurrently when the sensor is triggered</synopsis>
+					<description>
+						<para>An additional device that will be dialed simultaneously when the sensor is triggered.
+						This device will be disconnected when the sensor is restored to normal.</para>
+						<para>This can be used to sound an audible alarm while this sensor is triggered. For example, if a bell chime is connected to a specific
+						channel, specifying that device for this setting will ensure that whenever this sensor is off-normal, the bell chime will be activated.</para>
+					</description>
+				</configOption>
 			</configObject>
 			<configObject name="keypad">
 				<synopsis>Configuration section for a keypad</synopsis>
@@ -532,6 +541,7 @@ struct alarm_sensor {
 	char sensor_id[AST_MAX_EXTENSION];
 	int disarm_delay;
 	const char *device;
+	char *concurrent_device;
 	AST_LIST_ENTRY(alarm_sensor) entry;
 	unsigned int triggered:1; /* Sensor triggered? */
 	char data[];
@@ -665,6 +675,9 @@ static void cleanup_server(struct alarm_server *s)
 
 static void cleanup_sensor(struct alarm_sensor *s)
 {
+	if (s->concurrent_device) {
+		ast_free(s->concurrent_device);
+	}
 	ast_free(s);
 }
 
@@ -2136,6 +2149,8 @@ postsocket:
 					ast_copy_string(s->sensor_id, var->value, sizeof(s->sensor_id));
 				} else if (!strcasecmp(var->name, "disarm_delay") && !ast_strlen_zero(var->value)) {
 					s->disarm_delay = atoi(var->value);
+				} else if (!strcasecmp(var->name, "concurrent_device") && !ast_strlen_zero(var->value)) {
+					s->concurrent_device = ast_strdup(var->value);
 				} else {
 					ast_log(LOG_WARNING, "Unknown keyword in section '%s': %s at line %d of %s\n", cat, var->name, var->lineno, CONFIG_FILE);
 				}
@@ -2211,6 +2226,7 @@ static int alarmsensor_exec(struct ast_channel *chan, const char *data)
 	struct alarm_sensor *s;
 	time_t breach_time;
 	int is_egress;
+	struct ast_channel *concurrent_chan = NULL;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(client);
@@ -2298,6 +2314,27 @@ static int alarmsensor_exec(struct ast_channel *chan, const char *data)
 		orig_app_device(c->keypad_device, NULL, "AlarmKeypad", c->name, c->cid_num, c->cid_name);
 	}
 
+	if (s->concurrent_device) {
+		int res;
+		char *tech, *resource = ast_strdupa(s->concurrent_device);
+		tech = strsep(&resource, "/");
+		concurrent_chan = new_channel(tech, resource);
+		if (!concurrent_chan) {
+			ast_log(LOG_ERROR, "Failed to set up concurrent channel\n");
+		} else {
+			/* Place the call, but don't wait on the answer */
+			res = ast_call(concurrent_chan, resource, 0);
+			if (res) {
+				ast_log(LOG_ERROR, "Failed to call on %s\n", ast_channel_name(concurrent_chan));
+				ast_hangup(concurrent_chan);
+				concurrent_chan = NULL;
+			} else {
+				ast_verb(3, "Called %s/%s\n", tech, resource);
+				ast_autoservice_start(concurrent_chan);
+			}
+		}
+	}
+
 	/* Now, wait for the sensor to be restored. This could be soon, it could not be. */
 	while (ast_safe_sleep(chan, 60000) != -1);
 
@@ -2310,6 +2347,9 @@ static int alarmsensor_exec(struct ast_channel *chan, const char *data)
 
 cleanup:
 	AST_RWLIST_UNLOCK(&clients);
+	if (concurrent_chan) {
+		ast_hangup(concurrent_chan);
+	}
 	return -1; /* Never continue executing dialplan */
 }
 
