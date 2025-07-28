@@ -274,7 +274,7 @@ FREEPBX_GUI=0
 GENERIC_HEADERS=0
 AUTOSET_KVERS=0
 EXTERNAL_CODECS=0
-RTPULSING=0 # Disabled temporarily, patches must be rebased
+RTPULSING=1 # Disabled temporarily, patches must be rebased
 HEARPULSING=1
 HAVE_COMPATIBLE_SPANDSP=1
 PACMAN_UPDATED=0 # Internal flag
@@ -2063,6 +2063,13 @@ install_dahdi() {
 		die "Directory not found: $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
 	fi
 
+	# Download the dahdi-linux-extra repo. This is needed for OSLEC support.
+	if [ ! -d dahdi-linux-extra.git ]; then
+		git clone --depth 1 --single-branch --branch extra-2.10.y https://notabug.org/tzafrir/dahdi-linux-extra.git
+	fi
+	cp -r dahdi-linux-extra/drivers/staging $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers
+	# Since the OSLEC code is unlikely to change, there isn't much point in redownloading dahdi-linux-extra more than once.
+
 	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as opposed to bundled)
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
 
@@ -2084,6 +2091,8 @@ install_dahdi() {
 
 	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
 		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
+		# Enable building dahdi_dummy, which is disabled by default
+		sed -i 's/#obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DUMMY)/obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DUMMY)/g' drivers/dahdi/Kbuild
 	fi
 
 	# Merged in master, but not yet in a current release
@@ -2103,6 +2112,8 @@ install_dahdi() {
 	dahlin_apply_pr 79 # vpmadt032 binary blob
 	dahlin_apply_pr 92 # del_timer_sync wrapper
 	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
+	dahlin_apply_pr 98 # hrtimer_init changed to hrtimer_setup
+	dahlin_apply_pr 99 # use module_init/module_exit instead of init_module/cleanup_module
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -2580,7 +2591,9 @@ phreak_patches() {
 
 	if [ "$RTPULSING" = "1" ]; then
 		# Patches split up to make it easier to selectively redo the 2nd one if a patch conflict occurs and the patch needs to be rebased.
-		git_patch "ast_rtoutpulsing1.diff" # chan_dahdi: add rtoutpulsing
+		git_patch "ast_rtoutpulsing_core.diff"
+		git_patch "ast_rtoutpulsing_funcs.diff"
+		git_patch "ast_rtoutpulsing_channels.diff"
 		git_patch "ast_rtoutpulsing2.diff" # chan_dahdi: add rtoutpulsing
 	fi
 

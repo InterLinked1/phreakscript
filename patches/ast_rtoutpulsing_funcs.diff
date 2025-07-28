@@ -1,0 +1,34 @@
+diff --git a/funcs/func_frame_drop.c b/funcs/func_frame_drop.c
+index 19694bc387..95c466744b 100644
+--- a/funcs/func_frame_drop.c
++++ b/funcs/func_frame_drop.c
+@@ -76,6 +76,7 @@
+ 					<enum name = "TAKEOFFHOOK" />
+ 					<enum name = "OFFHOOK" />
+ 					<enum name = "CONGESTION" />
++					<enum name = "PULSE" />
+ 					<enum name = "FLASH" />
+ 					<enum name = "WINK" />
+ 					<enum name = "PROGRESS" />
+@@ -133,6 +134,7 @@ static struct {
+ 	{ AST_CONTROL_TAKEOFFHOOK,   ",TAKEOFFHOOK," },
+ 	{ AST_CONTROL_OFFHOOK,   ",OFFHOOK," },
+ 	{ AST_CONTROL_CONGESTION,   ",CONGESTION," },
++	{ AST_CONTROL_PULSE,  ",PULSE," },
+ 	{ AST_CONTROL_FLASH,   ",FLASH," },
+ 	{ AST_CONTROL_WINK,   ",WINK," },
+ 	{ AST_CONTROL_PROGRESS,   ",PROGRESS," },
+diff --git a/funcs/func_frame_trace.c b/funcs/func_frame_trace.c
+index cdb747311e..581f004ba2 100644
+--- a/funcs/func_frame_trace.c
++++ b/funcs/func_frame_trace.c
+@@ -269,6 +269,9 @@ static void print_frame(struct ast_frame *frame)
+ 		case AST_CONTROL_CONGESTION:
+ 			ast_verbose("SubClass: CONGESTION\n");
+ 			break;
++		case AST_CONTROL_PULSE:
++			ast_verbose("SubClass: PULSE\n");
++			break;
+ 		case AST_CONTROL_FLASH:
+ 			ast_verbose("SubClass: FLASH\n");
+ 			break;

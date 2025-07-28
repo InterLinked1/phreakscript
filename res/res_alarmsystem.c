@@ -1698,7 +1698,7 @@ static void *client_thread(void *arg)
 	/* Wait until the PBX is fully booted, similar to "core waitfullybooted"
 	 * This is necessary because dialplan won't execute while the PBX is still booting,
 	 * and events, including EVENT_ALARM_OKAY, can trigger user callbacks which execute dialplan. */
-	while (!ast_test_flag(&ast_options, AST_OPT_FLAG_FULLY_BOOTED)) {
+	while (!ast_fully_booted) {
 		usleep(1000);
 	}
 
