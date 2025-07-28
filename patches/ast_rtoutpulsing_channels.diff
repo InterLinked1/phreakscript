@@ -1,0 +1,139 @@
+diff --git a/channels/chan_dahdi.c b/channels/chan_dahdi.c
+index 99a28b0286..9cd6c17eac 100644
+--- a/channels/chan_dahdi.c
++++ b/channels/chan_dahdi.c
+@@ -2708,6 +2708,12 @@ static enum analog_event dahdievent_to_analogevent(int event)
+ 	case DAHDI_EVENT_PULSE_START:
+ 		res = ANALOG_EVENT_PULSE_START;
+ 		break;
++	case DAHDI_EVENT_PULSE:
++		res = ANALOG_EVENT_PULSE;
++		break;
++	case DAHDI_EVENT_PULSE_BREAK:
++		res = ANALOG_EVENT_PULSE_BREAK;
++		break;
+ 	case DAHDI_EVENT_POLARITY:
+ 		res = ANALOG_EVENT_POLARITY;
+ 		break;
+@@ -7928,6 +7934,10 @@ static struct ast_frame *dahdi_handle_event(struct ast_channel *ast)
+ 		if (!ast_channel_pbx(ast))
+ 			tone_zone_play_tone(p->subs[idx].dfd, -1);
+ 		break;
++	case DAHDI_EVENT_PULSE:
++	case DAHDI_EVENT_PULSE_BREAK:
++		/* handled in sig_analog */
++		break;
+ 	case DAHDI_EVENT_DIALCOMPLETE:
+ 		/* DAHDI has completed dialing all digits sent using DAHDI_DIAL. */
+ #if defined(HAVE_PRI)
+diff --git a/channels/chan_dahdi.h b/channels/chan_dahdi.h
+index 43c89d93b4..1a42f0fa47 100644
+--- a/channels/chan_dahdi.h
++++ b/channels/chan_dahdi.h
+@@ -358,6 +358,11 @@ struct dahdi_pvt {
+ 	unsigned int pulse:1;
+ 	/*! \brief TRUE if a pulsed digit was detected. (Pulse dial phone detected) */
+ 	unsigned int pulsedial:1;
++	/*!
++	 * \brief TRUE if we will support real time dial pulsing.
++	 * \note Set from the "realtimepulsing" value read in from chan_dahdi.conf
++	 */
++	unsigned int realtimepulsing:1;
+ 	unsigned int restartpending:1;		/*!< flag to ensure counted only once for restart */
+ 	/*!
+ 	 * \brief TRUE if caller ID is restricted.
+diff --git a/channels/chan_iax2.c b/channels/chan_iax2.c
+index 1ddf66fe3d..a4becf3042 100644
+--- a/channels/chan_iax2.c
++++ b/channels/chan_iax2.c
+@@ -1460,6 +1460,7 @@ static int iax2_is_control_frame_allowed(int subtype)
+ 	case AST_CONTROL_TAKEOFFHOOK:
+ 	case AST_CONTROL_OFFHOOK:
+ 	case AST_CONTROL_CONGESTION:
++	case AST_CONTROL_PULSE:
+ 	case AST_CONTROL_FLASH:
+ 	case AST_CONTROL_WINK:
+ 	case AST_CONTROL_OPTION:
+diff --git a/channels/sig_analog.c b/channels/sig_analog.c
+index e0d57b53ee..360cf23842 100644
+--- a/channels/sig_analog.c
++++ b/channels/sig_analog.c
+@@ -290,6 +290,12 @@ static char *analog_event2str(enum analog_event event)
+ 	case ANALOG_EVENT_PULSE_START:
+ 		res = "ANALOG_EVENT_PULSE_START";
+ 		break;
++	case ANALOG_EVENT_PULSE:
++		res = "ANALOG_EVENT_PULSE";
++		break;
++	case ANALOG_EVENT_PULSE_BREAK:
++		res = "ANALOG_EVENT_PULSE_BREAK";
++		break;
+ 	case ANALOG_EVENT_POLARITY:
+ 		res = "ANALOG_EVENT_POLARITY";
+ 		break;
+@@ -3098,10 +3104,30 @@ static struct ast_frame *__analog_handle_event(struct analog_pvt *p, struct ast_
+ 		break;
+ #endif
+ 	case ANALOG_EVENT_PULSE_START:
++		p->pulsemakecount = p->pulsebreakcount = 0;
+ 		/* Stop tone if there's a pulse start and the PBX isn't started */
+ 		if (!ast_channel_pbx(ast))
+ 			analog_play_tone(p, ANALOG_SUB_REAL, -1);
+ 		break;
++	case ANALOG_EVENT_PULSE:
++		if (p->realtimepulsing) {
++			ast_queue_control(p->subs[ANALOG_SUB_REAL].owner, AST_CONTROL_PULSE);
++			if (p->pulsemakecount < 9) {
++				struct timespec now = ast_tsnow();
++				p->pulsemakes[p->pulsemakecount] = now.tv_sec * 1000 + now.tv_nsec / 1000000;
++				p->pulsemakecount++;
++			}
++		}
++		break;
++	case ANALOG_EVENT_PULSE_BREAK:
++		if (p->realtimepulsing) {
++			if (p->pulsebreakcount < 9) {
++				struct timespec now = ast_tsnow();
++				p->pulsebreaks[p->pulsebreakcount] = now.tv_sec * 1000 + now.tv_nsec / 1000000;
++				p->pulsebreakcount++;
++			}
++		}
++		break;
+ 	case ANALOG_EVENT_DIALCOMPLETE:
+ 		if (p->inalarm) {
+ 			break;
+diff --git a/channels/sig_analog.h b/channels/sig_analog.h
+index ae909ebba6..878794ba81 100644
+--- a/channels/sig_analog.h
++++ b/channels/sig_analog.h
+@@ -88,6 +88,8 @@ enum analog_event {
+ 	ANALOG_EVENT_RINGEROFF,
+ 	ANALOG_EVENT_HOOKCOMPLETE,
+ 	ANALOG_EVENT_PULSE_START,
++	ANALOG_EVENT_PULSE,
++	ANALOG_EVENT_PULSE_BREAK,
+ 	ANALOG_EVENT_POLARITY,
+ 	ANALOG_EVENT_RINGBEGIN,
+ 	ANALOG_EVENT_EC_DISABLED,
+@@ -280,6 +282,13 @@ struct analog_pvt {
+ 	struct analog_dialoperation dop;
+ 	int onhooktime;							/*< Time the interface went on-hook. */
+ 	int fxsoffhookstate;					/*< TRUE if the FXS port is off-hook */
++
++	/* Used for real time dial pulsing support */
++	int pulsemakecount;
++	int pulsebreakcount;
++	int pulsemakes[9];
++	int pulsebreaks[9];
++
+ 	/*! \brief -1 = unknown, 0 = no messages, 1 = new messages available */
+ 	int msgstate;
+ 
+@@ -302,6 +311,7 @@ struct analog_pvt {
+ 	unsigned int callwaitingdeluxe:1;		/*!< TRUE if Call Waiting Deluxe options are available */
+ 	unsigned int permhidecallerid:1;		/*!< Whether to hide our outgoing caller ID or not */
+ 	unsigned int pulse:1;
++	unsigned int realtimepulsing:1;			/*!< TRUE if realtimepulsing is enabled */
+ 	unsigned int threewaycalling:1;
+ 	unsigned int threewaysilenthold:1;		/*!< Whether to time out a three-way dial tone to silence */
+ 	unsigned int transfer:1;

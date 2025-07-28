@@ -1,0 +1,54 @@
+diff --git a/include/asterisk/frame.h b/include/asterisk/frame.h
+index a81ff92024..5fa49f91ab 100644
+--- a/include/asterisk/frame.h
++++ b/include/asterisk/frame.h
+@@ -312,6 +312,7 @@ enum ast_control_frame_type {
+ 	AST_CONTROL_STREAM_TOPOLOGY_REQUEST_CHANGE = 35,    /*!< Channel indication that a stream topology change has been requested */
+ 	AST_CONTROL_STREAM_TOPOLOGY_CHANGED = 36,           /*!< Channel indication that a stream topology change has occurred */
+ 	AST_CONTROL_STREAM_TOPOLOGY_SOURCE_CHANGED = 37,    /*!< Channel indication that one of the source streams has changed its source */
++	AST_CONTROL_PULSE = 38,			/*!< Dial Pulse */
+ 
+ 	/*
+ 	 * WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING
+diff --git a/main/channel.c b/main/channel.c
+index 374d6974c5..915d0fe57e 100644
+--- a/main/channel.c
++++ b/main/channel.c
+@@ -3290,6 +3290,7 @@ int ast_waitfordigit_full(struct ast_channel *c, int timeout_ms, const char *bre
+ 				case AST_CONTROL_HOLD:
+ 				case AST_CONTROL_UNHOLD:
+ 				case AST_CONTROL_FLASH:
++				case AST_CONTROL_PULSE:
+ 				case -1:
+ 					/* Unimportant */
+ 					break;
+@@ -4248,6 +4249,7 @@ static int attribute_const is_visible_indication(enum ast_control_frame_type con
+ 	case AST_CONTROL_OPTION:
+ 	case AST_CONTROL_WINK:
+ 	case AST_CONTROL_FLASH:
++	case AST_CONTROL_PULSE:
+ 	case AST_CONTROL_OFFHOOK:
+ 	case AST_CONTROL_TAKEOFFHOOK:
+ 	case AST_CONTROL_ANSWER:
+@@ -4550,6 +4552,7 @@ static int indicate_data_internal(struct ast_channel *chan, int _condition, cons
+ 	case AST_CONTROL_OPTION:
+ 	case AST_CONTROL_WINK:
+ 	case AST_CONTROL_FLASH:
++	case AST_CONTROL_PULSE:
+ 	case AST_CONTROL_OFFHOOK:
+ 	case AST_CONTROL_TAKEOFFHOOK:
+ 	case AST_CONTROL_ANSWER:
+diff --git a/main/frame.c b/main/frame.c
+index e9e3663530..bd06b01efc 100644
+--- a/main/frame.c
++++ b/main/frame.c
+@@ -447,6 +447,9 @@ char *ast_frame_subclass2str(struct ast_frame *f, char *subclass, size_t slen, c
+ 		case AST_CONTROL_FLASH:
+ 			ast_copy_string(subclass, "Flash", slen);
+ 			break;
++		case AST_CONTROL_PULSE:
++			ast_copy_string(subclass, "Pulse", slen);
++			break;
+ 		case AST_CONTROL_WINK:
+ 			ast_copy_string(subclass, "Wink", slen);
+ 			break;

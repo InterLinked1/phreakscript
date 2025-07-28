@@ -21,16 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         kernel_branch: [
-          'linux-4.14.y',
           'linux-4.19.y',
-          'linux-5.4.y',
-          'linux-5.10.y',
-          'linux-5.15.y',
-          'linux-5.17.y',
-          'linux-5.18.y',
           'linux-5.19.y',
           'linux-6.1.y',
-          'linux-6.5.y',
           'linux-6.8.y',
           'linux-6.9.y',
           'linux-6.10.y',
@@ -304,7 +297,19 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode
-  rocky-9:
+  rocky-96:
+    runs-on: ubuntu-24.04
+    name: Rocky Linux 9.6
+    container: rockylinux:9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          dnf install -y git tar
+          ./phreaknet.sh make
+          cat /etc/rocky-release
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode
+  rocky-93:
     runs-on: ubuntu-24.04
     name: Rocky Linux 9.3
     container: rockylinux:9.3
@@ -314,7 +319,7 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode
-  rocky-8:
+  rocky-89:
     runs-on: ubuntu-24.04
     name: Rocky Linux 8.9
     container: rockylinux:8.9
