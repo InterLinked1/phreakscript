@@ -174,6 +174,12 @@ static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int 
 	};
 	int amt;
 
+	if (!len) {
+		ast_log(LOG_WARNING, "Send buffer is empty, returning\n");
+		return -1;
+	}
+	ast_debug(2, "Carefully sending %d bytes\n", len);
+
 	if (remain && *remain) {
 		amt = len;
 
@@ -210,7 +216,10 @@ static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int 
 
 		/* Drop any frames that are not voice */
 		if (inf->frametype != AST_FRAME_VOICE) {
+			char frametype[32];
+			ast_frame_type2str(inf->frametype, frametype, sizeof(frametype));
 			ast_frfree(inf);
+			ast_debug(1, "Skipping %s\n", frametype);
 			continue;
 		}
 
@@ -237,6 +246,7 @@ static int cwcid_careful_send(struct ast_channel *chan, unsigned char *buf, int 
 		buf += amt;
 		len -= amt;
 		ast_frfree(inf);
+		ast_debug(2, "%d bytes remaining\n", len);
 	}
 	return 0;
 }
@@ -288,21 +298,21 @@ static int cwcid_exec(struct ast_channel *chan, const char *data)
 	}
 
 	tz = args.timezone;
-	clidnum = ast_strlen_zero(args.number) ? ast_channel_caller(chan)->id.number.str : args.number;
+	clidnum = !ast_strlen_zero(args.number) ? args.number : ast_channel_caller(chan)->id.number.valid ? ast_channel_caller(chan)->id.number.str : "";
 	if (strlen(clidnum) > 15) {
 		ast_log(LOG_WARNING, "Caller ID number '%s' is greater than 15 characters and will be truncated\n", clidnum);
 	} else if (ast_strlen_zero(clidnum)) {
 		ast_log(LOG_WARNING, "Caller ID number is empty\n");
 	}
-	ast_copy_string(clid, clidnum, 16);
+	ast_copy_string(clid, clidnum, sizeof(clid));
 
-	clidname = ast_strlen_zero(args.name) ? ast_channel_caller(chan)->id.name.str : args.name;
+	clidname = !ast_strlen_zero(args.name) ? args.name : ast_channel_caller(chan)->id.name.valid ? ast_channel_caller(chan)->id.name.str : "";
 	if (strlen(clidname) > 15) {
 		ast_log(LOG_WARNING, "Caller ID name '%s' is greater than 15 characters and will be truncated\n", clidname);
 	} else if (ast_strlen_zero(clidname)) {
 		ast_log(LOG_WARNING, "Caller ID name is empty\n");
 	}
-	ast_copy_string(cnam, clidname, 16);
+	ast_copy_string(cnam, clidname, sizeof(cnam));
 
 	if (!ast_strlen_zero(args.presentation)) {
 		presentation = ast_parse_caller_presentation(args.presentation);
