@@ -2480,6 +2480,7 @@ phreak_patches() {
 	phreak_tree_module "apps/app_mwi.c"
 	phreak_tree_module "apps/app_partialplayback.c"
 	phreak_tree_module "apps/app_playdigits.c"
+	phreak_tree_module "apps/app_polycompush.c"
 	phreak_tree_module "apps/app_predial.c"
 	phreak_tree_module "apps/app_pulsar.c"
 	phreak_tree_module "apps/app_randomplayback.c"

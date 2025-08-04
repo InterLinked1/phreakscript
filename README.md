@@ -36,6 +36,7 @@ PhreakScript installs:
 	     - Cisco Call Manager support for `chan_sip` (with `--cisco` flag)
 	     - `chan_sccp` (improved community Skinny/SCCP channel driver), with compilation fixes (with `--sccp` flag)
    - Message Send Protocol send support
+   - Streamlined delivery of push notifications to Polycom IP phones
    - AGI `RECORD FILE` option to require noise before silence detection
    - Build system support for ALSA-dependent modules
    - Adds the following applications:
