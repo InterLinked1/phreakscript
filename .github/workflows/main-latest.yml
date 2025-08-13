@@ -16,7 +16,7 @@ jobs:
   dahdi-kernel-stable:
     runs-on: ubuntu-24.04
     name: DAHDI, stable kernel
-    container: debian:12
+    container: debian:13
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +50,7 @@ jobs:
   dahdi-kernel-mainline:
     runs-on: ubuntu-24.04
     name: DAHDI, mainline kernel
-    container: debian:12
+    container: debian:13
     steps:
      - name: Install packages
        run: |
@@ -78,7 +78,7 @@ jobs:
   dahdi-kernel-next:
     runs-on: ubuntu-24.04
     name: DAHDI, next kernel
-    container: debian:12
+    container: debian:13
     steps:
      - name: Install packages
        run: |

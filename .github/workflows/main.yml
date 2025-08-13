@@ -16,6 +16,9 @@ jobs:
   dahdi-kernel-stable:
     runs-on: ubuntu-24.04
     name: DAHDI, stable kernel
+    # Note: The 5.19 kernel fails to compile under Debian 13, so we can continue using Debian 12.
+    # The container OS doesn't really matter here as it's the compiled kernel version we care about,
+    # i.e. build failures against the kernel, not a build failure of the kernel itself.
     container: debian:12
     strategy:
       fail-fast: false
@@ -57,7 +60,7 @@ jobs:
   dahdi-nonfatal-stable:
     runs-on: ubuntu-24.04
     name: DAHDI, nonfatal, stable kernel
-    container: debian:12
+    container: debian:13
     strategy:
       fail-fast: false
       matrix:
@@ -100,7 +103,7 @@ jobs:
   dahdi-nonfatal-mainline:
     runs-on: ubuntu-24.04
     name: DAHDI, nonfatal, mainline kernel
-    container: debian:12
+    container: debian:13
     steps:
      - name: Install packages
        run: |
@@ -133,7 +136,7 @@ jobs:
   dahdi-nonfatal-next:
     runs-on: ubuntu-24.04
     name: DAHDI, nonfatal, next kernel
-    container: debian:12
+    container: debian:13
     steps:
      - name: Install packages
        run: |
@@ -221,7 +224,20 @@ jobs:
           sudo ./phreaknet.sh make
           # Environment variables don't carry through with sudo
           sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --dahdi --drivers --devmode --sip
-  debian-stable-asterisk-lts:
+  debian-13-asterisk:
+    runs-on: ubuntu-24.04
+    name: Debian 13
+    container: debian:13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --sip --testsuite
+      - name: Run tests
+        run: |
+          phreaknet runtests
+  debian-12-asterisk-lts:
     runs-on: ubuntu-24.04
     name: Debian 12, Asterisk 20
     container: debian:12
@@ -234,7 +250,7 @@ jobs:
       - name: Run tests
         run: |
           phreaknet runtests
-  debian-stable-asterisk-latest:
+  debian-12-asterisk-latest:
     runs-on: ubuntu-24.04
     name: Debian 12
     container: debian:12
@@ -247,17 +263,18 @@ jobs:
       - name: Run tests
         run: |
           phreaknet runtests
-  debian-stable-asterisk-latest-unpatched:
+  debian-13-asterisk-latest-unpatched:
     runs-on: ubuntu-24.04
-    name: Debian 12, vanilla Asterisk
-    container: debian:12
+    name: Debian 13, vanilla Asterisk
+    container: debian:13
     steps:
       - uses: actions/checkout@v4
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --devmode --sip --vanilla --user=asterisk
-  debian-stable-asterisk-master:
+  # NOTE: wanpipe does not compile on Debian 13 yet
+  debian-12-asterisk-master:
     runs-on: ubuntu-24.04
     name: Debian 12, wanpipe, Asterisk master
     container: debian:12
@@ -269,8 +286,8 @@ jobs:
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --wanpipe --sip --testsuite --version=master
   debian-dahdi-minimal:
     runs-on: ubuntu-24.04
-    name: Debian 12, without libpri and libss7
-    container: debian:12
+    name: Debian 13, without libpri and libss7
+    container: debian:13
     steps:
       - uses: actions/checkout@v4
       - name: Build DAHDI (without libpri or libss7) and Asterisk (chan_dahdi)

@@ -196,7 +196,7 @@ AST_SOURCE_PARENT_DIR="/usr/src"
 AST_ALT_VER=""
 AST_MIN_PREFERRED_VER=20
 AST_DEFAULT_MAJOR_VER=22
-AST_NEXT_MAJOR_VER=23
+AST_NEXT_MAJOR_VER=24
 AST_MAJOR_VER=$AST_DEFAULT_MAJOR_VER
 AST_MM_VER=0
 AST_SOURCE_NAME="asterisk-${AST_DEFAULT_MAJOR_VER}-current"
@@ -274,7 +274,7 @@ FREEPBX_GUI=0
 GENERIC_HEADERS=0
 AUTOSET_KVERS=0
 EXTERNAL_CODECS=0
-RTPULSING=1 # Disabled temporarily, patches must be rebased
+RTPULSING=1
 HEARPULSING=1
 HAVE_COMPATIBLE_SPANDSP=1
 PACMAN_UPDATED=0 # Internal flag
@@ -972,9 +972,9 @@ install_prereq() {
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt-dev dwarves"
 		fi
 		if [ "$1" = "1" ]; then
-			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion libcurl4-openssl-dev libvpb1"
+			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion libcurl4-openssl-dev"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
-				PREREQ_PACKAGES="$PREREQ_PACKAGES dnsutils bc mpg123 ntp tcpdump festival"
+				PREREQ_PACKAGES="$PREREQ_PACKAGES dnsutils bc mpg123 tcpdump festival"
 			fi
 			if [ "$DEVMODE" = "1" ]; then
 				PREREQ_PACKAGES="$PREREQ_PACKAGES xmlstarlet" # only needed in developer mode for doc validation.
@@ -1039,7 +1039,7 @@ install_prereq() {
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES curl subversion e2fsprogs-libuuid sqlite3 xmlstarlet libsysinfo"
 			if [ "$ENHANCED_INSTALL" = "1" ]; then
-				PREREQ_PACKAGES="$PREREQ_PACKAGES ntp tcpdump mpg123 bind-tools" # bind-tools for dig
+				PREREQ_PACKAGES="$PREREQ_PACKAGES tcpdump mpg123 bind-tools" # bind-tools for dig
 			fi
 		fi
 	else
@@ -1304,7 +1304,7 @@ run_testsuite_tests() {
 	cd $AST_SOURCE_PARENT_DIR/testsuite
 
 	# run manually for good measure, and so we get the full output
-	install_package "python3.11-venv"
+	# install_package "python3.11-venv" # Doesn't exist on Debian 13
 	./setupVenv.sh
 
 	run_testsuite_test "apps/assert"
@@ -2611,6 +2611,10 @@ phreak_patches() {
 	fi
 }
 
+universal_patches() {
+	asterisk_pr_if 1370 230000 220700 211200 201700 # test_res_prometheus compiler fixes
+}
+
 freebsd_port_patch() {
 	filename=$( basename $1 )
 	download_github_file "freebsd/freebsd-ports" "master" "$1" "$filename"
@@ -3145,6 +3149,8 @@ get_source() {
 	svn --non-interactive --trust-server-cert export https://svn.digium.com/svn/thirdparty/mp3/trunk addons/mp3
 	./contrib/scripts/get_mp3_source.sh
 
+	universal_patches
+
 	if [ "$EXTRA_FEATURES" = "1" ]; then
 		# Add PhreakNet patches
 		printf "%s\n" "Beginning custom patches..."
@@ -3529,7 +3535,7 @@ elif [ "$cmd" = "install" ]; then
 	get_source
 	# Install Pre-Reqs
 	if [ "$PAC_MAN" = "apt-get" ]; then
-		printf "%s %d" "libvpb1 libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
+		printf "%s %d" "libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
 	fi
 	./contrib/scripts/install_prereq install
 

@@ -12,7 +12,7 @@ jobs:
   dahdi-kernel-next:
     runs-on: ubuntu-24.04
     name: DAHDI, next kernel
-    container: debian:12
+    container: debian:13
     steps:
      - name: Install packages
        run: |
