@@ -2574,6 +2574,8 @@ phreak_patches() {
 
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
 	asterisk_pr_if 1302 220600 211100 201600 # sig_analog: Fix STP, ST2P, ST3P for fgccamamf
+	asterisk_pr_if 1376 220600 211100 201600 # dsp.c debug - needed for blueboxing patch to apply
+	asterisk_pr_if 1379 220600 211100 201600 # chan_dahdi: permdialmode - needed for rtoutpulsing patches to apply
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
 

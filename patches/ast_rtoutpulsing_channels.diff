@@ -129,11 +129,7 @@ index ae909ebba6..878794ba81 100644
  	/*! \brief -1 = unknown, 0 = no messages, 1 = new messages available */
  	int msgstate;
  
-@@ -302,6 +311,7 @@ struct analog_pvt {
- 	unsigned int callwaitingdeluxe:1;		/*!< TRUE if Call Waiting Deluxe options are available */
- 	unsigned int permhidecallerid:1;		/*!< Whether to hide our outgoing caller ID or not */
+@@ -302,2 +311,3 @@ struct analog_pvt {
  	unsigned int pulse:1;
 +	unsigned int realtimepulsing:1;			/*!< TRUE if realtimepulsing is enabled */
  	unsigned int threewaycalling:1;
- 	unsigned int threewaysilenthold:1;		/*!< Whether to time out a three-way dial tone to silence */
- 	unsigned int transfer:1;
