@@ -2614,7 +2614,7 @@ phreak_patches() {
 }
 
 universal_patches() {
-	asterisk_pr_if 1370 230000 220700 211200 201700 # test_res_prometheus compiler fixes
+	asterisk_pr_if 1370 230000 220600 211100 201600 # test_res_prometheus compiler fixes
 }
 
 freebsd_port_patch() {
