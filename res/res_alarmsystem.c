@@ -597,6 +597,16 @@ struct alarm_client {
 
 static AST_RWLIST_HEAD_STATIC(clients, alarm_client);
 
+static const char *state2str(enum alarm_state state)
+{
+	switch (state) {
+	case ALARM_STATE_OK: return "OK";
+	case ALARM_STATE_TRIGGERED: return "TRIGGERED";
+	case ALARM_STATE_BREACH: return "BREACH";
+	}
+	__builtin_unreachable();
+}
+
 static const char *state2text(int state)
 {
 	switch (state) {
@@ -2614,6 +2624,32 @@ static struct ast_custom_function acf_sensortriggered = {
 	.read = sensor_triggered_read,
 };
 
+static int alarm_state_read(struct ast_channel *chan, const char *cmd, char *parse, char *buffer, size_t buflen)
+{
+	struct alarm_client *c;
+
+	if (ast_strlen_zero(parse)) {
+		ast_log(LOG_ERROR, "Must specify client-name\n");
+		return -1;
+	}
+
+	AST_RWLIST_RDLOCK(&clients);
+	c = find_client_locked(parse);
+	if (!c) {
+		ast_log(LOG_ERROR, "Client '%s' not found in configuration\n", parse);
+		AST_RWLIST_UNLOCK(&clients);
+		return -1;
+	}
+	ast_copy_string(buffer, state2str(c->state), buflen);
+	AST_RWLIST_UNLOCK(&clients);
+	return 0;
+}
+
+static struct ast_custom_function acf_state = {
+	.name = "ALARMSYSTEM_STATE",
+	.read = alarm_state_read,
+};
+
 static char *handle_show_sensors(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 #define FORMAT  "%-12s %-20s %s\n"
@@ -2771,6 +2807,7 @@ static int unload_module(void)
 
 	ast_cli_unregister_multiple(alarmsystem_cli, ARRAY_LEN(alarmsystem_cli));
 	ast_custom_function_unregister(&acf_sensortriggered);
+	ast_custom_function_unregister(&acf_state);
 	ast_unregister_application("AlarmSensor");
 	ast_unregister_application("AlarmEventReceiver");
 	ast_unregister_application("AlarmKeypad");
@@ -2825,6 +2862,7 @@ static int load_module(void)
 	}
 
 	ast_custom_function_register(&acf_sensortriggered);
+	ast_custom_function_register(&acf_state);
 	ast_cli_register_multiple(alarmsystem_cli, ARRAY_LEN(alarmsystem_cli));
 	return 0;
 }
