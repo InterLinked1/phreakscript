@@ -160,6 +160,24 @@
 			<para>Simulates a FSK(V.23), V.22bis, or Baudot modem. The modem on the other end is connected to the specified server using a simple TCP connection (like Telnet).</para>
 		</description>
 	</application>
+	<manager name="SoftmodemSessions" language="en_US" module="res_xmpp">
+		<synopsis>
+			List all tracked softmodem sessions.
+		</synopsis>
+		<syntax>
+			<xi:include xpointer="xpointer(/docs/manager[@name='Login']/syntax/parameter[@name='ActionID'])" />
+			<parameter name="Port" required="false">
+				<para>Port used by softmodem client for connection. This is the local client port,
+				not the remote server-side port to which the client connected.</para>
+				<para>If provided, only the session with this local port will be returned.
+				This can be used to retrieve information about a softmodem session from
+				another system, which can correlate the session using the TCP port number.</para>
+			</parameter>
+		</syntax>
+		<description>
+			<para>List information about actively tracked softmodem sessions.</para>
+		</description>
+	</manager>
  ***/
 
 static const char app[] = "Softmodem";
@@ -234,6 +252,7 @@ typedef struct {
 	volatile int finished;
 	int	paritytype;
 	unsigned int flipmode:1;
+	unsigned int track_session:1;
 } modem_session;
 
 #define MODEM_BITBUFFER_SIZE 16
@@ -678,6 +697,107 @@ struct ast_generator v18_generator = {
 	generate: 	v18_generator_generate,
 };
 
+struct softmodem_session {
+	struct ast_channel *chan; /* The channel itself cannot go away while this application is using it, even with a masquerade, so storing the channel pointer is safe */
+	int port;
+	time_t started;
+	AST_RWLIST_ENTRY(softmodem_session) entry;
+};
+
+static AST_RWLIST_HEAD_STATIC(sessions, softmodem_session);
+
+static void untrack_session(modem_session *s)
+{
+	struct softmodem_session *ss;
+	int port = 0;
+
+	AST_RWLIST_WRLOCK(&sessions);
+	AST_RWLIST_TRAVERSE_SAFE_BEGIN(&sessions, ss, entry) {
+		if (ss->chan == s->chan) {
+			AST_RWLIST_REMOVE_CURRENT(entry);
+			port = ss->port;
+			ast_free(ss);
+			break;
+		}
+	}
+	AST_RWLIST_TRAVERSE_SAFE_END;
+	AST_RWLIST_UNLOCK(&sessions);
+	if (!ss) {
+		ast_log(LOG_WARNING, "Couldn't find tracked softmodem session in session list?\n");
+	} else {
+		ast_debug(3, "Removed session %d from track list\n", port);
+	}
+}
+
+static void track_session(modem_session *s, int lport)
+{
+	struct softmodem_session *ss;
+
+	ss = ast_calloc(1, sizeof(*ss));
+	if (!ss) {
+		return;
+	}
+	ss->chan = s->chan;
+	ss->port = lport;
+	ss->started = time(NULL);
+	AST_RWLIST_WRLOCK(&sessions);
+	AST_RWLIST_INSERT_HEAD(&sessions, ss, entry);
+	AST_RWLIST_UNLOCK(&sessions);
+	ast_debug(3, "Added session %d to track list\n", lport);
+}
+
+static int manager_softmodem_sessions(struct mansession *s, const struct message *m)
+{
+	const char *actionid = astman_get_header(m, "ActionID");
+	const char *portstr = astman_get_header(m, "Port");
+	char idText[256];
+	struct softmodem_session *ss;
+	int sessions_found = 0;
+	unsigned int port = 0;
+	time_t now = time(NULL);
+
+	if (!ast_strlen_zero(portstr)) {
+		port = atoi(portstr);
+	}
+
+	if (!ast_strlen_zero(actionid)) {
+		snprintf(idText, sizeof(idText), "ActionID: %s\r\n", actionid);
+	} else {
+		idText[0] = '\0';
+	}
+	astman_send_listack(s, m, "Sessions will follow", "start");
+
+	AST_RWLIST_RDLOCK(&sessions);
+	AST_RWLIST_TRAVERSE(&sessions, ss, entry) {
+		time_t elapsed;
+		if (port && ss->port != port) {
+			continue; /* Doesn't match filter */
+		}
+		elapsed = (long int) (now - ss->started);
+		sessions_found++;
+		astman_append(s,
+			"Event: SoftmodemSession\r\n"
+			"%s"
+			"Channel: %s\r\n"
+			"CallerIDNumber: %s\r\n"
+			"CallerIDName: %s\r\n"
+			"Port: %d\r\n"
+			"Duration: %ld\r\n"
+			"\r\n",
+			idText,
+			ast_channel_name(ss->chan),
+			S_OR(ast_channel_caller(ss->chan)->id.number.str, "<unknown>"),
+			S_OR(ast_channel_caller(ss->chan)->id.name.str, "<unknown>"),
+			ss->port, elapsed);
+	}
+	AST_RWLIST_UNLOCK(&sessions);
+
+	astman_send_list_complete_start(s, m, "SoftmodemSessionsComplete", sessions_found);
+	astman_append(s, "Total: %d\r\n", sessions_found);
+	astman_send_list_complete_end(s);
+	return 0;
+}
+
 static int softmodem_communicate(modem_session *s, int tls)
 {
 	int res = -1;
@@ -743,9 +863,22 @@ static int softmodem_communicate(modem_session *s, int tls)
 	ast_autoservice_start(s->chan);
 
 	if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
-		ast_log(LOG_ERROR, "Cannot connect to remote host: '%s': %s\n", s->host, strerror(errno));
+		ast_log(LOG_ERROR, "Cannot connect to remote host '%s': %s\n", s->host, strerror(errno));
 		ast_autoservice_stop(s->chan);
 		return res;
+	}
+
+	if (s->track_session) {
+		int lport;
+		struct sockaddr_in sin;
+		socklen_t slen = sizeof(sin);
+		/* Figure out what port we're using locally for this connection */
+		if (getsockname(sock, (struct sockaddr *) &sin, &slen)) {
+			ast_log(LOG_WARNING, "getsockname failed: %s\n", strerror(errno));
+		} else {
+			lport = ntohs(sin.sin_port);
+			track_session(s, lport);
+		}
 	}
 
 	ast_autoservice_stop(s->chan);
@@ -1161,17 +1294,25 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 		session.flipmode = ast_test_flag(&options, OPT_FLIP_MODE) ? 1 : 0;
 	}
 
+	session.track_session = 1;
 	res = softmodem_communicate(&session, ast_test_flag(&options, OPT_TLS));
+	if (session.track_session) {
+		untrack_session(&session);
+	}
 	return res;
 }
 
 static int unload_module(void)
 {
+	ast_manager_unregister("SoftmodemSessions");
 	return ast_unregister_application(app);
 }
 
 static int load_module(void)
 {
+	if (ast_manager_register_xml("SoftmodemSessions", EVENT_FLAG_CALL, manager_softmodem_sessions)) {
+		return -1;
+	}
 	return ast_register_application_xml(app, softmodem_exec);
 }
 
