@@ -60,6 +60,12 @@ the best Asterisk and DAHDI experience.
 **source**
 : Download and patch source code only, without building or installing. This operates on the current working directory.
 
+**offline**
+: Prepare offline installation source for disconnected environments
+
+**noupdate**
+: Do not update the package manager
+
 **experimental**
 : Add experimental features to an existing Asterisk source
 
@@ -345,6 +351,9 @@ directories if necessary.
 
 **--vanilla**
 : Do not install extra features or enhancements. Bug fixes are always installed. (May be required for older versions)
+
+**--offline**
+: Use an offline installation source for disconnected environments
 
 **-v**, **--version**
 : Specific version of Asterisk to install (M.m.b e.g. 18.8.0). Also, see **--vanilla**.

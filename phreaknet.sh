@@ -278,6 +278,10 @@ RTPULSING=1
 HEARPULSING=1
 HAVE_COMPATIBLE_SPANDSP=1
 PACMAN_UPDATED=0 # Internal flag
+PACMAN_NOUPDATE=0
+OFFLINE_INSTALL=0
+OFFLINE_PREP=0
+OFFLINE_DIR="/tmp/phreakscript_offline_src"
 
 handler() {
 	kill $BGPID
@@ -362,7 +366,9 @@ update_packages() {
 			fi
 		fi
 		apt-get update -y
-		apt-get upgrade -y
+		if [ "$ENHANCED_INSTALL" != "0" ]; then
+			apt-get upgrade -y
+		fi
 	elif [ "$PAC_MAN" = "yum" ]; then
 		yum update -y
 	elif [ "$PAC_MAN" = "zypper" ]; then
@@ -378,7 +384,7 @@ update_packages() {
 }
 
 install_package() {
-	if [ $PACMAN_UPDATED -eq 0 ]; then
+	if [ $PACMAN_UPDATED -eq 0 ] && [ "$PACMAN_NOUPDATE" != "1" ]; then
 		update_packages
 	fi
 	echo "Installing package(s): " $1 # unquoted, to trim any leading whitespace
@@ -512,6 +518,7 @@ Commands:
    mancached          Install cached man page (may be outdated)
    install            Install or upgrade PhreakNet-enhanced Asterisk
    source             Prepare PhreakNet-enhanced Asterisk source code only
+   offline            Prepare offline installation source for disconnected environments
    experimental       Add experimental features to an existing Asterisk source
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    wanpipe            Install wanpipe
@@ -626,6 +633,8 @@ Options:
        --manselect    install: Manually run menuselect yourself
        --minimal      install: Do not upgrade the kernel or install nonrequired dependencies (such as utilities that may be useful on typical Asterisk servers)
        --vanilla      install: Do not install extra features or enhancements. Bug fixes are always installed. (May be required for older versions)
+       --offline      install: Use an offline installation source for disconnected environments.
+       --noupdate     install: Do not update the package manager
 "
 	phreakscript_info
 	exit 2
@@ -962,7 +971,7 @@ install_prereq() {
 	# wget should already be installed at this point, so it's not included here
 	PREREQ_PACKAGES=""
 	RHEL_MAJOR_VERSION_8=0
-	printf "Installing prerequisites for %s..." "$OS_DIST_INFO"
+	printf "Installing prerequisites for %s...\n" "$OS_DIST_INFO"
 	# Even if we are just installing DAHDI (without Asterisk), $CHAN_DAHDI should be set to 1 at this point.
 	# libnewt-dev is needed for newt, which dahdi_tool requires. If it's not available, it won't get built.
 	# dwarves is needed for pahole, which DAHDI Linux install needs for BTF generation
@@ -1750,10 +1759,14 @@ install_wanpipe() {
 	cd $AST_SOURCE_PARENT_DIR
 	# Sangoma clearly doesn't know how to run a web server, since their server keeps going down.
 	# Pull tarball from Wayback Machine if Sangoma's is unresponsive
-	wget --tries=1 https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
-	if [ $? -ne 0 ]; then
-		# Note: This link needs to be updated for new versions of wanpipe
-		wget https://web.archive.org/web/20240708051349/https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+	if [ "$OFFLINE_INSTALL" = "1" ]; then
+		cp $OFFLINE_DIR/wanpipe.tgz .
+	else
+		$WGET --tries=1 https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+		if [ $? -ne 0 ]; then
+			# Note: This link needs to be updated for new versions of wanpipe
+			$WGET https://web.archive.org/web/20240708051349/https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz
+		fi
 	fi
 	WANPIPE_DIR=`tar -tzf $WANPIPE_SOURCE_NAME.tgz | head -1 | cut -f1 -d"/"`
 	if [ -d $WANPIPE_DIR ]; then
@@ -1858,7 +1871,15 @@ kernel_header_debug() {
 	ls -la /usr/src/kernels/*
 }
 
-install_dahdi() {
+import_source() { # $1 = online source, $2 = offline source
+	if [ "$OFFLINE_INSTALL" = "1" ]; then
+		cp "$1" $AST_SOURCE_PARENT_DIR
+	else
+		$WGET "$1"
+	fi
+}
+
+install_kernel_headers() {
 	# Install the kernel headers
 	if [ "$KSRC" = "" ]; then
 		printf "Actual kernel version: %s\n" $( uname -r )
@@ -1970,7 +1991,129 @@ install_dahdi() {
 			sleep 2
 		fi
 	fi
+}
 
+get_dahlin_source() {
+	cd $AST_SOURCE_PARENT_DIR
+	# just in case, for some reason, these already existed... don't let them throw everything off:
+	rm -f dahdi-linux-current.tar.gz dahdi-tools-current.tar.gz $DAHLIN_SRC_NAME $DAHTOOL_SRC_NAME
+	$WGET $DAHLIN_SRC_URL
+	if [ ! -f $DAHLIN_SRC_NAME ]; then
+		# If this happens, wget is probably not installed
+		die "Failed to download $DAHLIN_SRC_URL... is wget installed?"
+	fi
+	$WGET $DAHTOOL_SRC_URL
+	DAHDI_LIN_SRC_DIR=`tar -tzf $DAHLIN_SRC_NAME | head -1 | cut -f1 -d"/"`
+	DAHDI_TOOLS_SRC_DIR=`tar -tzf $DAHTOOL_SRC_NAME | head -1 | cut -f1 -d"/"`
+	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR" ]; then
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			rm -rf $DAHDI_LIN_SRC_DIR
+		else
+			ls -la
+			die "Directory $DAHDI_LIN_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
+		fi
+	fi
+	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR" ]; then
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			rm -rf $DAHDI_TOOLS_SRC_DIR
+		else
+			ls -la
+			die "Directory $DAHDI_TOOLS_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
+		fi
+	fi
+	tar -zxvf $DAHLIN_SRC_NAME && rm $DAHLIN_SRC_NAME
+	tar -zxvf $DAHTOOL_SRC_NAME && rm $DAHTOOL_SRC_NAME
+	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
+		die "Directory not found: $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
+	fi
+
+	if [ "$OFFLINE_PREP" = "1" ]; then
+		mv $DAHDI_LIN_SRC_DIR "dahlin-offline"
+		mv $DAHDI_TOOLS_SRC_DIR "dahtool-offline"
+		DAHDI_LIN_SRC_DIR="dahlin-offline"
+		DAHDI_TOOLS_SRC_DIR="dahtool-offline"
+	fi
+
+	# Download the dahdi-linux-extra repo. This is needed for OSLEC support.
+	if [ ! -d dahdi-linux-extra.git ]; then
+		git clone --depth 1 --single-branch --branch extra-2.10.y https://notabug.org/tzafrir/dahdi-linux-extra.git
+	fi
+	cp -r dahdi-linux-extra/drivers/staging $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers
+	# Since the OSLEC code is unlikely to change, there isn't much point in redownloading dahdi-linux-extra more than once.
+
+	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as opposed to bundled)
+	cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
+
+	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
+		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
+		# Enable building dahdi_dummy, which is disabled by default
+		sed -i 's/#obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DUMMY)/obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DUMMY)/g' drivers/dahdi/Kbuild
+	fi
+
+	# Merged in master, but not yet in a current release
+	dahlin_apply_commit "d7bbc8a96fe767bc4eee15dd43170f298282a4c3" # RHEL fixes for const struct device *dev
+	dahlin_apply_commit "d932d9fbc8b3559829a76fffcedceb78d1fc1887" # dahdi_spantype fix
+	dahlin_apply_pr 32 # PR 32: xpp: Fix 32-bit builds
+	dahlin_apply_pr 57 # PR 57: RHEL build fixes
+	dahlin_apply_pr 58 # PR 58: non-RHEL build fixes for older kernels
+	dahlin_apply_pr 60 # PR 60: Fix old style declaration error on newer systems
+	dahlin_apply_pr 62 # PR 62: Rename MAX to MAX_ATTEMPTS to avoid macro redefinition
+	dahlin_apply_pr 64 # PR 64: More struct device to const struct device
+	dahlin_apply_pr 66 # PR 66: Add braces around empty if body
+	dahlin_apply_pr 69 # PR 69: DEFINE_SEMAPHORE for RHEL
+
+	# Not yet merged
+	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
+	dahlin_apply_pr 79 # vpmadt032 binary blob
+	dahlin_apply_pr 92 # del_timer_sync wrapper
+	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
+	dahlin_apply_pr 98 # hrtimer_init changed to hrtimer_setup
+	dahlin_apply_pr 99 # use module_init/module_exit instead of init_module/cleanup_module
+
+	# New Features
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		# Real time dial pulsing (DAHDI to Asterisk)
+		git_patch "dahdi_rtoutpulse.diff"
+		# Loop disconnect on-demand during a call
+		# There are 2 patches here. The first can be applied using git apply
+		git_patch "kewl.diff"
+		# The 2nd one DOES NOT APPLY with git apply and WILL FAIL, because fuzz (offset 33 lines) and git apply is too stupid to deal with that.
+		# Therefore, fallback to using patch, manually, for it.
+		phreak_fuzzy_patch "kewl2.diff"
+		# hearpulsing
+		if [ "$HEARPULSING" = "1" ]; then
+			git_patch "hearpulsing-dahlin.diff"
+		fi
+		if [ "$EMPULSE" = "1" ]; then
+			printf "Enabling EMPULSE for this build\n"
+			sed -i 's|/\* #define EMPULSE \*/|#define EMPULSE|g' include/dahdi/dahdi_config.h # Enable EMPULSE by default. Note that the * must be escaped for sed.
+		fi
+	else
+		echoerr "Skipping DAHDI Linux feature patches..."
+	fi
+}
+
+get_dahtool_source() {
+	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
+		die "Directory not found: $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
+	fi
+	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
+
+	# Not yet merged
+	dahtool_apply_pr 22 # PR 22 (dahdi_cfg: fix truncation warning)
+	dahtool_apply_pr 23 # PR 23 (xpp/echo_loader.c: static get_ver)
+
+	# New Features
+	# hearpulsing
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		if [ "$HEARPULSING" = "1" ]; then
+			git_patch "hearpulsing-dahtool.patch" # hearpulsing
+		fi
+	fi
+}
+
+install_dahdi() {
+	install_kernel_headers
 	instantiate_repo
 
 	if [ "$KSRC" != "" ]; then
@@ -2019,101 +2162,24 @@ install_dahdi() {
 		echoerr "Could not determine path to kbuild dir"
 	fi
 
-	# Requests to downloads.digium.com usually use IPv4, but sometimes use IPv6
-	# This is problematic on GitHub Action Runners, which have IPv6 disabled,
-	# and won't let you enable it
-	IPV6_DISABLED=0
-	if which sysctl > /dev/null; then
-		# See https://github.com/asterisk/asterisk-ci-actions/blob/main/SetupUbuntuRunner/action.yml
-		printf "IPv6 Disabled: "
-		sysctl net.ipv6.conf.all.disable_ipv6
-		IPV6_DISABLED=$( sysctl net.ipv6.conf.all.disable_ipv6 | cut -d '=' -f2 | xargs | tr -d '\n' )
-	fi
-
-	cd $AST_SOURCE_PARENT_DIR
-	# just in case, for some reason, these already existed... don't let them throw everything off:
-	rm -f dahdi-linux-current.tar.gz dahdi-tools-current.tar.gz $DAHLIN_SRC_NAME $DAHTOOL_SRC_NAME
-	$WGET $DAHLIN_SRC_URL
-	if [ ! -f $DAHLIN_SRC_NAME ]; then
-		# If this happens, wget is probably not installed
-		die "Failed to download $DAHLIN_SRC_URL... is wget installed?"
-	fi
-	$WGET $DAHTOOL_SRC_URL
-	DAHDI_LIN_SRC_DIR=`tar -tzf $DAHLIN_SRC_NAME | head -1 | cut -f1 -d"/"`
-	DAHDI_TOOLS_SRC_DIR=`tar -tzf $DAHTOOL_SRC_NAME | head -1 | cut -f1 -d"/"`
-	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR" ]; then
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			rm -rf $DAHDI_LIN_SRC_DIR
-		else
-			ls -la
-			die "Directory $DAHDI_LIN_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
+	if [ "$OFFLINE_INSTALL" = "1" ]; then
+		# Requests to downloads.digium.com usually use IPv4, but sometimes use IPv6
+		# This is problematic on GitHub Action Runners, which have IPv6 disabled,
+		# and won't let you enable it
+		IPV6_DISABLED=0
+		if which sysctl > /dev/null; then
+			# See https://github.com/asterisk/asterisk-ci-actions/blob/main/SetupUbuntuRunner/action.yml
+			printf "IPv6 Disabled: "
+			sysctl net.ipv6.conf.all.disable_ipv6
+			IPV6_DISABLED=$( sysctl net.ipv6.conf.all.disable_ipv6 | cut -d '=' -f2 | xargs | tr -d '\n' )
 		fi
 	fi
-	if [ -d "$AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR" ]; then
-		if [ "$FORCE_INSTALL" = "1" ]; then
-			rm -rf $DAHDI_TOOLS_SRC_DIR
-		else
-			ls -la
-			die "Directory $DAHDI_TOOLS_SRC_DIR already exists. Please rename or delete this directory and restart installation or specify the force flag."
-		fi
-	fi
-	tar -zxvf $DAHLIN_SRC_NAME && rm $DAHLIN_SRC_NAME
-	tar -zxvf $DAHTOOL_SRC_NAME && rm $DAHTOOL_SRC_NAME
-	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
-		die "Directory not found: $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR"
-	fi
 
-	# Download the dahdi-linux-extra repo. This is needed for OSLEC support.
-	if [ ! -d dahdi-linux-extra.git ]; then
-		git clone --depth 1 --single-branch --branch extra-2.10.y https://notabug.org/tzafrir/dahdi-linux-extra.git
-	fi
-	cp -r dahdi-linux-extra/drivers/staging $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers
-	# Since the OSLEC code is unlikely to change, there isn't much point in redownloading dahdi-linux-extra more than once.
-
-	# DAHDI Linux (generally recommended to install DAHDI Linux and DAHDI Tools separately, as opposed to bundled)
-	cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
-
-	DAHDI_CFLAGS=""
-	if [ "$GENERIC_HEADERS" = "1" ]; then
-		if [ -f /etc/redhat-release ]; then
-			ls /usr/src/kernels
-			hdrver=`ls /usr/src/kernels`
-		else
-			ls -la /lib/modules/
-			hdrver=`ls /lib/modules`
-		fi
-		DAHDI_CFLAGS="KVERS=$hdrver" # overwrite from exact match with uname -r to whatever we happen to have
-		printf "We do NOT have an exact kernel match: %s\n" "$hdrver"
+	if [ "$OFFLINE_INSTALL" = "1" ]; then
+		cp -r $OFFLINE_DIR/dahlin-offline .
 	else
-		printf "We have an exact kernel match: "
-		uname -r
+		get_dahlin_source
 	fi
-
-	if [ "$DAHDI_OLD_DRIVERS" = "1" ]; then
-		dahdi_unpurge $DAHDI_LIN_SRC_DIR # for some reason, this needs to be applied before the next branch patches
-		# Enable building dahdi_dummy, which is disabled by default
-		sed -i 's/#obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DUMMY)/obj-$(DAHDI_BUILD_ALL)$(CONFIG_DAHDI_DUMMY)/g' drivers/dahdi/Kbuild
-	fi
-
-	# Merged in master, but not yet in a current release
-	dahlin_apply_commit "d7bbc8a96fe767bc4eee15dd43170f298282a4c3" # RHEL fixes for const struct device *dev
-	dahlin_apply_commit "d932d9fbc8b3559829a76fffcedceb78d1fc1887" # dahdi_spantype fix
-	dahlin_apply_pr 32 # PR 32: xpp: Fix 32-bit builds
-	dahlin_apply_pr 57 # PR 57: RHEL build fixes
-	dahlin_apply_pr 58 # PR 58: non-RHEL build fixes for older kernels
-	dahlin_apply_pr 60 # PR 60: Fix old style declaration error on newer systems
-	dahlin_apply_pr 62 # PR 62: Rename MAX to MAX_ATTEMPTS to avoid macro redefinition
-	dahlin_apply_pr 64 # PR 64: More struct device to const struct device
-	dahlin_apply_pr 66 # PR 66: Add braces around empty if body
-	dahlin_apply_pr 69 # PR 69: DEFINE_SEMAPHORE for RHEL
-
-	# Not yet merged
-	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
-	dahlin_apply_pr 79 # vpmadt032 binary blob
-	dahlin_apply_pr 92 # del_timer_sync wrapper
-	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
-	dahlin_apply_pr 98 # hrtimer_init changed to hrtimer_setup
-	dahlin_apply_pr 99 # use module_init/module_exit instead of init_module/cleanup_module
 
 	KERN_VER_MM=$( uname -r | cut -d. -f1-2 )
 	OS_DIST_2=$( printf "$OS_DIST_INFO" | cut -d' ' -f1-2)
@@ -2129,26 +2195,20 @@ install_dahdi() {
 		sed -i 's/KERNEL_VERSION(6, 1, 0)/KERNEL_VERSION(4, 18, 0)/g' include/dahdi/kernel.h
 	fi
 
-	# New Features
-	if [ "$EXTRA_FEATURES" = "1" ]; then
-		# Real time dial pulsing (DAHDI to Asterisk)
-		git_patch "dahdi_rtoutpulse.diff"
-		# Loop disconnect on-demand during a call
-		# There are 2 patches here. The first can be applied using git apply
-		git_patch "kewl.diff"
-		# The 2nd one DOES NOT APPLY with git apply and WILL FAIL, because fuzz (offset 33 lines) and git apply is too stupid to deal with that.
-		# Therefore, fallback to using patch, manually, for it.
-		phreak_fuzzy_patch "kewl2.diff"
-		# hearpulsing
-		if [ "$HEARPULSING" = "1" ]; then
-			git_patch "hearpulsing-dahlin.diff"
+	DAHDI_CFLAGS=""
+	if [ "$GENERIC_HEADERS" = "1" ]; then
+		if [ -f /etc/redhat-release ]; then
+			ls /usr/src/kernels
+			hdrver=`ls /usr/src/kernels`
+		else
+			ls -la /lib/modules/
+			hdrver=`ls /lib/modules`
 		fi
-		if [ "$EMPULSE" = "1" ]; then
-			printf "Enabling EMPULSE for this build\n"
-			sed -i 's|/\* #define EMPULSE \*/|#define EMPULSE|g' include/dahdi/dahdi_config.h # Enable EMPULSE by default. Note that the * must be escaped for sed.
-		fi
+		DAHDI_CFLAGS="KVERS=$hdrver" # overwrite from exact match with uname -r to whatever we happen to have
+		printf "We do NOT have an exact kernel match: %s\n" "$hdrver"
 	else
-		echoerr "Skipping DAHDI Linux feature patches..."
+		printf "We have an exact kernel match: "
+		uname -r
 	fi
 
 	# If IPv6 is disabled, force wget downloads to use the IPv4 address
@@ -2174,21 +2234,10 @@ install_dahdi() {
 	$AST_MAKE install $DAHDI_CFLAGS
 
 	# DAHDI Tools
-	if [ ! -d $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR ]; then
-		die "Directory not found: $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR"
-	fi
-	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
-
-	# Not yet merged
-	dahtool_apply_pr 22 # PR 22 (dahdi_cfg: fix truncation warning)
-	dahtool_apply_pr 23 # PR 23 (xpp/echo_loader.c: static get_ver)
-
-	# New Features
-	# hearpulsing
-	if [ "$EXTRA_FEATURES" = "1" ]; then
-		if [ "$HEARPULSING" = "1" ]; then
-			git_patch "hearpulsing-dahtool.patch" # hearpulsing
-		fi
+	if [ "$OFFLINE_INSTALL" = "1" ]; then
+		cp -r $OFFLINE_DIR/dahtool-offline .
+	else
+		get_dahtool_source
 	fi
 
 	autoreconf -i && [ -f config.status ] || ./configure --with-dahdi=../linux # https://issues.asterisk.org/jira/browse/DAHTOOL-84
@@ -2256,7 +2305,7 @@ install_dahdi() {
 	# LibPRI # https://gist.github.com/debuggerboy/3028532
 	if [ "$INSTALL_LIBPRI" != "0" ]; then
 		cd $AST_SOURCE_PARENT_DIR
-		wget http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz
+		import_source http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz $OFFLINE_DIR/libpri.tar.gz
 		tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
 		rm ${LIBPRI_SOURCE_NAME}.tar.gz
 		cd ${LIBPRI_SOURCE_NAME}
@@ -2266,7 +2315,7 @@ install_dahdi() {
 	# LibSS7
 	if [ "$INSTALL_LIBSS7" != "0" ]; then
 		cd $AST_SOURCE_PARENT_DIR
-		wget https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz
+		import_source https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz $OFFLINE_DIR/libss7.tar.gz
 		tar -zxvf ${LIBSS7_VERSION}.tar.gz
 		rm ${LIBSS7_VERSION}.tar.gz
 		cd libss7-${LIBSS7_VERSION}
@@ -2297,7 +2346,7 @@ phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 
 phreak_nontree_patch() { # $1 = patched file, $2 = patch name
 	printf "Applying patch %s to %s\n" "$2" "$1"
-	wget -q "$3" -O "/tmp/$2" --no-cache
+	$WGET "$3" -O "/tmp/$2" --no-cache
 	if [ $? -ne 0 ]; then
 		die "Failed to download patch: $2"
 	fi
@@ -2347,7 +2396,7 @@ phreak_fuzzy_patch() {
 
 custom_fuzzy_patch() {
 	printf "Applying patch %s to %s\n" "$1" "$1"
-	wget -q "$2" -O "/tmp/$1" --no-cache
+	$WGET "$2" -O "/tmp/$1" --no-cache
 	if [ $? -ne 0 ]; then
 		die "Failed to download patch: $1"
 	fi
@@ -2932,7 +2981,7 @@ run_rules() {
 	printf "%s\n" "$warnings warning(s), $errors error(s)"
 }
 
-get_source() {
+get_ast_source() {
 	GIT_VERSION=""
 	# Get latest Asterisk LTS version by default
 	len=$(printf "%s" $AST_ALT_VER | wc -c)
@@ -3054,7 +3103,16 @@ get_source() {
 		tar -zxvf $EFF_SOURCE_NAME.tar.gz
 		rm $EFF_SOURCE_NAME.tar.gz
 	fi
+	if [ "$OFFLINE_PREP" = "1" ]; then
+		if [ "$AST_ALT_VER" = "git" ]; then
+			mv asterisk-git asterisk-offline
+		else
+			mv $AST_SRC_DIR asterisk-offline
+		fi
+		AST_SRC_DIR="asterisk-offline"
+	fi
 	if [ ! -d $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR ]; then
+		ls -la
 		die "Directory not found: $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR"
 	fi
 	AST_SRC_DIR2=`get_newest_astdir`
@@ -3181,7 +3239,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,offline,noupdate -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -3236,6 +3294,8 @@ while true; do
 		--minimal ) ENHANCED_INSTALL=0; shift ;;
 		--vanilla ) EXTRA_FEATURES=0; shift ;;
 		--wanpipe ) DAHDI_WANPIPE=1; shift ;;
+		--offline ) OFFLINE_INSTALL=1; shift ;;
+		--noupdate ) PACMAN_NOUPDATE=1; shift ;;
 		# -- means the end of the arguments; drop this, and break out of the while loop
 		--) shift; break ;;
 		# If invalid options were passed, then getopt should have reported an error,
@@ -3244,6 +3304,12 @@ while true; do
 		   #cmd="help"; shift; break ;;
 	esac
 done
+
+if [ "$OFFLINE_INSTALL" = "1" ]; then
+	if [ ! -d $OFFLINE_DIR ]; then
+		die "Offline install source $OFFLINE_DIR does not exist - run 'phreaknet offline' on an Internet-connected system and copy the output directory to this system"
+	fi
+fi
 
 if [ "$FAST_COMPILE" = "1" ]; then
 	AST_MAKE="nice -15 $AST_MAKE" # -15 to speed up compilation by increasing CPU priority.
@@ -3440,7 +3506,7 @@ elif [ "$cmd" = "source" ]; then
 		install_prereq 1
 	fi
 	AST_SOURCE_PARENT_DIR=$PWD
-	get_source
+	get_ast_source
 elif [ "$cmd" = "experimental" ]; then
 	assert_root
 	cd $AST_SOURCE_PARENT_DIR
@@ -3452,6 +3518,31 @@ elif [ "$cmd" = "experimental" ]; then
 	else
 		echoerr "Your version of Asterisk is not eligible for experimental features"
 	fi
+elif [ "$cmd" = "offline" ]; then
+	OFFLINE_PREP=1
+	AST_SOURCE_PARENT_DIR=$OFFLINE_DIR
+	if [ -d $AST_SOURCE_PARENT_DIR ]; then
+		if [ "$FORCE_INSTALL" = "1" ]; then
+			echoerr "Purging $AST_SOURCE_PARENT_DIR and preparing new offline install source"
+			rm -rf $AST_SOURCE_PARENT_DIR
+		else
+			die "$AST_SOURCE_PARENT_DIR already exists, specify --force to recreate offline install"
+		fi
+	fi
+	mkdir $AST_SOURCE_PARENT_DIR
+	cd $AST_SOURCE_PARENT_DIR
+	instantiate_repo
+	# We rename all the tarballs to somethin generic, so that even if versions are different between the versions of PhreakScript
+	# installed on the source and target systems, it will still work.
+	get_dahlin_source # end up with a dahlin-offline directory
+	get_dahtool_source # end up with a dahtool-offline directory
+	cd $AST_SOURCE_PARENT_DIR
+	$WGET http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz && mv ${LIBPRI_SOURCE_NAME}.tar.gz libpri.tar.gz
+	$WGET https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz && mv ${LIBSS7_VERSION}.tar.gz libss7.tar.gz
+	$WGET https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz && mv ${WANPIPE_SOURCE_NAME}.tgz wanpipe.tgz
+	get_ast_source # end up with an asterisk-offline directory
+	echog "Offline installation source prepared in $AST_SOURCE_PARENT_DIR - copy this directory to target system for offline installation"
+	ls $AST_SOURCE_PARENT_DIR
 elif [ "$cmd" = "install" ]; then
 	preinstall_warn=0
 
@@ -3496,6 +3587,7 @@ elif [ "$cmd" = "install" ]; then
 	# Install Pre-Reqs
 	printf "%s %d\n" "Starting installation with country code" $AST_CC
 	quell_mysql
+	# It is assumed if OFFLINE_INSTALL is set, that the system package manager is using local sources (e.g. disc) as opposed to installing from the network
 	install_prereq 1 # This must be done before any other packages are installed since we'll skip package install checks if package manager was used recently.
 	if [ "$DEVMODE" = "1" ]; then
 		# Install the Linux headers if we can, but don't abort if we can't.
@@ -3534,7 +3626,13 @@ elif [ "$cmd" = "install" ]; then
 		fi
 	fi
 	cd $AST_SOURCE_PARENT_DIR
-	get_source
+	if [ "$OFFLINE_INSTALL" = "1" ]; then
+		cp -r $OFFLINE_DIR/asterisk-offline .
+		AST_SRC_DIR="asterisk-offline"
+		cd $AST_SRC_DIR
+	else
+		get_ast_source
+	fi
 	# Install Pre-Reqs
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		printf "%s %d" "libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v

@@ -60,6 +60,12 @@ Install cached PhreakScript man page (may be outdated)
 Install or upgrade Asterisk.
 This is the primary command provided by PhreakScript.
 .TP
+\f[B]offline\f[R]
+Prepare offline installation source for disconnected environments
+.TP
+\f[B]noupdate\f[R]
+Do not update the package manager
+.TP
 \f[B]source\f[R]
 Download the source code for Asterisk into the current working directory.
 .TP
@@ -327,6 +333,9 @@ By default, Asterisk is install as root.
 Do not install extra features or enhancements.
 Bug fixes are always installed.
 (May be required for older versions)
+.TP
+\f[B]--offline\f[R]
+Use an offline installation source for disconnected environments
 .TP
 \f[B]-v\f[R], \f[B]--version\f[R]
 Specific version of Asterisk to install (M.m.b e.g.
