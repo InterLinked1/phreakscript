@@ -8,7 +8,15 @@ if [ "$src" = "https://docs.phreaknet.org/script" ]; then
 	src="https://docs.phreaknet.org/script/phreaknet.sh" # needed for compatability with < 0.0.38, can be removed eventually
 fi
 printf "Upstream: %s\n" "$src"
-wget -q $src -O $tmp --no-cache # always replace
+if test -h /bin/ls && [[ `readlink /bin/ls` =~ busybox ]]; then
+	curl -s $src > $tmp
+else
+	wget -q $src -O $tmp --no-cache # always replace
+fi
+if [ ! -f $tmp ]; then
+	err "File $tmp not found"
+	exit 1
+fi
 chmod +x $tmp
 test=`$tmp help 2>&- | grep "PhreakScript" | grep "(" | wc -l`
 if [ "$test" = "1" ]; then

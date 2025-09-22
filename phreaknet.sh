@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2025 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.3.0 (2025-07-07)
+# v1.3.1 (2025-09-22)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2025-09-22 1.3.1 Improve script portability
 # 2025-07-07 1.3.0 Use GitHub API to download patches
 # 2025-01-24 1.2.2 Asterisk: Target 22.2.0
 # 2024-12-30 1.2.1 DAHDI Linux: Work around compilation failure for newer kernels
@@ -229,7 +230,7 @@ PAC_MAN="apt-get"
 AST_SOUNDS_DIR="$AST_VARLIB_DIR/sounds/en"
 AST_MOH_DIR="$AST_VARLIB_DIR/moh"
 AST_MAKE="make"
-WGET="wget -q"
+WGET="wget -q --no-cache"
 CURL="curl --silent --show-error -L -f"
 CURL_HEADERS_DUMPFILE="/tmp/ps_patchreq_headers.txt"
 CURL_DEBUG="curl -L --verbose"
@@ -448,6 +449,10 @@ if [ "$WGET" = "" ]; then
 		WGET="$WGET --show-progress"
 	fi
 fi
+if test -h /bin/ls && [[ `readlink /bin/ls` =~ busybox ]] && [ "$PAC_MAN" != "apk" ]; then
+	# wget is useless on BusyBox (at least with AstLinux, but not Alpine Linux), use curl instead
+	WGET="curl -s -O"
+fi
 
 if [ "$OS_DIST_INFO" = "Sangoma Linux" ]; then # the FreePBX distro...
 	WGET="wget -q" # --show-progress not supported by yum/Sangoma Linux?
@@ -633,7 +638,7 @@ Options:
        --manselect    install: Manually run menuselect yourself
        --minimal      install: Do not upgrade the kernel or install nonrequired dependencies (such as utilities that may be useful on typical Asterisk servers)
        --vanilla      install: Do not install extra features or enhancements. Bug fixes are always installed. (May be required for older versions)
-       --offline      install: Use an offline installation source for disconnected environments.
+       --offline      install: Use an offline installation source for disconnected environments / do not check for PhreakScript updates
        --noupdate     install: Do not update the package manager
 "
 	phreakscript_info
@@ -715,8 +720,18 @@ stop_wanpipe() {
 	fi
 }
 
+get_ast_pid() {
+	if test -h /bin/ls && [[ `readlink /bin/ls` =~ busybox ]]; then
+		# Busy Box doesn't support ps -u or -x
+		astpid=$( ps | grep asterisk | grep -v grep | grep -v canary | grep -v rasterisk | head -n1 | xargs | cut -d' ' -f1 )
+	else
+		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+	fi
+	return $astpid
+}
+
 stop_telephony() {
-	astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+	astpid=$( get_ast_pid )
 	if [ "$astpid" != "" ]; then
 		if [ "$1" = "1" ]; then
 			# Only need to unload chan_dahdi if it's loaded
@@ -729,7 +744,7 @@ stop_telephony() {
 			fi
 		else
 			service asterisk stop # stop Asterisk
-			astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
+			astpid=$( get_ast_pid )
 			if [ "$astpid" != "" ]; then
 				# if that didn't work, kill it manually
 				kill -9 $astpid
@@ -875,8 +890,8 @@ start_telephony() {
 	service dahdi start
 
 	service asterisk start # Start Asterisk if it's not running already
-	/sbin/rasterisk -x "module load chan_dahdi" # Load chan_dahdi if Asterisk was already running
-	/sbin/rasterisk -x "dahdi show channels" # The ultimate test is what DAHDI channels actually show up in Asterisk
+	/usr/sbin/rasterisk -x "module load chan_dahdi" # Load chan_dahdi if Asterisk was already running
+	/usr/sbin/rasterisk -x "dahdi show channels" # The ultimate test is what DAHDI channels actually show up in Asterisk
 	echog "Telephony initialization completed"
 }
 
@@ -889,7 +904,7 @@ assert_root() {
 
 download_if_missing() {
 	if [ ! -f "$1" ]; then
-		wget "$2"
+		$WGET "$2"
 	else
 		printf "Audio file already present, not overwriting: %s\n" "$1"
 	fi
@@ -1195,7 +1210,7 @@ install_freepbx() { # https://www.atlantic.net/vps-hosting/how-to-install-asteri
 	# PHP 7.4 is supported: https://www.freepbx.org/freepbx-16-is-now-released-for-general-availability/
 	apt-get -y install apache2 mariadb-server php libapache2-mod-php7.4 php7.4 php-pear php7.4-cgi php7.4-common php7.4-curl php7.4-mbstring php7.4-gd php7.4-mysql php7.4-bcmath php7.4-zip php7.4-xml php7.4-imap php7.4-json php7.4-snmp
 	cd $AST_SOURCE_PARENT_DIR
-	wget http://mirror.freepbx.org/modules/packages/freepbx/$FREEPBX_VERSION.tgz -O $AST_SOURCE_PARENT_DIR/$FREEPBX_VERSION.tgz
+	$WGET http://mirror.freepbx.org/modules/packages/freepbx/$FREEPBX_VERSION.tgz
 	tar -xvzf $FREEPBX_VERSION.tgz
 	cd $AST_SOURCE_PARENT_DIR/freepbx
 	rm ../$FREEPBX_VERSION.tgz
@@ -2346,7 +2361,7 @@ phreak_tree_module() { # $1 = file to patch, $2 = whether failure is acceptable
 
 phreak_nontree_patch() { # $1 = patched file, $2 = patch name
 	printf "Applying patch %s to %s\n" "$2" "$1"
-	$WGET "$3" -O "/tmp/$2" --no-cache
+	$WGET "$3" -O "/tmp/$2"
 	if [ $? -ne 0 ]; then
 		die "Failed to download patch: $2"
 	fi
@@ -2396,7 +2411,7 @@ phreak_fuzzy_patch() {
 
 custom_fuzzy_patch() {
 	printf "Applying patch %s to %s\n" "$1" "$1"
-	$WGET "$2" -O "/tmp/$1" --no-cache
+	$WGET "$2" -O "/tmp/$1"
 	if [ $? -ne 0 ]; then
 		die "Failed to download patch: $1"
 	fi
@@ -2446,9 +2461,10 @@ asterisk_pr_unconditional() {
 
 custom_module() { # $1 = filename, $2 = URL to download
 	printf "Adding new module: %s\n" "$1"
-	$WGET "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+	$WGET "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1"
 	if [ $? -ne 0 ]; then
-		wget "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1" --no-cache
+		# Use wget without -q to see more details
+		wget "$2" -O "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$1"
 	fi
 	if [ $? -ne 0 ]; then
 		echoerr "Failed to download module: $1"
@@ -2569,6 +2585,7 @@ phreak_patches() {
 	phreak_tree_module "res/res_phreaknet.c"
 	phreak_tree_module "res/res_pjsip_presence.c"
 	phreak_tree_module "res/res_smdr_whozz.c"
+	phreak_tree_module "res/res_telos_1a2.c"
 
 	if [ "$DEVMODE" = "1" ]; then
 		phreak_tree_module "res/res_deadlock.c" # this is not possibly useful to non-developers
@@ -2625,6 +2642,7 @@ phreak_patches() {
 	asterisk_pr_if 1302 220600 211100 201600 # sig_analog: Fix STP, ST2P, ST3P for fgccamamf
 	asterisk_pr_if 1376 220600 211100 201600 # dsp.c debug - needed for blueboxing patch to apply
 	asterisk_pr_if 1379 220600 211100 201600 # chan_dahdi: permdialmode - needed for rtoutpulsing patches to apply
+	asterisk_pr_if 1456 230100 220700 211200 201700 # chan_dahdi: Add DAHDI_CHANNEL function
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
 
@@ -2708,7 +2726,7 @@ install_odbc() {
 	# https://mariadb.com/downloads/#connectors
 	# |-> https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/
 	# |---> https://downloads.mariadb.com/Connectors/odbc/connector-odbc-3.1.11/mariadb-connector-odbc-3.1.11-debian-buster-amd64.tar.gz
-	wget https://downloads.mariadb.com/Connectors/odbc/connector-odbc-$ODBC_VER/mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
+	$WGET https://downloads.mariadb.com/Connectors/odbc/connector-odbc-$ODBC_VER/mariadb-connector-odbc-$ODBC_VER-debian-buster-amd64.tar.gz
 	if [ $? -ne 0 ]; then
 		die "MariaDB ODBC download failed"
 	fi
@@ -3325,7 +3343,7 @@ if [ -z "${AST_CC##*[!0-9]*}" ]; then # POSIX compliant: https://unix.stackexcha
 	exit 1
 fi
 
-if which curl > /dev/null; then # only execute if we have curl
+if which curl > /dev/null && [ "$OFFLINE_INSTALL" != "1" ]; then # only execute if we have curl
 	self=`grep "# v" $FILE_PATH | head -1 | cut -d'v' -f2`
 	# Only download the first few lines of the file, to get the latest version number, and only check every so often
 	if [ -f /tmp/phreaknet_upstream_version.txt ]; then
@@ -3824,7 +3842,7 @@ elif [ "$cmd" = "install" ]; then
 			printf "RPT sounds don't exist yet, adding them now...\n"
 			mkdir $AST_SOUNDS_DIR/rpt
 			cd $AST_SOUNDS_DIR/rpt
-			wget "http://downloads.allstarlink.org/asterisk-asl-sounds-en-ulaw.tar.gz"
+			$WGET "http://downloads.allstarlink.org/asterisk-asl-sounds-en-ulaw.tar.gz"
 			# Sounds are extracted directly into the dir
 			tar -xvzf asterisk-asl-sounds-en-ulaw.tar.gz
 			rm asterisk-asl-sounds-en-ulaw.tar.gz
@@ -3854,7 +3872,7 @@ elif [ "$cmd" = "install" ]; then
 	$AST_MAKE config # install init script (to run Asterisk as a service)
 	ldconfig # update shared libraries cache
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		wget net/asterisk18/files/asterisk.in
+		$WGET net/asterisk18/files/asterisk.in
 		cp asterisk.in /usr/local/etc/rc.d/asterisk
 		chmod +x /usr/local/etc/rc.d/asterisk
 	fi
@@ -3957,7 +3975,7 @@ elif [ "$cmd" = "install" ]; then
 	printf "%s\n" "Asterisk installation has completed. You may now connect to the Asterisk CLI: asterisk -r"
 	printf "%s\n" "If you upgraded Asterisk, you will need to run 'core restart now' for the new version to load."
 	if [ "$CHAN_DAHDI" = "1" ]; then
-		echog "Note that DAHDI was installed and requires a reboot before it can be used."
+		echog "Note that DAHDI was installed and requires a reboot (or hotswap of kernel modules, e.g. phreaknet restart) before it can be used."
 		echog "Note that you will need to manually configure /etc/dahdi/system.conf appropriately for your spans."
 	fi
 	if [ "$FREEPBX_GUI" = "1" ]; then
@@ -4026,8 +4044,8 @@ elif [ "$cmd" = "pulsar" ]; then
 	require_installed_asterisk
 	cd $AST_SOURCE_PARENT_DIR
 	# Certificate has expired (unmaintained)
-	wget --no-check-certificate https://octothorpe.info/downloads/pulsar-agi.tar.gz
-	wget https://code.phreaknet.org/asterisk/pulsar-noanswer.agi # bug fix to pulsar.agi, to fix broken answer supervision:
+	$WGET --no-check-certificate https://octothorpe.info/downloads/pulsar-agi.tar.gz
+	$WGET https://code.phreaknet.org/asterisk/pulsar-noanswer.agi # bug fix to pulsar.agi, to fix broken answer supervision:
 	mv pulsar-agi.tar.gz $AST_VARLIB_DIR
 	cd $AST_VARLIB_DIR
 	tar xvfz pulsar-agi.tar.gz # automatically creates $AST_VARLIB_DIR/sounds/pulsar/
@@ -4292,7 +4310,7 @@ elif [ "$cmd" = "keygen" ]; then
 		PHREAKNET_CLLI=`grep -R "clli=" $AST_CONFIG_DIR | grep -v "5551111" | grep -v "curl " | grep -v "<switch-clli>" | cut -d'=' -f2 | awk '{print $1;}'`
 		if [ ${#PHREAKNET_CLLI} -ne 11 ]; then
 			printf "Failed to find CLLI by grepping configs, querying Asterisk...\n"
-			PHREAKNET_CLLI=`/sbin/rasterisk -x "dialplan show globals" | grep "clli=" | cut -d'=' -f2 | awk '{print $1;}'`
+			PHREAKNET_CLLI=`/usr/sbin/rasterisk -x "dialplan show globals" | grep "clli=" | cut -d'=' -f2 | awk '{print $1;}'`
 		fi
 		if [ ${#PHREAKNET_CLLI} -ne 11 ]; then
 			echoerr "Failed to find PhreakNet CLLI. For future use, please set your [globals] variables, e.g. by running phreaknet config"
@@ -4697,7 +4715,7 @@ elif [ "$cmd" = "reftrace" ]; then
 	ls -la /tmp/refs.txt
 elif [ "$cmd" = "ccache" ]; then
 	cd $AST_SOURCE_PARENT_DIR
-	wget https://github.com/ccache/ccache/releases/download/v4.5.1/ccache-4.5.1.tar.gz
+	$WGET https://github.com/ccache/ccache/releases/download/v4.5.1/ccache-4.5.1.tar.gz
 	if [ $? -ne 0 ]; then
 		exit 1
 	fi
@@ -4724,7 +4742,7 @@ elif [ "$cmd" = "apiban" ]; then # install apiban-client: https://github.com/pal
 	fi
 	cd /usr/local/bin/apiban
 	if [ ! -f apiban-iptables-client ]; then
-		wget https://github.com/palner/apiban/raw/v0.7.0/clients/go/apiban-iptables-client
+		$WGET https://github.com/palner/apiban/raw/v0.7.0/clients/go/apiban-iptables-client
 	fi
 	if [ ! -f config.json ]; then
 		download_github_file "palner/apiban" "v0.7.0" "clients/go/apiban-iptables/config.json"
