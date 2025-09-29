@@ -69,6 +69,9 @@ the best Asterisk and DAHDI experience.
 **experimental**
 : Add experimental features to an existing Asterisk source
 
+**g72x**
+: Add G.723.1/G.729 support to an existing installation
+
 **dahdi**
 : Install or upgrade DAHDI (only). Generally this command does not need to be used. To install Asterisk with DAHDI, use the install command and provide the -d or --dahdi option instead.
 
@@ -305,6 +308,9 @@ The following options may be used with the **install** command.
 
 **--experimental**
 : Install experimental features that may not be production ready
+
+**--g72x**
+: Compile with support for G.723.1/G.729 codecs
 
 **--extcodecs**
 : Specify this if any external codecs are being or will be installed. Failure to do so may result in a crash on startup.

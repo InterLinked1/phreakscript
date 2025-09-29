@@ -259,6 +259,7 @@ IGNORE_FAILURES=0
 ENHANCED_INSTALL=1
 PREFER_RELEASE_CANDIDATES=1
 EXPERIMENTAL_FEATURES=0
+G72X_CODECS=0
 LIGHTWEIGHT=0
 FAST_COMPILE=0
 PKG_AUDIT=0
@@ -527,6 +528,7 @@ Commands:
    experimental       Add experimental features to an existing Asterisk source
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    wanpipe            Install wanpipe
+   g72x               Add G.723.1/G.729 support to an existing installation
    odbc               Install ODBC (MariaDB)
    installts          Install Asterisk Test Suite
    fail2ban           Install Asterisk fail2ban configuration
@@ -624,6 +626,7 @@ Options:
        --audit        install: Audit package installation
        --devmode      install: Compile with devmode enabled
        --experimental install: Install experimental features that may not be production ready
+	   --g72x         install: Compile with support for G.723.1/G.729 codecs
        --fast         install: Compile as fast as possible
        --lightweight  install: Only install basic, required modules for basic Asterisk functionality
        --alsa         install: Ensure ALSA library detection exists in the build system. This does NOT readd the deprecated/removed chan_alsa module.
@@ -2482,6 +2485,35 @@ add_experimental() {
 	custom_module "res/res_pjsip_sca_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca_body_generator.c"
 }
 
+build_g72x() {
+	cd $AST_SOURCE_PARENT_DIR
+
+	echoerr "WARNING: G.723 is not currently supported, due to unavailability of compatible Intel IPP and lack of developer support. Only G.729 will be supported."
+	sleep 1
+
+	if [ "$OFFLINE_INSTALL" = "1" ]; then
+		cp -r $OFFLINE_DIR/bcg729 .
+		cp -r $OFFLINE_DIR/asterisk-g72x .
+	else
+		git clone --depth 1 https://github.com/BelledonneCommunications/bcg729.git
+		git clone --depth 1 https://github.com/arkadijs/asterisk-g72x.git
+	fi
+
+	cd bcg729
+	ensure_installed cmake
+	cmake .
+	$AST_MAKE && $AST_MAKE install
+	cd ..
+
+	cd asterisk-g72x
+	./autogen.sh
+	./configure --with-bcg729
+	$AST_MAKE && $AST_MAKE install
+	if [ ! -f /usr/lib/asterisk/modules/codec_g729.so ]; then
+		echoerr "Failed to build G.729 codec"
+	fi
+}
+
 # Instantiate an instance of the PhreakScript repository, if not already present
 # This is necessary since this script file is designed to be able to be used standalone,
 # without the rest of the repository necessarily being present.
@@ -3257,7 +3289,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,offline,noupdate -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,offline,noupdate -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -3302,6 +3334,7 @@ while true; do
 		--extcodecs ) EXTERNAL_CODECS=1; shift ;;
 		--fast ) FAST_COMPILE=1; shift ;;
 		--freepbx ) FREEPBX_GUI=1; shift ;;
+		--g72x ) G72X_CODECS=1; shift ;;
 		--generic ) GENERIC_HEADERS=1; shift ;;
 		--autokvers ) AUTOSET_KVERS=1; shift ;;
 		--lightweight ) LIGHTWEIGHT=1; shift ;;
@@ -3536,6 +3569,18 @@ elif [ "$cmd" = "experimental" ]; then
 	else
 		echoerr "Your version of Asterisk is not eligible for experimental features"
 	fi
+elif [ "$cmd" = "g72x" ]; then
+	assert_root
+	cd $AST_SOURCE_PARENT_DIR
+	AST_SRC_DIR=`get_newest_astdir`
+	printf "Installing G.72x support\n"
+	if [ ! -d /usr/include/asterisk ]; then
+		cd $AST_SRC_DIR
+		$AST_MAKE install-headers
+		cd ..
+	fi
+	build_g72x
+	$AST_MAKE
 elif [ "$cmd" = "offline" ]; then
 	OFFLINE_PREP=1
 	AST_SOURCE_PARENT_DIR=$OFFLINE_DIR
@@ -3558,6 +3603,10 @@ elif [ "$cmd" = "offline" ]; then
 	$WGET http://downloads.asterisk.org/pub/telephony/libpri/releases/${LIBPRI_SOURCE_NAME}.tar.gz && mv ${LIBPRI_SOURCE_NAME}.tar.gz libpri.tar.gz
 	$WGET https://github.com/asterisk/libss7/archive/refs/tags/${LIBSS7_VERSION}.tar.gz && mv ${LIBSS7_VERSION}.tar.gz libss7.tar.gz
 	$WGET https://ftp.sangoma.com/linux/current_wanpipe/${WANPIPE_SOURCE_NAME}.tgz && mv ${WANPIPE_SOURCE_NAME}.tgz wanpipe.tgz
+	if [ "$G72X_CODECS" = "1" ]; then
+		git clone --depth 1 https://github.com/BelledonneCommunications/bcg729.git
+		git clone --depth 1 https://github.com/arkadijs/asterisk-g72x.git
+	fi
 	get_ast_source # end up with an asterisk-offline directory
 	echog "Offline installation source prepared in $AST_SOURCE_PARENT_DIR - copy this directory to target system for offline installation"
 	ls $AST_SOURCE_PARENT_DIR
@@ -3828,6 +3877,13 @@ elif [ "$cmd" = "install" ]; then
 		die "Compilation or doc validation failed"
 	fi
 
+	if [ "$DEVMODE" = "1" ] || [ "$G72X_CODECS" = "1" ]; then
+		$AST_MAKE install-headers # install development headers
+	fi
+	if [ "$G72X_CODECS" = "1" ]; then
+		build_g72x
+	fi
+
 	# Install Asterisk
 	if [ -d /usr/lib/asterisk/modules ]; then
 		rm -f /usr/lib/asterisk/modules/*.so
@@ -3860,9 +3916,6 @@ elif [ "$cmd" = "install" ]; then
 		exit 1
 	fi
 
-	if [ "$DEVMODE" = "1" ]; then
-		$AST_MAKE install-headers # install development headers
-	fi
 	install_samples
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
