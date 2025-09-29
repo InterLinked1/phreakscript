@@ -63,11 +63,36 @@
 						<para>Line number of 1A2 channel (e.g. 1, 2, 3, 4, etc.)</para>
 					</description>
 				</configOption>
-				<configOption name="device">
-					<synopsis>Asterisk device</synopsis>
+				<configOption name="fxodevice">
+					<synopsis>Asterisk FXO device</synopsis>
 					<description>
 						<para>Asterisk FXO device corresponding to this 1A2 line.</para>
 						<para>Music on hold will be streamed onto the line using this FXO port.</para>
+						<para>This does not require that the FXS line be served by this Asterisk system,
+						but it may not work with all equipment. If you do not hear music on hold when
+						putting a call on hold from the 1A2 system, the resistance may be too high
+						for audio to pass. If the line is served by Asterisk, you can use
+						<literal>fxsdevice</literal> instead.</para>
+						<para>Music on hold provided using this option will generally have
+						very low volume, due to the high resistance of the 1A2 line on hold.
+						For better quality, use <literal>fxsdevice</literal> if the line is
+						served by Asterisk.</para>
+					</description>
+				</configOption>
+				<configOption name="fxsdevice">
+					<synopsis>Asterisk FXS device</synopsis>
+					<description>
+						<para>Asterisk FXS device corresponding to this 1A2 line. This is specified
+						to indicate that this 1A2 line obtains dial tone from this FXS device.</para>
+						<para>If provided, music on hold will be queued on the active channel
+						of this device, rather than using the FXO device. This may be necessary
+						if simply specifying the FXO <literal>device</literal> does not work;
+						for instance, on Digium analog cards, the resistance may be too high for
+						music on hold audio to pass while a line is on hold by the 1A2 system.
+						This option furnishes music on hold directly on the Asterisk channel,
+						thus resulting in better quality and compatibility. However, this option
+						only works for lines served by the specified Asterisk FXS device.</para>
+						<para>Currently, only DAHDI devices are supported for this setting.</para>
 					</description>
 				</configOption>
 				<configOption name="moh_class">
@@ -159,12 +184,14 @@ enum line_state {
 
 struct telos_line {
 	int lineno;							/*!< Line number on telos system */
-	const char *device;					/*!< Asterisk device */
+	const char *fxodevice;				/*!< Asterisk FXO device */
+	const char *fxsdevice;				/*!< Asterisk FXS device */
 	const char *moh_class;				/*!< Music on hold class */
 	const char *hold_context;			/*!< Hold dialplan context */
 	struct ast_channel *moh_chan;		/*!< Music on hold channel */
 	enum line_state state;				/*!< Current line state */
 	AST_LIST_ENTRY(telos_line) entry;	/*!< Next channel */
+	char fxs_activechan[80];			/*!< Channel on which hold was queued */
 	char data[];
 };
 
@@ -175,7 +202,7 @@ static int thread_running = 0;
 
 #define MAX_POLL_DELAY 2000
 
-static char serial_device[256] = "/dev/ttyS0"; /* Default serial port on a Linux system (especially if there's only one) */
+static char serial_device[256] = "";
 static int serial_fd = -1;
 static int query_success = 0;
 static int unloading = 0;
@@ -276,6 +303,15 @@ static void cleanup_moh_chan(struct ast_channel *chan)
 		ast_verb(5, "Stopping music on hold for 1A2 line %d\n", t->lineno); \
 		cleanup_moh_chan(t->moh_chan); \
 		t->moh_chan = NULL; \
+	} else if (t->fxs_activechan[0]) { \
+		struct ast_channel *ochan = ast_channel_get_by_name(t->fxs_activechan); \
+		if (ochan) { \
+			ast_queue_unhold(ochan); \
+			ast_channel_unref(ochan); \
+		} else { \
+			ast_debug(2, "Channel %s doesn't exist anymore\n", t->fxs_activechan); \
+		} \
+		t->fxs_activechan[0] = '\0'; \
 	}
 
 static int start_moh(struct telos_line *t)
@@ -290,7 +326,40 @@ static int start_moh(struct telos_line *t)
 	}
 
 	/* We need an FXO device (though not necessarily a DAHDI device) for music on hold */
-	if (ast_strlen_zero(t->device)) {
+	if (!ast_strlen_zero(t->fxsdevice)) {
+		if (!strncasecmp(t->fxsdevice, "DAHDI/", 6)) {
+			struct ast_channel *chan;
+			char active_channel[80] = ""; /* AST_MAX_CHANNEL */
+			char func_args[64];
+			int dahdichan = atoi(t->fxsdevice + 6);
+			/* We need to obtain the Asterisk channel that is currently in the "foreground"
+			 * on this DAHDI channel - that would be the owner.
+			 * This is first and foremost because we need an Asterisk channel onto which to queue MOH,
+			 * not just a DAHDI channel, but also so we can stop MOH on the right channel
+			 * if the subchannels switch around while the 1A2 line is on hold. */
+			snprintf(func_args, sizeof(func_args), "DAHDI_CHANNEL(owner,%d)", dahdichan);
+			if (ast_func_read(NULL, func_args, active_channel, sizeof(active_channel))) {
+				ast_log(LOG_WARNING, "Couldn't obtain active Asterisk channel on DAHDI channel %d\n", dahdichan);
+				return -1;
+			}
+			chan = ast_channel_get_by_name(active_channel);
+			if (chan) {
+				/* Indicate music on hold by queuing a HOLD on the active channel for this device */
+				ast_verb(5, "Queued hold on %s using class '%s'\n", active_channel, t->moh_class);
+				ast_queue_hold(chan, t->moh_class);
+				ast_channel_unref(chan);
+				ast_copy_string(t->fxs_activechan, active_channel, sizeof(t->fxs_activechan));
+				return 0;
+			} else {
+				ast_log(LOG_ERROR, "Couldn't find channel %s\n", active_channel);
+				return -1;
+			}
+		} else {
+			ast_log(LOG_ERROR, "Only DAHDI channels are supported for fxsdevice\n");
+			return -1;
+		}
+	}
+	if (ast_strlen_zero(t->fxodevice)) {
 		ast_log(LOG_ERROR, "Music on hold requested for line %d, but no FXO device specified\n", t->lineno);
 		return -1;
 	}
@@ -300,10 +369,10 @@ static int start_moh(struct telos_line *t)
 		STOP_MOH(t); /* If we already have one, for some reason, get rid of it */
 	}
 
-	chandata = ast_strdupa(t->device);
+	chandata = ast_strdupa(t->fxodevice);
 	chantech = strsep(&chandata, "/");
 	if (!chandata) {
-		ast_log(LOG_ERROR, "No data provided after channel type (%s)\n", t->device);
+		ast_log(LOG_ERROR, "No data provided after channel type (%s)\n", t->fxodevice);
 		return -1;
 	}
 
@@ -342,7 +411,7 @@ static int start_moh(struct telos_line *t)
 			desc = "Unknown";
 			break;
 		}
-		ast_log(LOG_WARNING, "Couldn't dial %s (%s)\n", t->device, desc);
+		ast_log(LOG_WARNING, "Couldn't dial %s (%s)\n", t->fxodevice, desc);
 	} else {
 		ast_channel_unlock(t->moh_chan); /* Was returned locked and reference bumped */
 		ast_verb(5, "%s (%s) for 1A2 line %d\n", !ast_strlen_zero(t->hold_context) ? "Launched hold dialplan" : "Started music on hold", S_OR(t->hold_context, t->moh_class), t->lineno);
@@ -707,10 +776,11 @@ static char *handle_show_lines(struct ast_cli_entry *e, int cmd, struct ast_cli_
 
 	ast_cli(a->fd, "Serial device is %s (fd %d)\n", serial_device, serial_fd);
 	ast_cli(a->fd, "Serial status is %s\n", thread_running ? query_success ? "RUNNING" : "STALLED" : "ABORTED");
-	ast_cli(a->fd, "%4s %-8s %17s %20s %s\n", "Line", "State", "Associated Device", "MOH Class", "Hold Context");
+	ast_cli(a->fd, "%4s %-8s %17s %17s %20s %s\n", "Line", "State", "FXO Device", "FXS Device/Chan", "MOH Class", "Hold Context");
 	AST_RWLIST_RDLOCK(&lines);
 	AST_RWLIST_TRAVERSE(&lines, t, entry) {
-		ast_cli(a->fd, "%4d %-8s %17s %20s %s\n", t->lineno, state_str_cli(t->state), S_OR(t->device, ""), S_OR(t->moh_class, ""), S_OR(t->hold_context, ""));
+		const char *fxschannel = S_OR(t->fxs_activechan, S_OR(t->fxsdevice, "")); /* If we have an active FXS channel, use that as it's more specific, otherwise just the device itself */
+		ast_cli(a->fd, "%4d %-8s %17s %17s %20s %s\n", t->lineno, state_str_cli(t->state), S_OR(t->fxodevice, ""), fxschannel, S_OR(t->moh_class, ""), S_OR(t->hold_context, ""));
 	}
 	AST_RWLIST_UNLOCK(&lines);
 
@@ -782,7 +852,7 @@ static int load_config(void)
 		} else { /* it's a line definition */
 			struct telos_line *t;
 			char *data;
-			const char *device = NULL, *moh_class = NULL, *hold_context = NULL;
+			const char *fxodevice = NULL, *fxsdevice = NULL, *moh_class = NULL, *hold_context = NULL;
 			for (var = ast_variable_browse(cfg, cat); var; var = var->next) {
 				if (!strcasecmp(var->name, "line")) {
 					if (ast_str_to_int(var->value, &tmp)) {
@@ -790,8 +860,14 @@ static int load_config(void)
 						ast_config_destroy(cfg);
 						return -1;
 					}
-				} else if (!strcasecmp(var->name, "device")) {
-					device = var->value;
+				} else if (!strcasecmp(var->name, "fxodevice")) {
+					fxodevice = var->value;
+				} else if (!strcasecmp(var->name, "fxsdevice")) {
+					if (strncasecmp(var->value, "DAHDI/", 6)) {
+						ast_log(LOG_WARNING, "Only DAHDI devices are supported for fxsdevice\n");
+						continue;
+					}
+					fxsdevice = var->value;
 				} else if (!strcasecmp(var->name, "moh_class")) {
 					moh_class = var->value;
 				} else if (!strcasecmp(var->name, "hold_context")) {
@@ -806,39 +882,71 @@ static int load_config(void)
 					return -1;
 				}
 			}
-			t = ast_calloc(1, sizeof(*t) + (device ? strlen(device) + 1 : 0) + (moh_class ? strlen(moh_class) + 1 : 0) + (hold_context ? strlen(hold_context) + 1 : 0));
+			t = ast_calloc(1, sizeof(*t) + (fxodevice ? strlen(fxodevice) + 1 : 0) + (fxsdevice ? strlen(fxsdevice) + 1 : 0)
+				+ (moh_class ? strlen(moh_class) + 1 : 0) + (hold_context ? strlen(hold_context) + 1 : 0));
 			if (!t) {
 				ast_config_destroy(cfg);
 				return -1;
 			}
 			t->lineno = tmp;
 			data = t->data;
-			if (!ast_strlen_zero(device)) {
-				strcpy(data, device); /* Safe */
-				t->device = data;
-				data += strlen(device) + 1;
+			if (!ast_strlen_zero(fxodevice)) {
+				strcpy(data, fxodevice); /* Safe */
+				t->fxodevice = data;
+				data += strlen(fxodevice) + 1;
+			}
+			if (!ast_strlen_zero(fxsdevice)) {
+				strcpy(data, fxsdevice); /* Safe */
+				t->fxsdevice = data;
+				data += strlen(fxsdevice) + 1;
 			}
 			if (!ast_strlen_zero(moh_class)) {
-				strcpy(data, moh_class);
+				strcpy(data, moh_class); /* Safe */
 				t->moh_class = data;
 				data += strlen(moh_class) + 1;
 			}
 			if (!ast_strlen_zero(hold_context)) {
-				strcpy(data, hold_context);
+				strcpy(data, hold_context); /* Safe */
 				t->hold_context = data;
+			}
+			if (ast_strlen_zero(fxodevice) && !ast_strlen_zero(hold_context)) {
+				ast_log(LOG_ERROR, "The 'hold_context' setting requires 'fxodevice' to be set\n");
+			}
+			if (!ast_strlen_zero(fxsdevice) && ast_strlen_zero(moh_class)) {
+				ast_log(LOG_WARNING, "The 'fxsdevice' setting requires 'moh_class' to be set to customize music on hold\n");
 			}
 			AST_RWLIST_INSERT_TAIL(&lines, t, entry);
 		}
 	}
 
 	ast_config_destroy(cfg);
+
+	/* This option intentionally has no default,
+	 * so that if the stock config file has not been modified,
+	 * we assume this module isn't needed and decline to load,
+	 * since we can't do anything useful without the associated equipment. */
+	if (ast_strlen_zero(serial_device)) {
+		ast_log(LOG_NOTICE, "No serial device specified, declining to load\n");
+		return -1;
+	}
+
 	return 0;
+}
+
+static void free_lines(void)
+{
+	struct telos_line *t;
+
+	AST_RWLIST_WRLOCK(&lines);
+	while ((t = AST_RWLIST_REMOVE_HEAD(&lines, entry))) {
+		STOP_MOH(t);
+		ast_free(t);
+	}
+	AST_RWLIST_UNLOCK(&lines);
 }
 
 static int unload_module(void)
 {
-	struct telos_line *t;
-
 	unloading = 1;
 	ast_cli_unregister_multiple(telos_cli, ARRAY_LEN(telos_cli));
 	ast_custom_function_unregister(&acf_telos);
@@ -857,13 +965,7 @@ static int unload_module(void)
 		serial_fd = -1;
 	}
 
-	AST_RWLIST_WRLOCK(&lines);
-	while ((t = AST_RWLIST_REMOVE_HEAD(&lines, entry))) {
-		STOP_MOH(t);
-		ast_free(t);
-	}
-	AST_RWLIST_UNLOCK(&lines);
-
+	free_lines();
 	return 0;
 }
 
@@ -873,7 +975,7 @@ static int load_module(void)
 	struct termios attr;
 
 	if (load_config()) {
-		unload_module();
+		free_lines();
 		return AST_MODULE_LOAD_DECLINE;
 	}
 
