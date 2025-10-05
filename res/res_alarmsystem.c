@@ -77,6 +77,7 @@
 					itself have any sensors connected to it. The server can then facilitate further actions based
 					on the state of its clients.</para>
 					<para>Configuring a server for client reporting is optional, but strongly recommended.</para>
+					<para>Only one server section may be configured.</para>
 				</description>
 				<configOption name="type">
 					<synopsis>Must be of type 'server'.</synopsis>
@@ -85,6 +86,7 @@
 					<synopsis>IP loss tolerance</synopsis>
 					<description>
 						<para>Number of seconds the server will tolerate not receiving pings from clients before considering IP connectivity to a client to have been lost (which will trigger the internet_lost alarm).</para>
+						<para>If set to 0, checks/alerts for lost connectivity will be disabled. This setting should be set to 0 if clients will be reporting only by telephone.</para>
 					</description>
 				</configOption>
 				<configOption name="contexts">
@@ -119,6 +121,7 @@
 					to provide redundancy to some of the alarm functions. For example, if a burglar were to break in
 					and immediately tamper with the alarm system client machine, the server machine would still
 					know that a break-in occured and alert you.</para>
+					<para>Reporting can be done by IP and/or telephone line.</para>
 					<para>Each client is defined in its own configuration section.</para>
 				</description>
 				<configOption name="type">
@@ -153,13 +156,49 @@
 						<para>It is RECOMMENDED that you use an analog POTS line and that the dial string above access this line through an RJ-31X jack.</para>
 						<para>This is used as a backup if IP reporting is unavailable. The server receiving this call should call <literal>AlarmEventReceiver</literal> to process the events.</para>
 						<para>When reporting an alarm trigger, the line will stay open until disarm_delay has been reached, to avoid making multiple calls in succession.</para>
+						<para>Please note that Dial options cannot be provided in the dial string. If you need them, use a Local channel instead that calls <literal>Dial</literal>
+						with the needed options. An example is that if using a DAHDI FXO port, you probably want to configure the port to listen for dial tone before dialing,
+						using a pre-dial Gosub subroutine.</para>
 					</description>
 				</configOption>
 				<configOption name="ping_interval">
 					<synopsis>Client ping interval</synopsis>
 					<description>
 						<para>Frequency, in seconds, with which to ping the server.</para>
+						<para>This is only used if a server IP is configured (pings are not performed for telephone-only reporting).</para>
 						<para>This should match the equivalent setting on the server side.</para>
+					</description>
+				</configOption>
+				<configOption name="phone_hangup_delay" default="50">
+					<synopsis>Phone reporting disconnect delay</synopsis>
+					<description>
+						<para>Number of seconds to keep phone failover line open upon reporting event for reporting further events in that time.</para>
+                        <para>It is recommended this setting be at least 10-15 seconds, so that if phone failover is being used,
+                        a single phone call is sufficient to report sensor trigger and alarm disarm events, rather than dialing up a second time to report this event.
+                        You may want to tweak this based on the cost of each call, cost per minute, and the acceptable amount of delay in setting up a call.</para>
+						<para>If a phone line is being used as a failover for IP reporting,
+						since events tend to be "bursty" (i.e. sensor triggered, system disarmed),
+						it may make sense to keep the phone line open for a short amount of time,
+						so that any events that occur during a brief period after the connection
+						is set up can be reported immediately. This can allow disarms and breaches
+						to be reported more quickly.</para>
+						<para>This option is mainly useful when a phone line is not configured for
+						batch reporting. If <literal>batch_events</literal> is enabled, it is recommended
+						that this be set to 0.</para>
+					</description>
+				</configOption>
+				<configOption name="batch_events">
+					<synopsis>Whether to batch reporting events</synopsis>
+					<description>
+						<para>For sites that are only connected by telephone line, this option batches reporting events together to
+						reduce the frequency the telephone line needs to be used. Sensor trigger events will not be reported
+						immediately and will be batched for future reporting. Only if an alarm is triggered (i.e. a breach due to failure
+						to disarm in a timely manner) will reporting be done immediately.</para>
+						<para>When enabled, there is no automatic reporting that is done for non-alarm events. A cron job should be configured
+						to run the "alarmsystem flush" command on a daily basis or whenever convenient.</para>
+						<para>This option is intended primarily for telephone reporting.
+						This option should not be used if IP reporting is enabled, as always-on Internet connectivity allows events
+						to be reported in realtime.</para>
 					</description>
 				</configOption>
 				<configOption name="egress_delay">
@@ -416,6 +455,30 @@
 			<para>Returns whether an alarm system sensor is currently triggered.</para>
 		</description>
 	</function>
+	<function name="ALARMSYSTEM_STATE" language="en_US">
+		<synopsis>
+			Returns the current overall state of the client
+		</synopsis>
+		<syntax>
+			<parameter name="client" required="true">
+				<para>Client name as configured in <literal>res_alarmsystem.conf</literal></para>
+			</parameter>
+		</syntax>
+		<description>
+			<para>Returns the current overall state.</para>
+			<enumlist>
+				<enum name="OK">
+					<para>Normal state</para>
+				</enum>
+				<enum name="TRIGGERED">
+					<para>A sensor has triggered and system is in grace period</para>
+				</enum>
+				<enum name="BREACH">
+					<para>An active breach is ongoing</para>
+				</enum>
+			</enumlist>
+		</description>
+	</function>
  ***/
 
 #define MODULE_NAME "res_alarmsystem"
@@ -559,12 +622,20 @@ struct alarm_event {
 
 AST_LIST_HEAD(alarm_events, alarm_event);
 
+enum flush_events {
+	FLUSH_NONE = 0,
+	FLUSH_ONDEMAND = (1 << 0),
+	FLUSH_BREACH = (1 << 1),
+};
+
 struct alarm_client {
 	int sfd; /* Socket file descriptor */
 	int sequence_no; /* Event sequence_no */
 	const char *name;
 	enum alarm_state state; /* Internal aggregate alarm state */
 	unsigned int ip_connected:1; /* IP connectivity good or lost? */
+	unsigned int batch_events:1; /* Batch events */
+	enum flush_events flush_messages; /* Directive to flush all messages (either manual from CLI command, or due to a breach event) */
 	pthread_t thread;
 	int alertpipe[2];
 	char client_id[AST_MAX_EXTENSION];
@@ -573,13 +644,15 @@ struct alarm_client {
 	char server_ip[128];
 	char server_dialstr[AST_MAX_EXTENSION];
 	unsigned int phone_hangup_delay;
-	struct ast_channel *phonechan; /* Phone failover channel */
+	struct ast_channel *phonechan; /* Phone reporting channel */
 	unsigned int ping_interval;
 	time_t last_ip_ack;
 	time_t autoservice_start;
 	time_t breach_time;
 	time_t last_arm;
 	time_t ip_lost_time; /* Time that IP connectivity was last lost */
+	time_t last_failed_phonesync; /* Last time we tried to report by phone but failed to sync */
+	int consecutive_failed_phonesyncs; /* Number of failed phone syncs */
 	int egress_delay;
 	char *contexts[NUM_ALARM_EVENTS];
 	struct alarm_sensors sensors;
@@ -1017,17 +1090,23 @@ static int process_message(struct alarm_server *s, struct reporting_client *r, c
 	return 0;
 }
 
-static void build_mmss(char *restrict buf, size_t len)
+#define DDHHMMSS_LENGTH 8
+
+static void build_ddhhmmss(char *restrict buf, size_t len)
 {
 	struct timeval when = {0,};
 	struct ast_tm tm;
 	when = ast_tvnow();
 	
-	/* Include MM:SS timestamp, in case we need to dial the event in by phone, which would delay it,
+	/* Include timestamp, in case we need to dial the event in by phone, which would delay it,
 	 * or if a UDP packet needs to be retransmitted. */
-	ast_localtime(&when, &tm, NULL);
-	/* Conveniently since it's just minutes and seconds, the time zone doesn't matter, no need to convert to UTC here */
-	ast_strftime(buf, len, "%M%S", &tm);
+	ast_localtime(&when, &tm, "Etc/UTC");
+	/* Initially, this was just minutes and seconds, and the time zone didn't matter, no there was need to convert to UTC here.
+	 * Now we report 8-digit date, hour, minute, and second, since with batch_events=yes and telephone only reporting,
+	 * it could easily be a day or more between reporting dumps (we'll assume that it's not more than a month,
+	 * especially since with batch_events, the user should set a cron job to report at least daily or so).
+	 * Therefore, we also convert to UTC time. */
+	ast_strftime(buf, len, "%d%H%M%S", &tm);
 }
 
 static int socket_read(int *id, int fd, short events, void *sock)
@@ -1094,12 +1173,12 @@ static int socket_read(int *id, int fd, short events, void *sock)
 
 	/* Infer if Internet connectivity has been restored */
 	if (!r->ip_connected) {
-		char mmss[5];
+		char ddhhmmss[DDHHMMSS_LENGTH + 1];
 		/* Build our own timestamp now, since if we got a ping, it has no timestamp.
 		 * Not that it really matters, since we log a granular timestamp in the log anyways. */
-		build_mmss(mmss, sizeof(mmss));
+		build_ddhhmmss(ddhhmmss, sizeof(ddhhmmss));
 		ast_log(LOG_NOTICE, "Client '%s' is now ONLINE\n", r->client_id);
-		alarm_server_log(s, clientid, 0, mmss, EVENT_INTERNET_RESTORED, "", ""); /* Inferred event */
+		alarm_server_log(s, clientid, 0, ddhhmmss, EVENT_INTERNET_RESTORED, "", ""); /* Inferred event */
 		r->ip_connected = 1;
 	}
 
@@ -1139,17 +1218,20 @@ static void server_inferred_event(struct alarm_server *s, struct reporting_clien
 
 static void check_client_connectivity(void)
 {
-	char mmss[5];
+	char ddhhmmss[DDHHMMSS_LENGTH + 1];
 	struct reporting_client *r;
 	time_t now = time(NULL);
 
-	build_mmss(mmss, sizeof(mmss));
+	build_ddhhmmss(ddhhmmss, sizeof(ddhhmmss));
 
 	AST_LIST_TRAVERSE(&this_alarm_server->clients, r, entry) {
+		if (this_alarm_server->ip_loss_tolerance == 0) {
+			continue; /* We don't monitor this client for connectivity loss */
+		}
 		if (r->ip_connected && SERVER_THINKS_CLIENT_IS_OFFLINE(this_alarm_server, r, now)) {
 			/* This is an inferred event, by loss of recent pings */
 			ast_debug(3, "Last ping from client was at %lu, tolerance is %u, time is currently %lu\n", r->last_ip_contact, this_alarm_server->ip_loss_tolerance, now);
-			server_inferred_event(this_alarm_server, r, r->client_id, 0, mmss, EVENT_INTERNET_LOST, "", "");
+			server_inferred_event(this_alarm_server, r, r->client_id, 0, ddhhmmss, EVENT_INTERNET_LOST, "", "");
 			r->ip_connected = 0;
 			ast_log(LOG_NOTICE, "Client '%s' is now OFFLINE\n", r->client_id);
 		}
@@ -1158,7 +1240,7 @@ static void check_client_connectivity(void)
 			if (now >= r->breach_time) {
 				ast_log(LOG_NOTICE, "Client '%s' has not yet been disarmed, active breach!\n", r->client_id);
 				r->state = ALARM_STATE_BREACH;
-				server_inferred_event(this_alarm_server, r, r->client_id, 0, mmss, EVENT_ALARM_BREACH, "", "");
+				server_inferred_event(this_alarm_server, r, r->client_id, 0, ddhhmmss, EVENT_ALARM_BREACH, "", "");
 			}
 		}
 	}
@@ -1210,7 +1292,7 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 {
 	char msgbuf[MAX_PACKET_SIZE];
 	char seqno[12];
-	char mmss[5];
+	char ddhhmmss[DDHHMMSS_LENGTH + 1];
 	int len;
 	unsigned int sequence_no;
 	struct alarm_event *e;
@@ -1219,7 +1301,7 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 	sequence_no = c->sequence_no;
 	if (event == EVENT_PING) {
 		strcpy(seqno, ""); /* No sequence number usage for pings */
-		strcpy(mmss, ""); /* No timestamp for pings */
+		strcpy(ddhhmmss, ""); /* No timestamp for pings */
 	} else {
 		/* INTERNET events: Since these events aren't sent to the server (they are inferred events by the server),
 		 * don't consume a sequence number for them, or that will mess up synchronization. */
@@ -1227,12 +1309,12 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 			sequence_no = 0;
 		}
 		snprintf(seqno, sizeof(seqno), "%u", sequence_no);
-		build_mmss(mmss, sizeof(mmss));
+		build_ddhhmmss(ddhhmmss, sizeof(ddhhmmss));
 	}
-	len = snprintf(msgbuf, sizeof(msgbuf), "%s*%s*%s*%s*%d*%s*%s#", c->client_id, S_OR(c->client_pin, ""), seqno, mmss, event, s ? s->sensor_id : "", S_OR(data, ""));
+	len = snprintf(msgbuf, sizeof(msgbuf), "%s*%s*%s*%s*%d*%s*%s#", c->client_id, S_OR(c->client_pin, ""), seqno, ddhhmmss, event, s ? s->sensor_id : "", S_OR(data, ""));
 	if (event != EVENT_PING || !c->sequence_no) {
 		/* Don't log pings, except the first one, since that would be too noisy */
-		alarm_client_log(c, sequence_no, mmss, event, s, data);
+		alarm_client_log(c, sequence_no, ddhhmmss, event, s, data);
 	}
 
 	if (event != EVENT_PING && !INFERRED_EVENT(event)) {
@@ -1279,6 +1361,10 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 		e->seqno = sequence_no;
 		AST_LIST_INSERT_TAIL(&c->events, e, entry);
 
+		if (event == EVENT_ALARM_BREACH) {
+			c->flush_messages |= FLUSH_BREACH; /* Normally if batch reporting is enabled, messages are queued and not reported in realtime, but breaches trigger immediate reporting */
+		}
+
 		/* Wake up the client thread to tell it to send the message */
 		ast_alertpipe_write(c->alertpipe);
 
@@ -1309,6 +1395,8 @@ static void set_ip_connected(struct alarm_client *c, int connected)
 static int send_events_to_server_by_ip(struct alarm_client *c)
 {
 	struct alarm_event *e;
+
+	ast_assert(c->sfd != -1);
 
 	/* Only attempt IP delivery in this loop.
 	 * Since this is UDP (non-blocking),
@@ -1376,14 +1464,14 @@ static int wait_for_answer(struct alarm_client *c)
 			if (!f) {
 				ast_hangup(c->phonechan);
 				c->phonechan = NULL;
-				ast_log(LOG_WARNING, "Phone failover channel disconnected before answer\n");
+				ast_log(LOG_WARNING, "Phone reporting channel disconnected before answer\n");
 				return 1;
 			}
 			switch (f->frametype) {
 			case AST_FRAME_CONTROL:
 				switch (f->subclass.integer) {
 				case AST_CONTROL_ANSWER:
-					ast_verb(3, "Phone failover channel %s answered\n", ast_channel_name(c->phonechan));
+					ast_verb(3, "Phone reporting channel %s answered\n", ast_channel_name(c->phonechan));
 					ast_channel_hangupcause_set(c->phonechan, AST_CAUSE_NORMAL_CLEARING);
 					res = 0;
 					break;
@@ -1418,6 +1506,9 @@ static int wait_for_answer(struct alarm_client *c)
 	return res;
 }
 
+#define DTMF_LEN 75
+#define DTMF_INBETWEEN_LEN 50
+
 /*! \brief Send a DTMF string, optionally *-terminated */
 static int send_dtmf(struct ast_channel *chan, const char *digits, int addstar)
 {
@@ -1425,13 +1516,13 @@ static int send_dtmf(struct ast_channel *chan, const char *digits, int addstar)
 
 	ast_assert(chan != NULL);
 
-	res = ast_dtmf_stream(chan, NULL, digits, 150, 100);
+	res = ast_dtmf_stream(chan, NULL, digits, DTMF_INBETWEEN_LEN, DTMF_LEN);
 	if (res) {
 		ast_log(LOG_WARNING, "Failed to send digits '%s'\n", digits);
 		return res;
 	}
 	if (addstar) {
-		res = ast_dtmf_stream(chan, NULL, "*", 150, 100);
+		res = ast_dtmf_stream(chan, NULL, "*", DTMF_INBETWEEN_LEN, DTMF_LEN);
 		if (res) {
 			ast_log(LOG_WARNING, "Failed to send digit '%s'\n", "*");
 			return res;
@@ -1463,7 +1554,50 @@ static void purge_sent_events(struct alarm_client *c, int ack_seqno)
 		ast_free(e);
 	}
 	AST_LIST_TRAVERSE_SAFE_END;
+	if (AST_LIST_EMPTY(&c->events)) {
+		/* If the breach report pending flag was previously set,
+		 * and the queue is now empty, we've obviously
+		 * reported any breach events, so reset it now.
+		 *
+		 * An edge case here is if we somehow reported some of the events,
+		 * but not all of them (which would involve the server acking
+		 * a strict subset of the events in queue). If that happens,
+		 * we won't reset this flag as the queue's not empty, but
+		 * we'll also retry delivery sooner so it works out fine. */
+		c->flush_messages = FLUSH_NONE; /* List is empty now, so there's no longer anything to flush */
+	}
 	AST_LIST_UNLOCK(&c->events);
+}
+
+/*! \brief Exponential backoff for phone reporting */
+static int phone_retry_time(struct alarm_client *c)
+{
+	/* Retry more quickly if a breach has actually occured, otherwise there's not much of a rush */
+	if (c->flush_messages & FLUSH_BREACH && c->consecutive_failed_phonesyncs < 5) {
+		/* If a breach is active, try to report it quickly even if it fails a couple times,
+		 * but only to a limit. Otherwise, we need to back off too. */
+		return 60;
+	}
+	switch (c->consecutive_failed_phonesyncs) {
+	case 1:
+		return 120;
+	case 2:
+		return 240;
+	case 3:
+		return 600;
+	case 4:
+		return 1200;
+	case 5:
+		return 1800;
+	case 6:
+		return 3600;
+	case 7:
+		return 7200;
+	case 8:
+		return 14400;
+	default:
+		return 86400;
+	}
 }
 
 /*! \brief Failover reporting by phone, if IP reporting is unavailable. */
@@ -1487,12 +1621,33 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 		AST_LIST_UNLOCK(&c->events);
 		return -1;
 	}
+	if (c->batch_events) {
+		/* If configured to batch events, we do not report events in realtime unless either:
+		 * 1) There is a breach event to deliver
+		 * 2) The queue is manually flushed */
+		if (!c->flush_messages) {
+			AST_LIST_UNLOCK(&c->events);
+			return -1;
+		}
+		/* If we failed to sync up by phone recently, don't keep retrying in an endless loop;
+		 * that would tie up the phone line continously for no reason. Something is probably wrong with the reporting line which needs to be fixed. */
+		if (c->last_failed_phonesync > 0) {
+			int retry_interval = phone_retry_time(c);
+			time_t now = time(NULL);
+			if (c->last_failed_phonesync + retry_interval > now) {
+				int next_retry = (c->last_failed_phonesync + retry_interval) - now;
+				AST_LIST_UNLOCK(&c->events);
+				ast_debug(2, "Phone reporting failed recently (%ld s ago), waiting %d s before retrying again\n", now - c->last_failed_phonesync, next_retry);
+				return -1;
+			}
+		}
+	}
 	AST_LIST_UNLOCK(&c->events);
 
 	/* Since this is the only thread that handles reporting,
 	 * there's no risk of two phone channels existing. */
 	if (c->phonechan) {
-		ast_debug(3, "Resuming phone failover reporting using existing channel %s\n", ast_channel_name(c->phonechan));
+		ast_debug(3, "Resuming phone reporting using existing channel %s\n", ast_channel_name(c->phonechan));
 		/* Take the channel out of autoservice */
 		if (ast_autoservice_stop(c->phonechan)) {
 			ast_log(LOG_ERROR, "Failed to stop autoservice on %s\n", ast_channel_name(c->phonechan));
@@ -1506,7 +1661,9 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 		tech = strsep(&resource, "/");
 		c->phonechan = new_channel(tech, resource);
 		if (!c->phonechan) {
-			ast_log(LOG_ERROR, "Failed to set up phone failover channel\n");
+			ast_log(LOG_ERROR, "Failed to set up phone channel\n");
+			c->consecutive_failed_phonesyncs++;
+			c->last_failed_phonesync = time(NULL);
 			return -1;
 		}
 
@@ -1516,6 +1673,8 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 			ast_log(LOG_ERROR, "Failed to call on %s\n", ast_channel_name(c->phonechan));
 			ast_hangup(c->phonechan);
 			c->phonechan = NULL;
+			c->consecutive_failed_phonesyncs++;
+			c->last_failed_phonesync = time(NULL);
 			return -1;
 		}
 		ast_verb(3, "Called %s/%s\n", tech, resource);
@@ -1523,17 +1682,23 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 		if (res) {
 			ast_hangup(c->phonechan);
 			c->phonechan = NULL;
+			c->consecutive_failed_phonesyncs++;
+			c->last_failed_phonesync = time(NULL);
 			return res;
 		}
 
 		/* Wait for initial ACK from AlarmEventReceiver to synchronize */
 		res = ast_app_getdata_terminator(c->phonechan, "", buf, sizeof(buf), 60000, "*");
 		if (res != AST_GETDATA_EMPTY_END_TERMINATED) {
-			ast_log(LOG_WARNING, "Failed to synchronize with server\n");
+			ast_log(LOG_WARNING, "Failed to synchronize with reporting server\n");
 			ast_hangup(c->phonechan);
 			c->phonechan = NULL;
+			c->consecutive_failed_phonesyncs++;
+			c->last_failed_phonesync = time(NULL);
 			return -1;
 		}
+
+		ast_debug(2, "Received ACK from server, sending client identification\n");
 
 		/* Start by sending client ID and client PIN.
 		 * Since this is connection oriented, no need to send these again
@@ -1541,11 +1706,20 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 		res = send_dtmf(c->phonechan, c->client_id, 1);
 		if (res) {
 			ast_log(LOG_WARNING, "Failed to send client ID\n");
+			c->consecutive_failed_phonesyncs++;
+			c->last_failed_phonesync = time(NULL);
 		}
 		res = send_dtmf(c->phonechan, S_OR(c->client_pin, ""), 1);
 		if (res) {
 			ast_log(LOG_WARNING, "Failed to send client PIN\n");
+			c->consecutive_failed_phonesyncs++;
+			c->last_failed_phonesync = time(NULL);
 		}
+
+		/* At this point, we've at least successfully synced up with the reporting server
+		 * (though we still need to send our events). */
+		c->consecutive_failed_phonesyncs = 0;
+		c->last_failed_phonesync = 0;
 	}
 
 	/* Don't keep the list locked the entire time that we're sending events,
@@ -1564,6 +1738,7 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 			}
 			if (last_sent_seqno >= e->seqno) {
 				/* Already sent this event in a previous loop iteration */
+				ast_debug(3, "Already sent event seqno %d\n", e->seqno);
 				continue;
 			}
 			more_events = 1;
@@ -1577,11 +1752,14 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 			last_sent_seqno = e->seqno;
 			e->attempts++;
 			AST_LIST_UNLOCK(&c->events);
+			ast_debug(3, "Sending DTMF for event seqno %d\n", e->seqno);
 			res = send_dtmf(c->phonechan, encoded, 0);
 			if (res) {
-				ast_log(LOG_WARNING, "Failed to send event as DTMF\n");
+				ast_log(LOG_WARNING, "Failed to send event seqno %d as DTMF\n", e->seqno);
 				ast_hangup(c->phonechan);
 				c->phonechan = NULL;
+				c->consecutive_failed_phonesyncs++;
+				c->last_failed_phonesync = time(NULL);
 				return -1;
 			}
 			event_index++;
@@ -1609,6 +1787,8 @@ postunlock:
 		ast_log(LOG_WARNING, "Failed to send final '#'\n");
 		ast_hangup(c->phonechan);
 		c->phonechan = NULL;
+		c->consecutive_failed_phonesyncs++;
+		c->last_failed_phonesync = time(NULL);
 		return -1;
 	}
 
@@ -1620,11 +1800,18 @@ postunlock:
 		ast_log(LOG_WARNING, "Failed to receive any acknowledgment from server\n");
 		ast_hangup(c->phonechan);
 		c->phonechan = NULL;
+		c->consecutive_failed_phonesyncs++;
+		c->last_failed_phonesync = time(NULL);
 		return -1;
 	}
 
 	ack_no = atoi(buf);
 	purge_sent_events(c, ack_no);
+
+	/* If we're going to hang up the line immediately, don't bother putting it in autoservice first. */
+	if (!c->phone_hangup_delay) {
+		return 0;
+	}
 
 	/* Keep the channel alive for a little bit,
 	 * just in case we need to use it again to send an event soon. */
@@ -1644,6 +1831,8 @@ static int process_server_ack(struct alarm_client *c)
 	char buf[32];
 	ssize_t res;
 	int ack_seqno;
+
+	ast_assert(c->sfd != -1);
 
 	res = recv(c->sfd, buf, sizeof(buf) - 1, 0);
 	if (res <= 0) {
@@ -1712,10 +1901,13 @@ static void *client_thread(void *arg)
 		usleep(1000);
 	}
 
-	/* First send a ping to initialize UDP communication and see if the network is up.
-	 * This will generate the event but not actually process it until we start
-	 * executing the loop, at which time we'll service the alertpipe immediately. */
-	generate_event(c, EVENT_PING, NULL, NULL);
+	if (c->sfd != -1) {
+		/* Unless IP reporting is completely disabled,
+		 * first send a ping to initialize UDP communication and see if the network is up.
+		 * This will generate the event but not actually process it until we start
+		 * executing the loop, at which time we'll service the alertpipe immediately. */
+		generate_event(c, EVENT_PING, NULL, NULL);
+	}
 
 	/* Send our initialization event */
 	generate_event(c, EVENT_ALARM_OKAY, NULL, NULL);
@@ -1740,8 +1932,10 @@ static void *client_thread(void *arg)
 				}
 			}
 			if (pfds[1].revents & POLLIN) {
-				/* The server sent us something (probably an ACK, since we don't expect anything else) */
-				process_server_ack(c);
+				if (c->ip_connected) {
+					/* The server sent us something (probably an ACK, since we don't expect anything else) */
+					process_server_ack(c);
+				}
 			} else if (pfds[1].revents & POLLERR) {
 				set_ip_connected(c, 0); /* Until proven otherwise, set as offline since we likely are */
 				ast_debug(1, "Poll error with UDP socket, connection to alarm reporting server is likely broken\n");
@@ -1816,8 +2010,17 @@ static void *client_thread(void *arg)
 			if (c->phonechan) {
 				/* If the phone channel is being autoserviced in the background,
 				 * but hasn't been used in a while, get rid of it */
-				if (c->autoservice_start < now - c->phone_hangup_delay) {
-					ast_verb(5, "Disconnecting phone failover line\n");
+				if (!c->phone_hangup_delay) {
+					/* This is a special case for if there is no delay configured.
+					 * In that case, hang up immediately. */
+					ast_verb(5, "Disconnecting phone reporting line\n");
+					cleanup_phone_chan(c);
+				} else if (c->autoservice_start < now - c->phone_hangup_delay) {
+					/* The loop only runs every 5 seconds, so the exact amount of time
+					 * we hang around until hang up may vary but is likely rounded up
+					 * to the nearest 5. */
+					int diff = now - c->autoservice_start;
+					ast_verb(5, "Disconnecting phone reporting line (idle for %d seconds)\n", diff);
 					cleanup_phone_chan(c);
 				}
 			}
@@ -1969,6 +2172,7 @@ static int load_config(void)
 				return -1;
 			}
 			strcpy(c->data, cat); /* Safe */
+			c->sfd = -1;
 			c->name = c->data;
 			c->alertpipe[0] = c->alertpipe[1] = -1;
 			if (ast_alertpipe_init(c->alertpipe)) {
@@ -2045,6 +2249,8 @@ postsocket:
 					ast_copy_string(c->server_dialstr, var->value, sizeof(c->server_dialstr));
 				} else if (!strcasecmp(var->name, "phone_hangup_delay") && !ast_strlen_zero(var->value)) {
 					c->phone_hangup_delay = atoi(var->value);
+				} else if (!strcasecmp(var->name, "batch_events") && !ast_strlen_zero(var->value)) {
+					c->batch_events = ast_true(var->value) ? 1 : 0;
 				} else if (!strcasecmp(var->name, "ping_interval") && !ast_strlen_zero(var->value)) {
 					c->ping_interval = atoi(var->value);
 				} else if (!strcasecmp(var->name, "egress_delay") && !ast_strlen_zero(var->value)) {
@@ -2380,7 +2586,7 @@ static int alarmeventreceiver_exec(struct ast_channel *chan, const char *data)
 		return -1;
 	}
 
-	res = ast_dtmf_stream(chan, NULL, "*", 0, 75);
+	res = ast_dtmf_stream(chan, NULL, "*", 0, DTMF_LEN);
 	if (res) {
 		ast_log(LOG_WARNING, "Channel disappeared before ACK completed\n");
 		return -1;
@@ -2437,7 +2643,7 @@ static int alarmeventreceiver_exec(struct ast_channel *chan, const char *data)
 			/* Send an acknowledgment. */
 			ast_debug(3, "Sending DTMF ACK %d\n", r->next_ack);
 			snprintf(ack, sizeof(ack), "%u#", r->next_ack);
-			res = ast_dtmf_stream(chan, NULL, ack, 150, 75);
+			res = ast_dtmf_stream(chan, NULL, ack, DTMF_INBETWEEN_LEN, DTMF_LEN);
 			if (res) {
 				ast_log(LOG_WARNING, "Channel disappeared before ACK completed\n");
 				return -1;
@@ -2702,7 +2908,7 @@ static char *handle_show_clients(struct ast_cli_entry *e, int cmd, struct ast_cl
 	ast_cli(a->fd, FORMAT, "Client ID", "Name", "IP Conn", "State");
 	AST_RWLIST_RDLOCK(&clients);
 	AST_RWLIST_TRAVERSE(&clients, c, entry) {
-		ast_cli(a->fd, FORMAT2, c->client_id, c->name, c->ip_connected ? "ONLINE" : "OFFLINE", state2text(c->state));
+		ast_cli(a->fd, FORMAT2, c->client_id, c->name, c->sfd != -1 ? "UNMONITORED" : c->ip_connected ? "ONLINE" : "OFFLINE", state2text(c->state));
 	}
 	AST_RWLIST_UNLOCK(&clients);
 
@@ -2760,10 +2966,64 @@ static char *handle_show_events(struct ast_cli_entry *e, int cmd, struct ast_cli
 #undef FORMAT2
 }
 
+static char *handle_flush_events(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+#define FORMAT  "%-12s %8s %8s %s\n"
+#define FORMAT2 "%-12s %8d %8d %s\n"
+	struct alarm_client *c;
+
+	switch(cmd) {
+	case CLI_INIT:
+		e->command = "alarmsystem flush events";
+		e->usage =
+			"Usage: alarmsystem flush events <client name>\n"
+			"       Flush all unreported (in flight) alarm events for a client.\n";
+		return NULL;
+	case CLI_GENERATE:
+		if (a->pos == 3) {
+			char *ret = NULL;
+			int which = 0;
+			size_t wlen = strlen(a->word);
+			AST_RWLIST_RDLOCK(&clients);
+			AST_RWLIST_TRAVERSE(&clients, c, entry) {
+				if (!strncasecmp(a->word, c->name, wlen) && ++which > a->n) {
+					ret = ast_strdup(c->name);
+					break;
+				}
+			}
+			AST_RWLIST_UNLOCK(&clients);
+			return ret;
+		}
+		return NULL;
+	}
+
+	if (a->argc < 4) {
+		ast_cli(a->fd, "Must specify a client\n");
+		return CLI_FAILURE;
+	}
+
+	AST_RWLIST_RDLOCK(&clients);
+	AST_RWLIST_TRAVERSE(&clients, c, entry) {
+		if (strcasecmp(a->argv[3], c->name)) {
+			continue;
+		}
+		/* Wake up the client thread to tell it to flush messages */
+		c->flush_messages |= FLUSH_ONDEMAND;
+		ast_alertpipe_write(c->alertpipe);
+		ast_cli(a->fd, "Began flush of events queued on client %s\n", c->name);
+		break;
+	}
+	AST_RWLIST_UNLOCK(&clients);
+
+	return CLI_SUCCESS;
+#undef FORMAT
+#undef FORMAT2
+}
+
 static char *handle_show_reporters(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
-#define FORMAT  "%-12s %7s %s\n"
-#define FORMAT2 "%-12s %7s %s\n"
+#define FORMAT  "%-12s %15s %s\n"
+#define FORMAT2 "%-12s %15s %s\n"
 	struct reporting_client *r;
 
 	switch(cmd) {
@@ -2782,10 +3042,10 @@ static char *handle_show_reporters(struct ast_cli_entry *e, int cmd, struct ast_
 		return CLI_FAILURE;
 	}
 
-	ast_cli(a->fd, FORMAT, "Client ID", "IP Conn", "State");
+	ast_cli(a->fd, FORMAT, "Client ID", "IP Connectivity", "State");
 	AST_LIST_LOCK(&this_alarm_server->clients);
 	AST_LIST_TRAVERSE(&this_alarm_server->clients, r, entry) {
-		ast_cli(a->fd, FORMAT2, r->client_id, r->ip_connected ? "ONLINE" : "OFFLINE", state2text(r->state));
+		ast_cli(a->fd, FORMAT2, r->client_id, this_alarm_server->ip_loss_tolerance == 0 ? "UNMONITORED" : r->ip_connected ? "ONLINE" : "OFFLINE", state2text(r->state));
 	}
 	AST_LIST_UNLOCK(&this_alarm_server->clients);
 
@@ -2799,6 +3059,7 @@ static struct ast_cli_entry alarmsystem_cli[] = {
 	AST_CLI_DEFINE(handle_show_clients, "List all alarm clients"),
 	AST_CLI_DEFINE(handle_show_sensors, "List all alarm sensors"),
 	AST_CLI_DEFINE(handle_show_events, "List all unreported (in flight) alarm events"),
+	AST_CLI_DEFINE(handle_flush_events, "Flush all unreported (in flight) alarm events"),
 };
 
 static int unload_module(void)

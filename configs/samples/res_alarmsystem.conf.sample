@@ -18,10 +18,11 @@
 ;bindport=4589 ; UDP port to which alarm server will bind, if any servers are enabled.
 ;bindaddr=0.0.0.0
 
-;[myserver] ; Defines an alarm server to which alarm clients can report.
+;[myserver] ; Defines an alarm server to which alarm clients can report. Only one server may be configured.
 ;type = server
 ;ip_loss_tolerance = 60 ; Number of seconds the server will tolerate not receiving pings from clients before considering
                        ; IP connectivity to a client to have been lost (which will trigger the internet_lost alarm).
+                       ; Setting to 0 will disable checks/alerts for lost connectivity.
 ;contexts = myserver-contexts ; A config section which defines dialplan contexts to execute for each alarm event
 ;logfile = /var/log/asterisk/alarm_server.log ; Log file for this server
 
@@ -44,7 +45,8 @@
 ;phone_hangup_delay = 45 ; Number of seconds to keep phone failover line open upon reporting event for reporting further events in that time.
                         ; It is recommended this setting be at least 10-15 seconds, so that if phone failover is being used,
                         ; a single phone call is sufficient to report sensor trigger and alarm disarm events, rather than dialing up a second time to report this event.
-                        ; You may want to tweak this based on the cost of each call, cost per minute, and the acceptable amount of delay in setting up a call. Default is 45.
+                        ; You may want to tweak this based on the cost of each call, cost per minute, and the acceptable amount of delay in setting up a call. Default is 50.
+;batch_events=no ; Whether to batch reporting events together when breaches occur or for when the queue is flushed manually (intended for telephone-only reporting)
 ;ping_interval = 4 ; How often to ping the server
 ;egress_delay = 15 ; number of seconds grace period to exit without re-triggering alarm
 ;contexts = myclient-contexts ; A config section which defines dialplan contexts to execute for each alarm event
