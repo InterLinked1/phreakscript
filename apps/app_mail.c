@@ -54,7 +54,7 @@
 			</parameter>
 			<parameter name="subject" required="true" />
 			<parameter name="body" required="true">
-				<para>The name of the variable contain the body of the message.
+				<para>The name of the variable containing the body of the message.
 				This should not be the variable itself, only the name of it.</para>
 			</parameter>
 			<parameter name="options" required="true">
