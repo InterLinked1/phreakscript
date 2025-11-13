@@ -328,6 +328,8 @@ elif [ -f /etc/redhat-release ]; then
 	PAC_MAN="yum"
 elif [ "$OS_DIST_INFO" = "SLES" ]; then
 	PAC_MAN="zypper"
+elif [ "$OS_DIST_INFO" = "openSUSE Leap" ]; then
+	PAC_MAN="zypper"
 elif [ "$OS_DIST_INFO" = "openSUSE Tumbleweed" ]; then
 	PAC_MAN="zypper"
 elif [ -r /etc/arch-release ]; then
