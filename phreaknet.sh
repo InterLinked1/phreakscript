@@ -730,7 +730,7 @@ get_ast_pid() {
 	else
 		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
 	fi
-	return $astpid
+	echo $astpid
 }
 
 stop_telephony() {
@@ -892,9 +892,33 @@ start_telephony() {
 	# Finally, make sure the DAHDI service is running so that systemd can keep track of it...
 	service dahdi start
 
-	service asterisk start # Start Asterisk if it's not running already
-	/usr/sbin/rasterisk -x "module load chan_dahdi" # Load chan_dahdi if Asterisk was already running
-	/usr/sbin/rasterisk -x "dahdi show channels" # The ultimate test is what DAHDI channels actually show up in Asterisk
+	# Load chan_dahdi if Asterisk was already running
+	/usr/sbin/rasterisk -x "module load chan_dahdi"
+	if [ $? -ne 0 ]; then
+		# Start Asterisk if it's not running already
+		service asterisk start
+		if [ ! -f /var/run/asterisk/asterisk.ctl ]; then
+			printf "Asterisk service file is ineffectual, starting Asterisk manually...\n"
+			/usr/sbin/asterisk -g # The service didn't do squat, actually start Asterisk
+			if [ $? -ne 0 ]; then
+				die "Asterisk failed to start"
+			fi
+			printf "Waiting for Asterisk to start...\n"
+			sleep 3 # Wait for Asterisk to fully boot
+			# Wait some more if needed...
+			if [ ! -f /var/run/asterisk/asterisk.ctl ]; then
+				sleep 3
+			fi
+			if [ ! -f /var/run/asterisk/asterisk.ctl ]; then
+				sleep 3
+			fi
+		fi
+		/usr/sbin/rasterisk -x "module load chan_dahdi"
+	fi
+
+	# The ultimate test is what DAHDI channels actually show up in Asterisk
+	/usr/sbin/rasterisk -x "dahdi show channels" || die "Telephony initialization failed (Asterisk not started)"
+
 	echog "Telephony initialization completed"
 }
 
@@ -3382,7 +3406,16 @@ if which curl > /dev/null && [ "$OFFLINE_INSTALL" != "1" ]; then # only execute 
 	if [ -f /tmp/phreaknet_upstream_version.txt ]; then
 		recent=$( find /tmp/phreaknet_upstream_version.txt -mmin -720 2>/dev/null | wc -l )
 	else
-		recent=0
+		recent=$( find /tmp/phreaknet_no_update_check.txt -mmin -720 2>/dev/null | wc -l )
+		if [ "$recent" = "0" ]; then
+			# Check if we have Internet connectivity. If not (or if it's not a fast connection), don't bother trying to update right now.
+			ping -c 1 -W 3 1.1.1.1 > /dev/null
+			if [ $? -ne 0 ]; then
+				printf " *** Skipping update check (no Internet connectivity detected)\n"
+				echo "1" > /tmp/phreaknet_no_update_check.txt
+				recent=1
+			fi
+		fi
 	fi
 	if [ "$recent" != "1" ]; then
 		printf " *** Checking if a higher numbered version is available..."

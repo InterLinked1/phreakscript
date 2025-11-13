@@ -4,7 +4,7 @@
 
 PhreakScript installs:
 
-- Asterisk 22.6.0 (latest LTS release[1] of Asterisk)
+- Asterisk 22.7.0 (latest LTS release[1] of Asterisk)
 - DAHDI Linux 3.4.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.4.0 (with optional DAHDI install flag)
 - wanpipe 7.0.38 (with optional wanpipe install flag)
