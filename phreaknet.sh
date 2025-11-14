@@ -943,10 +943,11 @@ make_file_readable() { # $1 = file to make readable.
 	bottomdir=`dirname "$1"`
 	realfilename=`printf '%s' "$1" | xargs | cut -d' ' -f 1`
 	if [ ! -f "$realfilename" ]; then
-		echoerr "File $realfilename does not exist"
-		# If the file doesn't exist, forget about it.
+		# If the file doesn't exist, forget about it, and don't emit an error.
 		return
 	fi
+
+	printf "Processing key: %s\n" "$realfilename"
 
 	newfilename=`realpath $realfilename`
 	if [ "${#newfilename}" -gt 0 ]; then
@@ -1002,7 +1003,6 @@ make_keys_readable() {
 
 	while read filename
 	do
-		printf "Processing potential key: %s\n" "$filename"
 		make_file_readable "$filename"
 	done < /tmp/astkeylist.txt # POSIX compliant
 	rm /tmp/astkeylist.txt
@@ -3977,8 +3977,10 @@ elif [ "$cmd" = "install" ]; then
 			adduser -c "Asterisk" $AST_USER --disabled-password --gecos "" # don't allow any password logins, e.g. su - asterisk. Use passwd asterisk to manually set.
 		fi
 		sed -i "s/ASTARGS=\"\"/ASTARGS=\"-U $AST_USER\"/g" /sbin/safe_asterisk
-		sed -i "s/#AST_USER=\"asterisk\"/AST_USER=\"$AST_USER\"/g" /etc/default/asterisk
-		sed -i "s/#AST_GROUP=\"asterisk\"/AST_GROUP=\"$AST_USER\"/g" /etc/default/asterisk
+		if [ -f /etc/default/asterisk ]; then
+			sed -i "s/#AST_USER=\"asterisk\"/AST_USER=\"$AST_USER\"/g" /etc/default/asterisk
+			sed -i "s/#AST_GROUP=\"asterisk\"/AST_GROUP=\"$AST_USER\"/g" /etc/default/asterisk
+		fi
 		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /var/cache/asterisk /usr/sbin/asterisk
 		sed -i "s/create 640 root root/create 640 $AST_USER $AST_USER/g" /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
 		# by default, it has the asterisk user, so simply uncomment it:
@@ -3995,7 +3997,9 @@ elif [ "$cmd" = "install" ]; then
 			fi
 			rm tmpuserchanges.txt
 		fi
-		chgrp $AST_USER $AST_VARLIB_DIR/astdb.sqlite3
+		if [ -f $AST_VARLIB_DIR/astdb.sqlite3 ]; then
+			chgrp $AST_USER $AST_VARLIB_DIR/astdb.sqlite3
+		fi
 		if [ -d /etc/dahdi ]; then
 			# DAHDI related permissions: https://support.digium.com/s/article/Automatically-setting-dev-dahdi-file-permissions-when-running-Asterisk-as-non-root-user
 			chown -R $AST_USER:$AST_USER /dev/dahdi
@@ -4052,9 +4056,13 @@ elif [ "$cmd" = "install" ]; then
 		install_testsuite_itself
 	fi
 
-	/etc/init.d/asterisk status
-	/etc/init.d/asterisk start # service asterisk start
-	/etc/init.d/asterisk status
+	if [ -f /etc/init.d/asterisk ]; then
+		/etc/init.d/asterisk status
+		/etc/init.d/asterisk start # service asterisk start
+		/etc/init.d/asterisk status
+	else
+		asterisk -g # Start Asterisk manually if the service isn't installed
+	fi
 
 	asterisk -V
 	rasterisk -x "core show version"
