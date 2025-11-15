@@ -1957,11 +1957,13 @@ static struct ast_custom_function phreaknet_function = {
 enum net_flags {
 	OPT_MF = (1 << 0),
 	OPT_SF = (1 << 1),
+	OPT_OPERATOR = (1 << 2), /* Internal flag for operator routings */
 };
 
 AST_APP_OPTIONS(net_flags, {
 	AST_APP_OPTION('m', OPT_MF),
 	AST_APP_OPTION('s', OPT_SF),
+	AST_APP_OPTION('o', OPT_OPERATOR), /* Internal flag for operator routings */
 });
 
 enum auth_flags {
