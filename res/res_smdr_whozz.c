@@ -48,12 +48,14 @@
 		<synopsis>WHOZZ Calling? SMDR</synopsis>
 		<configFile name="res_smdr_whozz.conf">
 			<configObject name="general">
-				<configOption name="device" default="/dev/ttyS0">
+				<configOption name="device">
 					<synopsis>Serial device</synopsis>
 					<description>
 						<para>Serial device to use.</para>
 						<para>Currently, only one serial device is supported. The units themselves allow them to be chained together
 						so that only one serial connection to a PC is required.</para>
+						<para>This setting has no default and must be explicitly specified.
+						The default serial port on most systems is <literal>/dev/ttyS0</literal>.</para>
 					</description>
 				</configOption>
 			</configObject>
@@ -149,7 +151,7 @@ static AST_RWLIST_HEAD_STATIC(lines, whozz_line);
 static pthread_t serial_thread = AST_PTHREADT_NULL;
 static int thread_running = 0;
 
-static char serial_device[256] = "/dev/ttyS0"; /* Default serial port on a Linux system (especially if there's only one) */
+static char serial_device[256] = ""; /* No default setting, but default serial port on a Linux system is /dev/ttyS0 (especially if there's only one) */
 static int serial_fd = -1;
 static int unloading = 0;
 
@@ -1173,6 +1175,12 @@ static int load_module(void)
 
 	ast_channel_register(&whozz_smdr_cdr_chan_tech);
 	if (load_config()) {
+		unload_module();
+		return AST_MODULE_LOAD_DECLINE;
+	}
+
+	/* If no serial device explicitly specified, decline to load. */
+	if (ast_strlen_zero(serial_device)) {
 		unload_module();
 		return AST_MODULE_LOAD_DECLINE;
 	}

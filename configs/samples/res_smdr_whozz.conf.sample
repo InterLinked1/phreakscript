@@ -10,6 +10,7 @@
 
 ;[general]
 ;device=/dev/ttyS0 ; Device name of serial port to which WHOZZ Calling? unit is connected (9600/N/1)
+                   ; This setting has no default and must be explicitly specified to use this module.
 
 ;[line-1]
 ;line = 1 ; Line number as configured on WHOZZ Calling? unit.
