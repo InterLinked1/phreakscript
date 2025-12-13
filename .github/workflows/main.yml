@@ -114,11 +114,12 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+     - name: Checkout
+       uses: actions/checkout@v4
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux
-          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
-          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff
      - name: Build kernel
        run: |
           cd /usr/src/linux
@@ -127,10 +128,9 @@ jobs:
           make -j$(nproc) modules_prepare
           make -j$(nproc)
           make -j$(nproc) modules
-     - name: Checkout
-       uses: actions/checkout@v4
      - name: Build DAHDI
        run: |
+           cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers
   dahdi-nonfatal-next:
@@ -147,11 +147,12 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Checkout
+       uses: actions/checkout@v4
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux-next
-          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
-          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff
      - name: Build kernel
        run: |
           cd /usr/src/linux-next
@@ -160,10 +161,9 @@ jobs:
           make -j$(nproc) modules_prepare
           make -j$(nproc)
           make -j$(nproc) modules
-     - name: Checkout
-       uses: actions/checkout@v4
      - name: Build DAHDI
        run: |
+           cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
   dahdi-next-fortified:
@@ -180,12 +180,12 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Checkout
+       uses: actions/checkout@v4
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux-next
-          dnf -y install patch
-          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
-          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff
      - name: Build kernel
        run: |
           cd /usr/src/linux-next
@@ -197,10 +197,9 @@ jobs:
           cat .config
           make -j$(nproc)
           make -j$(nproc) modules
-     - name: Checkout
-       uses: actions/checkout@v4
      - name: Build DAHDI
        run: |
+           cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
   ubuntu-latest:
@@ -294,10 +293,11 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} INSTALL_LIBPRI=0 INSTALL_LIBSS7=0 phreaknet install --fast --dahdi --autokvers --drivers --devmode --lightweight --vanilla
-  alpine-linux:
+  alpine-linux-322:
     runs-on: ubuntu-24.04
-    name: Alpine Linux
-    container: alpine:latest
+    # Newer versions need the fatal objtool patch reverted, which requires building the kernel... not worth it on Alpine
+    name: Alpine Linux 3.22
+    container: alpine:3.22
     steps:
       - uses: actions/checkout@v4
       - name: Build DAHDI and Asterisk
