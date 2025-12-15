@@ -300,6 +300,9 @@ The following options may be used with the **install** command.
 **--drivers**
 : Also install DAHDI drivers removed in 2018 by Sangoma
 
+**--disable-vpmadt032**
+: Disable VPMADT032 echo canceller driver from building (temporarily required on newer kernels)
+
 **--generic**
 : Use generic kernel headers that do not match the installed kernel version
 

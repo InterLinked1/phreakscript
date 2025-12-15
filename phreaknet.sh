@@ -250,6 +250,7 @@ CHAN_SCCP=0
 RPT_MODULES=0
 CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
+DAHDI_DISABLE_VPMADT032=0
 EMPULSE=1 # Automatically enable EMPULSE, cause why not?
 DAHDI_WANPIPE=0 # wanpipe only needed for Sangoma cards
 DEVMODE=0
@@ -636,6 +637,7 @@ Options:
        --rpt          install: Add radio repeater modules
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
+	   --disable-vpmadt032  install: Disable VPMADT032 echo canceller driver from building (temporarily required on newer kernels)
        --generic      install: Use generic kernel headers that do not match the installed kernel version
        --autokvers    install: Automatically pass the appropriate value for KVERS for DAHDI compilation (only needed on non-Debian systems)
        --extcodecs    install: Specify this if any external codecs are being or will be installed
@@ -2108,11 +2110,21 @@ get_dahlin_source() {
 
 	# Not yet merged
 	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
-	dahlin_apply_pr 79 # vpmadt032 binary blob
 	dahlin_apply_pr 92 # del_timer_sync wrapper
 	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
 	dahlin_apply_pr 98 # hrtimer_init changed to hrtimer_setup
 	dahlin_apply_pr 99 # use module_init/module_exit instead of init_module/cleanup_module
+
+	# See https://github.com/asterisk/dahdi-linux/issues/97
+	# Sangoma needs to recreate the binary, until they do that, this driver is unusable on newer kernels
+	# and the target must be disabled to build the rest of DAHDI Linux.
+	# Sangoma is AWOL, so it might be a while...
+	if [ "$DAHDI_DISABLE_VPMADT032" = "1" ]; then
+		git_patch "vpmadt032_disable.diff"
+	else
+		# Not yet merged
+		dahlin_apply_pr 79 # vpmadt032 binary blob
+	fi
 
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
@@ -2273,7 +2285,30 @@ install_dahdi() {
 	# if KSRC/KVERS env vars are set, they will automatically propagate to children
 	$AST_MAKE $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
-		die "DAHDI Linux compilation failed, aborting install"
+		echoerr "DAHDI Linux compilation failed, aborting install"
+		if [ "$DAHDI_DISABLE_VPMADT032" != "1" ]; then
+			echoerr "*** Suggestion ***"
+			echoerr "If using a newer kernel, consider retrying install with --disable-vpmadt032 if VPMADT032 echo canceller is not required."
+			echoerr ""
+			echoerr "*** More Details ***"
+			echoerr "As you may know, Sangoma has not been maintaining DAHDI for years, even to perform adequate maintenance,"
+			echoerr "and DAHDI is currently community maintained, e.g. via PhreakScript."
+			echoerr "However, the VPMADT032 EC requires a binary firmware blob, an updated version of which is required,"
+			echoerr "and which can only come from Sangoma. As a result, until Sangoma gets their act together,"
+			echoerr "if you use an affected kernel version, the only way to successfully build DAHDI Linux"
+			echoerr "is to either:"
+			echoerr "1) Disable this driver, and that is what --disable-vpmadt032 does."
+			echoerr "2) Build the kernel from source, applying this patch: https://github.com/InterLinked1/phreakscript/blob/master/patches/objtool_check_nonfatal.diff"
+			echoerr "   (There are some examples of this in the CI, if you choose this route: https://github.com/InterLinked1/phreakscript/blob/master/.github/workflows/main.yml)"
+			echoerr ""
+			echoerr "See this issue for more details: https://github.com/asterisk/dahdi-linux/issues/97"
+			echoerr ""
+			echoerr "The only way to get this fixed is to get Sangoma to do something about it."
+			echoerr "We suggest you call Sangoma to file a complaint at (877) 344-4861 x2,3,5"
+			echoerr "or by opening a case online at https://help.sangoma.com/s/"
+			echoerr "Otherwise, they will continue doing nothing, just like they have been."
+		fi
+		exit 1
 	fi
 	$AST_MAKE install $DAHDI_CFLAGS
 
@@ -3315,7 +3350,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,offline,noupdate -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,disable-vpmadt032,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,offline,noupdate -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -3356,6 +3391,7 @@ while true; do
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
 		--devmode ) DEVMODE=1; shift ;;
 		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
+		--disable-vpmadt032 ) DAHDI_DISABLE_VPMADT032=1; shift ;;
 		--experimental ) EXPERIMENTAL_FEATURES=1; shift ;;
 		--extcodecs ) EXTERNAL_CODECS=1; shift ;;
 		--fast ) FAST_COMPILE=1; shift ;;

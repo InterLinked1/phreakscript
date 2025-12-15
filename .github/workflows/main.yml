@@ -166,6 +166,35 @@ jobs:
            cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
+  dahdi-next-no-vpmadt032:
+    runs-on: ubuntu-24.04
+    name: DAHDI, next kernel (VPMADT032 disabled)
+    container: debian:13
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc curl
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux-next
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Build DAHDI
+       run: |
+           cd $GITHUB_WORKSPACE
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers --disable-vpmadt032
   dahdi-next-fortified:
     runs-on: ubuntu-24.04
     name: DAHDI, fortified
@@ -293,6 +322,16 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} INSTALL_LIBPRI=0 INSTALL_LIBSS7=0 phreaknet install --fast --dahdi --autokvers --drivers --devmode --lightweight --vanilla
+  alpine-linux:
+    runs-on: ubuntu-24.04
+    name: Alpine Linux
+    container: alpine:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode --disable-vpmadt032
   alpine-linux-322:
     runs-on: ubuntu-24.04
     # Newer versions need the fatal objtool patch reverted, which requires building the kernel... not worth it on Alpine
