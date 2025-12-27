@@ -371,6 +371,19 @@ update_packages() {
 			fi
 		fi
 		apt-get update -y
+		if [ $? -ne 0 ]; then
+			# If a system was installed from disc, and it remains in sources.list,
+			# and disc is not present, we'll fail to update.
+			# This will cause Asterisk's install_prereq.sh script to fail,
+			# which will result in some prereqs failing to install,
+			# leading to Asterisk's configure script failing.
+			# User needs to comment out the cdrom, but we shouldn't do it ourselves
+			# in case that's intentional.
+			echoerr "Failed to update system, check /etc/apt/sources.list for issues"
+			echoerr "*** Tip: If you have a cdrom line present and do not want"
+			echoerr "*** to install updates/packages from disc, comment it out."
+			exit 1
+		fi
 		if [ "$ENHANCED_INSTALL" != "0" ]; then
 			apt-get upgrade -y
 		fi
