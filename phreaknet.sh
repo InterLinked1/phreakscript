@@ -2588,6 +2588,38 @@ build_g72x() {
 	fi
 }
 
+get_sccp_source() {
+	cd $AST_SOURCE_PARENT_DIR
+	# The SCCP repo is currently stagnant, so if it's present, then just use the latest 'develop' HEAD and apply any needed patches
+	if [ -d chan-sccp ]; then
+		cd chan-sccp
+		git checkout .
+		git clean -df
+	else
+		git clone --depth 1 "https://github.com/chan-sccp/chan-sccp.git"
+		cd chan-sccp
+	fi
+	if [ $? -eq 0 ]; then
+		if [ $AST_MAJOR_VER -ge 21 ]; then
+			github_apply_pr "chan-sccp/chan-sccp" "611" # Remove macros, or it won't even compile
+		fi
+		github_apply_pr "chan-sccp/chan-sccp" "626" # Fix compilation with AST_DEV_MODE and DEBUG_FD_LEAKS
+	fi
+}
+
+build_sccp() {
+	cd $AST_SOURCE_PARENT_DIR
+	if [ ! -d chan-sccp ]; then
+		die "chan-sccp source directory not found"
+	fi
+	cd chan-sccp
+	./configure --enable-conference --enable-advanced-functions --with-asterisk=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	$AST_MAKE -j$(nproc) && $AST_MAKE install && $AST_MAKE reload
+	if [ $? -ne 0 ]; then
+		die "Failed to install chan_sccp"
+	fi
+}
+
 # Instantiate an instance of the PhreakScript repository, if not already present
 # This is necessary since this script file is designed to be able to be used standalone,
 # without the rest of the repository necessarily being present.
@@ -3692,6 +3724,9 @@ elif [ "$cmd" = "offline" ]; then
 		git clone --depth 1 https://github.com/arkadijs/asterisk-g72x.git
 	fi
 	get_ast_source # end up with an asterisk-offline directory
+	if [ "$CHAN_SCCP" = "1" ]; then
+		get_sccp_source
+	fi
 	echog "Offline installation source prepared in $AST_SOURCE_PARENT_DIR - copy this directory to target system for offline installation"
 	ls $AST_SOURCE_PARENT_DIR
 elif [ "$cmd" = "install" ]; then
@@ -4000,6 +4035,17 @@ elif [ "$cmd" = "install" ]; then
 		exit 1
 	fi
 
+	# chan_sccp builds out of tree, so do it at the end
+	if [ "$CHAN_SCCP" = "1" ]; then
+		if [ "$OFFLINE_INSTALL" = "1" ]; then
+			cd $AST_SOURCE_PARENT_DIR
+			cp -r $OFFLINE_DIR/chan-sccp .
+		else
+			get_sccp_source
+		fi
+		build_sccp
+	fi
+
 	install_samples
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
@@ -4073,25 +4119,6 @@ elif [ "$cmd" = "install" ]; then
 	# Make sure we can read any keys we need, or Asterisk will not be happy when it restarts.
 	if [ -d /etc/letsencrypt ]; then
 		make_keys_readable
-	fi
-
-	if [ "$CHAN_SCCP" = "1" ]; then
-		cd $AST_SOURCE_PARENT_DIR
-		cd chan-sccp
-		if [ $? -eq 0 ]; then
-			git fetch
-			git pull
-			if [ $AST_MAJOR_VER -ge 21 ]; then
-				# Remove macros, or it won't even compile
-				$WGET "https://github.com/chan-sccp/chan-sccp/commit/3c90b6447b17639c52b47ed61cfb154b15ee84ec.patch"
-				git apply "3c90b6447b17639c52b47ed61cfb154b15ee84ec.patch"
-			fi
-			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
-			$AST_MAKE -j$(nproc) && $AST_MAKE install && $AST_MAKE reload
-			if [ $? -ne 0 ]; then
-				die "Failed to install chan_sccp"
-			fi
-		fi
 	fi
 
 	# Development Mode (Asterisk Test Suite)

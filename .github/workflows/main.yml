@@ -322,6 +322,16 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} INSTALL_LIBPRI=0 INSTALL_LIBSS7=0 phreaknet install --fast --dahdi --autokvers --drivers --devmode --lightweight --vanilla
+  sccp:
+    runs-on: ubuntu-24.04
+    name: chan_sccp
+    steps:
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build Asterisk with chan_sccp
+       run: |
+          sudo ./phreaknet.sh make
+          sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --devmode --sccp
   alpine-linux:
     runs-on: ubuntu-24.04
     name: Alpine Linux
