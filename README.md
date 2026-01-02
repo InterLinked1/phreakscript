@@ -8,6 +8,7 @@ PhreakScript installs:
 - DAHDI Linux 3.4.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.4.0 (with optional DAHDI install flag)
 - wanpipe 7.0.38 (with optional wanpipe install flag)
+- OpenR2, with compilation fixes (with optional install flag)
 - Bug fixes and stability improvements
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma (either by default, or with `--drivers` flag)
    - Numerous DAHDI/wanpipe/LibPRI compilation fixes
@@ -34,7 +35,7 @@ PhreakScript installs:
 	  - Restored and enhanced [`chan_sip`](https://github.com/InterLinked1/chan_sip) for master / versions 21+ (removed by Sangoma) (with `--sip` flag)
 	     - Adds fax timing and parameter control to `chan_sip`
 	     - Cisco Call Manager support for `chan_sip` (with `--cisco` flag)
-	     - `chan_sccp` (improved community Skinny/SCCP channel driver), with compilation fixes (with `--sccp` flag)
+   - `chan_sccp` (improved community Skinny/SCCP channel driver), with compilation fixes (with `--sccp` flag)
    - Message Send Protocol send support
    - Streamlined delivery of push notifications to Polycom IP phones
    - AGI `RECORD FILE` option to require noise before silence detection

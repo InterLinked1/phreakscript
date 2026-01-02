@@ -253,6 +253,7 @@ DAHDI_OLD_DRIVERS=0
 DAHDI_DISABLE_VPMADT032=0
 EMPULSE=1 # Automatically enable EMPULSE, cause why not?
 DAHDI_WANPIPE=0 # wanpipe only needed for Sangoma cards
+OPENR2=0 # Install OpenR2
 DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
@@ -2244,6 +2245,16 @@ install_dahdi() {
 		fi
 	fi
 
+	if [ "$OPENR2" = "1" ]; then
+		if [ "$OFFLINE_INSTALL" = "1" ]; then
+			cd $AST_SOURCE_PARENT_DIR
+			cp -r $OFFLINE_DIR/openr2 .
+		else
+			get_openr2_source
+		fi
+		build_openr2
+	fi
+
 	if [ "$OFFLINE_INSTALL" = "1" ]; then
 		cp -r $OFFLINE_DIR/dahlin-offline .
 	else
@@ -2617,6 +2628,49 @@ build_sccp() {
 	$AST_MAKE -j$(nproc) && $AST_MAKE install && $AST_MAKE reload
 	if [ $? -ne 0 ]; then
 		die "Failed to install chan_sccp"
+	fi
+}
+
+get_openr2_source() {
+	cd $AST_SOURCE_PARENT_DIR
+	# The OpenR2 repo is currently stagnant, so if it's present, then just use the latest 'develop' HEAD and apply any needed patches
+	if [ -d openr2 ]; then
+		cd openr2
+		git checkout .
+		git clean -df
+	else
+		git clone --depth 1 "https://github.com/moises-silva/openr2.git"
+		cd openr2
+	fi
+}
+
+build_openr2() {
+	cd $AST_SOURCE_PARENT_DIR
+	if [ ! -d openr2 ]; then
+		die "openr2 source directory not found"
+	fi
+	cd openr2
+	git_patch "openr2.diff"
+	# r2test fails to install during 'make install', so skip it
+	./configure --prefix=/usr --without-r2test
+	# This will initially fail, due to the fix needed below
+	$AST_MAKE -j$(nproc) CFLAGS=-Wno-pedantic
+	# src/libopenr2.la won't exist when we start compiling, but it will exist by this point
+	sed -i "s/inherited_linker_flags=''/inherited_linker_flags=' -shared'/g" src/libopenr2.la # otherwise it will fail when linking
+	# Now, we can finish the job:
+	$AST_MAKE CFLAGS=-Wno-pedantic
+	if [ $? -ne 0 ]; then
+		die "Failed to build OpenR2"
+	fi
+	# Without --without-r2test, this may return non-zero due to r2test missing
+	$AST_MAKE install
+	if [ $? -ne 0 ]; then
+		die "Failed to install OpenR2"
+	fi
+	# If this symbol isn't exported, then HAVE_OPENR2 will not be defined for Asterisk later
+	readelf -s /usr/lib64/libopenr2.so | grep "openr2_chan_new"
+	if [ $? -ne 0 ]; then
+		echoerr "libopenr2.so does not appear to export openr2_chan_new, OpenR2 build may be incomplete"
 	fi
 }
 
@@ -3395,7 +3449,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,disable-vpmadt032,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,offline,noupdate -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,disable-vpmadt032,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,openr2,offline,noupdate -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -3452,6 +3506,7 @@ while true; do
 		--minimal ) ENHANCED_INSTALL=0; shift ;;
 		--vanilla ) EXTRA_FEATURES=0; shift ;;
 		--wanpipe ) DAHDI_WANPIPE=1; shift ;;
+		--openr2 ) OPENR2=1; shift ;;
 		--offline ) OFFLINE_INSTALL=1; shift ;;
 		--noupdate ) PACMAN_NOUPDATE=1; shift ;;
 		# -- means the end of the arguments; drop this, and break out of the while loop
@@ -3726,6 +3781,9 @@ elif [ "$cmd" = "offline" ]; then
 	get_ast_source # end up with an asterisk-offline directory
 	if [ "$CHAN_SCCP" = "1" ]; then
 		get_sccp_source
+	fi
+	if [ "$OPENR2" = "1" ]; then
+		get_openr2_source
 	fi
 	echog "Offline installation source prepared in $AST_SOURCE_PARENT_DIR - copy this directory to target system for offline installation"
 	ls $AST_SOURCE_PARENT_DIR

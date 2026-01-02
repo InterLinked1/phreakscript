@@ -1,0 +1,42 @@
+diff --git a/src/r2context.c b/src/r2context.c
+index 36829fe..3aa71e1 100755
+--- a/src/r2context.c
++++ b/src/r2context.c
+@@ -148,6 +148,7 @@ static int want_generate_default(openr2_mf_tx_state_t *state, int signal)
+ 	return 1;
+ }
+ 
++#if 0
+ static const openr2_mf_read_init_func mf_read_init_default = (openr2_mf_read_init_func)openr2_mf_rx_init;
+ static const openr2_mf_write_init_func mf_write_init_default = (openr2_mf_write_init_func)openr2_mf_tx_init;
+ static const openr2_mf_detect_tone_func mf_detect_tone_default = (openr2_mf_detect_tone_func)openr2_mf_rx;
+@@ -157,6 +158,7 @@ static const openr2_mf_want_generate_func mf_want_generate_default = (openr2_mf_
+ 
+ static const openr2_alaw_to_linear_func alaw_to_linear_default = openr2_alaw_to_linear;
+ static const openr2_linear_to_alaw_func linear_to_alaw_default = openr2_linear_to_alaw;
++#endif
+ 
+ static openr2_mflib_interface_t default_mf_interface = {
+ 	/* .mf_read_init */ (openr2_mf_read_init_func)openr2_mf_rx_init,
+diff --git a/src/r2proto.c b/src/r2proto.c
+index c32bc2f..0a5832d 100755
+--- a/src/r2proto.c
++++ b/src/r2proto.c
+@@ -829,7 +829,7 @@ static void open_logfile(openr2_chan_t *r2chan, int backward)
+ 		return;
+ 	}
+ 
+-	if (!r2chan->r2context->logdir) {
++	if (!r2chan->r2context->logdir[0]) {
+ 		cres = getcwd(currdir, sizeof(currdir));
+ 		if (!cres) {
+ 			myerrno = errno;
+@@ -850,7 +850,7 @@ static void open_logfile(openr2_chan_t *r2chan, int backward)
+ 		return;
+ 	}
+ 	res = snprintf(r2chan->logname, sizeof(r2chan->logname), "%s/chan-s%dc%d-%s-%04ld-%d%02d%02d%02d%02d%02d.call", 
+-			r2chan->r2context->logdir ? r2chan->r2context->logdir : currdir, 
++			r2chan->r2context->logdir[0] ? r2chan->r2context->logdir : currdir,
+ 			r2chan->span_id, r2chan->number,
+ 			backward ? "backward" : "forward",
+ 			r2chan->call_count++,

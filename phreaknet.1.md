@@ -370,6 +370,9 @@ directories if necessary.
 **--wanpipe**
 : Also install the Wanpipe drivers, needed for Sangoma cards
 
+**--openr2**
+: Also install OpenR2
+
 The following options may be used with the **sounds** command.
 
 **--boilerplate**

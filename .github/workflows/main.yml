@@ -280,14 +280,14 @@ jobs:
           phreaknet runtests
   debian-12-asterisk-latest:
     runs-on: ubuntu-24.04
-    name: Debian 12
+    name: Debian 12, with OpenR2
     container: debian:12
     steps:
       - uses: actions/checkout@v4
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --sip --testsuite
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --openr2 --sip --testsuite
       - name: Run tests
         run: |
           phreaknet runtests
