@@ -2,7 +2,7 @@
 
 # PhreakScript
 # (C) 2021-2025 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.3.1 (2025-09-22)
+# v1.3.2 (2026-01-08)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2026-01-08 1.3.2 Run bootstrap.sh if needed
 # 2025-09-22 1.3.1 Improve script portability
 # 2025-07-07 1.3.0 Use GitHub API to download patches
 # 2025-01-24 1.2.2 Asterisk: Target 22.2.0
@@ -3897,6 +3898,12 @@ elif [ "$cmd" = "install" ]; then
 		make install
 		ldconfig
 		cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	fi
+
+	# If configure isn't found, run the bootstrap script first to generate it
+	# https://github.com/asterisk/asterisk/pull/1696
+	if [ ! -f ./configure ] || [ ! -f ./menuselect/configure ]; then
+		./bootstrap.sh
 	fi
 
 	if [ "$DEVMODE" = "1" ]; then
