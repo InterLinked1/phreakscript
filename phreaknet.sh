@@ -2219,7 +2219,7 @@ install_dahdi() {
 	# This is for openSUSE compatibility
 	if [ ! -d "$KBUILD_DIR" ]; then
 		KERNEL_VER=$( uname -r | cut -d'-' -f1-2)
-		printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}..."
+		printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}...\n"
 		KBUILD_DIR="/usr/src/linux-${KERNEL_VER}"
 	fi
 	if [ -d "$KBUILD_DIR" ]; then
