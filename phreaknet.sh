@@ -1075,7 +1075,7 @@ install_prereq() {
 			fi
 		fi
 	elif [ "$PAC_MAN" = "zypper" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk subversion bzip2 gcc-c++"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk autoconf subversion bzip2 gcc-c++"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel dwarves"
 		fi
