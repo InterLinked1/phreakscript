@@ -2215,6 +2215,13 @@ install_dahdi() {
 	KERNEL_MM=$( uname -r | cut -d'.' -f1-2 )
 	printf "Kernel major.minor version is %s\n" "$KERNEL_MM"
 	KBUILD_DIR="/usr/lib/linux-kbuild-${KERNEL_MM}"
+	# Check if this directory exists, otherwise try looking in /usr/src
+	# This is for openSUSE compatibility
+	if [ ! -d "$KBUILD_DIR" ]; then
+		KERNEL_VER=$( uname -r | cut -d'-' -f1-2)
+		printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}..."
+		KBUILD_DIR="/usr/src/linux-${KERNEL_VER}"
+	fi
 	if [ -d "$KBUILD_DIR" ]; then
 		MODFINAL_FILE="${KBUILD_DIR}/scripts/Makefile.modfinal"
 		if [ -f "$MODFINAL_FILE" ]; then
