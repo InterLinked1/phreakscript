@@ -2045,7 +2045,8 @@ install_kernel_headers() {
 		# Check that the kernel sources are really present
 		# /usr/src/linux-headers-* on Debian
 		# /usr/src/kernels on Rocky Linux
-		numkernheaders=$( ls /usr/src/linux-headers-* /usr/src/kernels/* 2>/dev/null | wc -w )
+		# /usr/src/linux-* on openSUSE
+		numkernheaders=$( ls /usr/src/linux-headers-* /usr/src/kernels/* /usr/src/linux-* 2>/dev/null | wc -w )
 		if [ "$numkernheaders" = "0" ]; then
 			echoerr "Kernel headers do not appear to be installed... compilation will likely fail"
 			sleep 2
