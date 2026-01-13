@@ -2005,7 +2005,8 @@ install_kernel_headers() {
 				echog "kernel-devel is matched with kernel. Package provides $KERNEL_DEVEL_VERSION, and running kernel is $kernel_ver"
 			fi
 		elif [ "$PAC_MAN" = "zypper" ]; then
-			install_package "kmod kernel-source"
+			# There are multiple kernel-*-devel packages in the openSUSE repos. The default one should be a safe assumption.
+			install_package "kmod kernel-source kernel-devel kernel-default-devel"
 		elif [ "$PAC_MAN" = "pacman" ]; then
 			install_package "kmod linux-headers"
 		elif [ "$PAC_MAN" = "apk" ]; then
