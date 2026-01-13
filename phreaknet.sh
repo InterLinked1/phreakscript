@@ -1076,7 +1076,7 @@ install_prereq() {
 			fi
 		fi
 	elif [ "$PAC_MAN" = "zypper" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk subversion bzip2 gcc-c++"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk autoconf automake libtool subversion bzip2 gcc-c++"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel dwarves"
 		fi
@@ -2006,7 +2006,8 @@ install_kernel_headers() {
 				echog "kernel-devel is matched with kernel. Package provides $KERNEL_DEVEL_VERSION, and running kernel is $kernel_ver"
 			fi
 		elif [ "$PAC_MAN" = "zypper" ]; then
-			install_package "kmod kernel-source"
+			# There are multiple kernel-*-devel packages in the openSUSE repos. The default one should be a safe assumption.
+			install_package "kmod kernel-source kernel-devel kernel-default-devel"
 		elif [ "$PAC_MAN" = "pacman" ]; then
 			install_package "kmod linux-headers"
 		elif [ "$PAC_MAN" = "apk" ]; then
@@ -2046,7 +2047,8 @@ install_kernel_headers() {
 		# Check that the kernel sources are really present
 		# /usr/src/linux-headers-* on Debian
 		# /usr/src/kernels on Rocky Linux
-		numkernheaders=$( ls /usr/src/linux-headers-* /usr/src/kernels/* 2>/dev/null | wc -w )
+		# /usr/src/linux-* on openSUSE
+		numkernheaders=$( ls /usr/src/linux-headers-* /usr/src/kernels/* /usr/src/linux-* 2>/dev/null | wc -w )
 		if [ "$numkernheaders" = "0" ]; then
 			echoerr "Kernel headers do not appear to be installed... compilation will likely fail"
 			sleep 2
@@ -2214,6 +2216,13 @@ install_dahdi() {
 	KERNEL_MM=$( uname -r | cut -d'.' -f1-2 )
 	printf "Kernel major.minor version is %s\n" "$KERNEL_MM"
 	KBUILD_DIR="/usr/lib/linux-kbuild-${KERNEL_MM}"
+	# Check if this directory exists, otherwise try looking in /usr/src
+	# This is for openSUSE compatibility
+	if [ ! -d "$KBUILD_DIR" ]; then
+		KERNEL_VER=$( uname -r | cut -d'-' -f1-2)
+		printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}...\n"
+		KBUILD_DIR="/usr/src/linux-${KERNEL_VER}"
+	fi
 	if [ -d "$KBUILD_DIR" ]; then
 		MODFINAL_FILE="${KBUILD_DIR}/scripts/Makefile.modfinal"
 		if [ -f "$MODFINAL_FILE" ]; then
@@ -4214,6 +4223,10 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		echog "Note that DAHDI was installed and requires a reboot (or hotswap of kernel modules, e.g. phreaknet restart) before it can be used."
 		echog "Note that you will need to manually configure /etc/dahdi/system.conf appropriately for your spans."
+		if [ "$PAC_MAN" = "zypper" ]; then
+			echog "Additionally, since you appear to be using openSUSE/SUSE Linux Enterprise, you will need to enable the loading of unsupported kernel modules."
+			echog "See https://support.scc.suse.com/s/kb/Enable-loading-of-unsupported-kernel-modules for details on how to do this."
+		fi
 	fi
 	if [ "$FREEPBX_GUI" = "1" ]; then
 		printf "%s\n" "Installation of FreePBX GUI will begin in 5 seconds..."
