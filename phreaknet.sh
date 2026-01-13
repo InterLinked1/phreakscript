@@ -250,8 +250,10 @@ CHAN_SCCP=0
 RPT_MODULES=0
 CHAN_DAHDI=0
 DAHDI_OLD_DRIVERS=0
+DAHDI_DISABLE_VPMADT032=0
 EMPULSE=1 # Automatically enable EMPULSE, cause why not?
 DAHDI_WANPIPE=0 # wanpipe only needed for Sangoma cards
+OPENR2=0 # Install OpenR2
 DEVMODE=0
 TEST_SUITE=0
 FORCE_INSTALL=0
@@ -370,6 +372,19 @@ update_packages() {
 			fi
 		fi
 		apt-get update -y
+		if [ $? -ne 0 ]; then
+			# If a system was installed from disc, and it remains in sources.list,
+			# and disc is not present, we'll fail to update.
+			# This will cause Asterisk's install_prereq.sh script to fail,
+			# which will result in some prereqs failing to install,
+			# leading to Asterisk's configure script failing.
+			# User needs to comment out the cdrom, but we shouldn't do it ourselves
+			# in case that's intentional.
+			echoerr "Failed to update system, check /etc/apt/sources.list for issues"
+			echoerr "*** Tip: If you have a cdrom line present and do not want"
+			echoerr "*** to install updates/packages from disc, comment it out."
+			exit 1
+		fi
 		if [ "$ENHANCED_INSTALL" != "0" ]; then
 			apt-get upgrade -y
 		fi
@@ -636,6 +651,7 @@ Options:
        --rpt          install: Add radio repeater modules
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
        --drivers      install: Also install DAHDI drivers removed in 2018
+	   --disable-vpmadt032  install: Disable VPMADT032 echo canceller driver from building (temporarily required on newer kernels)
        --generic      install: Use generic kernel headers that do not match the installed kernel version
        --autokvers    install: Automatically pass the appropriate value for KVERS for DAHDI compilation (only needed on non-Debian systems)
        --extcodecs    install: Specify this if any external codecs are being or will be installed
@@ -732,7 +748,7 @@ get_ast_pid() {
 	else
 		astpid=$( ps -aux | grep "asterisk" | grep -v "grep" | head -n 1 | xargs | cut -d' ' -f2 )
 	fi
-	return $astpid
+	echo $astpid
 }
 
 stop_telephony() {
@@ -894,9 +910,33 @@ start_telephony() {
 	# Finally, make sure the DAHDI service is running so that systemd can keep track of it...
 	service dahdi start
 
-	service asterisk start # Start Asterisk if it's not running already
-	/usr/sbin/rasterisk -x "module load chan_dahdi" # Load chan_dahdi if Asterisk was already running
-	/usr/sbin/rasterisk -x "dahdi show channels" # The ultimate test is what DAHDI channels actually show up in Asterisk
+	# Load chan_dahdi if Asterisk was already running
+	/usr/sbin/rasterisk -x "module load chan_dahdi"
+	if [ $? -ne 0 ]; then
+		# Start Asterisk if it's not running already
+		service asterisk start
+		if [ ! -f /var/run/asterisk/asterisk.ctl ]; then
+			printf "Asterisk service file is ineffectual, starting Asterisk manually...\n"
+			/usr/sbin/asterisk -g # The service didn't do squat, actually start Asterisk
+			if [ $? -ne 0 ]; then
+				die "Asterisk failed to start"
+			fi
+			printf "Waiting for Asterisk to start...\n"
+			sleep 3 # Wait for Asterisk to fully boot
+			# Wait some more if needed...
+			if [ ! -f /var/run/asterisk/asterisk.ctl ]; then
+				sleep 3
+			fi
+			if [ ! -f /var/run/asterisk/asterisk.ctl ]; then
+				sleep 3
+			fi
+		fi
+		/usr/sbin/rasterisk -x "module load chan_dahdi"
+	fi
+
+	# The ultimate test is what DAHDI channels actually show up in Asterisk
+	/usr/sbin/rasterisk -x "dahdi show channels" || die "Telephony initialization failed (Asterisk not started)"
+
 	echog "Telephony initialization completed"
 }
 
@@ -919,10 +959,11 @@ make_file_readable() { # $1 = file to make readable.
 	bottomdir=`dirname "$1"`
 	realfilename=`printf '%s' "$1" | xargs | cut -d' ' -f 1`
 	if [ ! -f "$realfilename" ]; then
-		echoerr "File $realfilename does not exist"
-		# If the file doesn't exist, forget about it.
+		# If the file doesn't exist, forget about it, and don't emit an error.
 		return
 	fi
+
+	printf "Processing key: %s\n" "$realfilename"
 
 	newfilename=`realpath $realfilename`
 	if [ "${#newfilename}" -gt 0 ]; then
@@ -978,7 +1019,6 @@ make_keys_readable() {
 
 	while read filename
 	do
-		printf "Processing potential key: %s\n" "$filename"
 		make_file_readable "$filename"
 	done < /tmp/astkeylist.txt # POSIX compliant
 	rm /tmp/astkeylist.txt
@@ -2084,11 +2124,21 @@ get_dahlin_source() {
 
 	# Not yet merged
 	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
-	dahlin_apply_pr 79 # vpmadt032 binary blob
 	dahlin_apply_pr 92 # del_timer_sync wrapper
 	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
 	dahlin_apply_pr 98 # hrtimer_init changed to hrtimer_setup
 	dahlin_apply_pr 99 # use module_init/module_exit instead of init_module/cleanup_module
+
+	# See https://github.com/asterisk/dahdi-linux/issues/97
+	# Sangoma needs to recreate the binary, until they do that, this driver is unusable on newer kernels
+	# and the target must be disabled to build the rest of DAHDI Linux.
+	# Sangoma is AWOL, so it might be a while...
+	if [ "$DAHDI_DISABLE_VPMADT032" = "1" ]; then
+		git_patch "vpmadt032_disable.diff"
+	else
+		# Not yet merged
+		dahlin_apply_pr 79 # vpmadt032 binary blob
+	fi
 
 	# New Features
 	if [ "$EXTRA_FEATURES" = "1" ]; then
@@ -2195,6 +2245,16 @@ install_dahdi() {
 		fi
 	fi
 
+	if [ "$OPENR2" = "1" ]; then
+		if [ "$OFFLINE_INSTALL" = "1" ]; then
+			cd $AST_SOURCE_PARENT_DIR
+			cp -r $OFFLINE_DIR/openr2 .
+		else
+			get_openr2_source
+		fi
+		build_openr2
+	fi
+
 	if [ "$OFFLINE_INSTALL" = "1" ]; then
 		cp -r $OFFLINE_DIR/dahlin-offline .
 	else
@@ -2249,7 +2309,30 @@ install_dahdi() {
 	# if KSRC/KVERS env vars are set, they will automatically propagate to children
 	$AST_MAKE $DAHDI_CFLAGS
 	if [ $? -ne 0 ]; then
-		die "DAHDI Linux compilation failed, aborting install"
+		echoerr "DAHDI Linux compilation failed, aborting install"
+		if [ "$DAHDI_DISABLE_VPMADT032" != "1" ]; then
+			echoerr "*** Suggestion ***"
+			echoerr "If using a newer kernel, consider retrying install with --disable-vpmadt032 if VPMADT032 echo canceller is not required."
+			echoerr ""
+			echoerr "*** More Details ***"
+			echoerr "As you may know, Sangoma has not been maintaining DAHDI for years, even to perform adequate maintenance,"
+			echoerr "and DAHDI is currently community maintained, e.g. via PhreakScript."
+			echoerr "However, the VPMADT032 EC requires a binary firmware blob, an updated version of which is required,"
+			echoerr "and which can only come from Sangoma. As a result, until Sangoma gets their act together,"
+			echoerr "if you use an affected kernel version, the only way to successfully build DAHDI Linux"
+			echoerr "is to either:"
+			echoerr "1) Disable this driver, and that is what --disable-vpmadt032 does."
+			echoerr "2) Build the kernel from source, applying this patch: https://github.com/InterLinked1/phreakscript/blob/master/patches/objtool_check_nonfatal.diff"
+			echoerr "   (There are some examples of this in the CI, if you choose this route: https://github.com/InterLinked1/phreakscript/blob/master/.github/workflows/main.yml)"
+			echoerr ""
+			echoerr "See this issue for more details: https://github.com/asterisk/dahdi-linux/issues/97"
+			echoerr ""
+			echoerr "The only way to get this fixed is to get Sangoma to do something about it."
+			echoerr "We suggest you call Sangoma to file a complaint at (877) 344-4861 x2,3,5"
+			echoerr "or by opening a case online at https://help.sangoma.com/s/"
+			echoerr "Otherwise, they will continue doing nothing, just like they have been."
+		fi
+		exit 1
 	fi
 	$AST_MAKE install $DAHDI_CFLAGS
 
@@ -2513,6 +2596,81 @@ build_g72x() {
 	$AST_MAKE && $AST_MAKE install
 	if [ ! -f /usr/lib/asterisk/modules/codec_g729.so ]; then
 		echoerr "Failed to build G.729 codec"
+	fi
+}
+
+get_sccp_source() {
+	cd $AST_SOURCE_PARENT_DIR
+	# The SCCP repo is currently stagnant, so if it's present, then just use the latest 'develop' HEAD and apply any needed patches
+	if [ -d chan-sccp ]; then
+		cd chan-sccp
+		git checkout .
+		git clean -df
+	else
+		git clone --depth 1 "https://github.com/chan-sccp/chan-sccp.git"
+		cd chan-sccp
+	fi
+	if [ $? -eq 0 ]; then
+		if [ $AST_MAJOR_VER -ge 21 ]; then
+			github_apply_pr "chan-sccp/chan-sccp" "611" # Remove macros, or it won't even compile
+		fi
+		github_apply_pr "chan-sccp/chan-sccp" "626" # Fix compilation with AST_DEV_MODE and DEBUG_FD_LEAKS
+	fi
+}
+
+build_sccp() {
+	cd $AST_SOURCE_PARENT_DIR
+	if [ ! -d chan-sccp ]; then
+		die "chan-sccp source directory not found"
+	fi
+	cd chan-sccp
+	./configure --enable-conference --enable-advanced-functions --with-asterisk=$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+	$AST_MAKE -j$(nproc) && $AST_MAKE install && $AST_MAKE reload
+	if [ $? -ne 0 ]; then
+		die "Failed to install chan_sccp"
+	fi
+}
+
+get_openr2_source() {
+	cd $AST_SOURCE_PARENT_DIR
+	# The OpenR2 repo is currently stagnant, so if it's present, then just use the latest 'develop' HEAD and apply any needed patches
+	if [ -d openr2 ]; then
+		cd openr2
+		git checkout .
+		git clean -df
+	else
+		git clone --depth 1 "https://github.com/moises-silva/openr2.git"
+		cd openr2
+	fi
+}
+
+build_openr2() {
+	cd $AST_SOURCE_PARENT_DIR
+	if [ ! -d openr2 ]; then
+		die "openr2 source directory not found"
+	fi
+	cd openr2
+	git_patch "openr2.diff"
+	# r2test fails to install during 'make install', so skip it
+	./configure --prefix=/usr --without-r2test
+	# This will initially fail, due to the fix needed below
+	$AST_MAKE -j$(nproc) CFLAGS=-Wno-pedantic
+	# src/libopenr2.la won't exist when we start compiling, but it will exist by this point
+	sed -i "s/inherited_linker_flags=''/inherited_linker_flags=' -shared'/g" src/libopenr2.la # otherwise it will fail when linking
+	# Now, we can finish the job:
+	$AST_MAKE CFLAGS=-Wno-pedantic
+	if [ $? -ne 0 ]; then
+		die "Failed to build OpenR2"
+	fi
+	# Without --without-r2test, this may return non-zero due to r2test missing
+	$AST_MAKE install
+	if [ $? -ne 0 ]; then
+		die "Failed to install OpenR2"
+	fi
+	# If this symbol isn't exported, then HAVE_OPENR2 will not be defined for Asterisk later
+	readelf -s /usr/lib64/libopenr2.so | grep "openr2_chan_new"
+	if [ $? -ne 0 ]; then
+		echoerr "libopenr2.so does not appear to export openr2_chan_new, OpenR2 build may be incomplete"
 	fi
 }
 
@@ -3291,7 +3449,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,offline,noupdate -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,disable-vpmadt032,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,openr2,offline,noupdate -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -3332,6 +3490,7 @@ while true; do
 		--debug ) DEBUG_LEVEL=$2; shift 2;;
 		--devmode ) DEVMODE=1; shift ;;
 		--drivers ) DAHDI_OLD_DRIVERS=1; shift ;;
+		--disable-vpmadt032 ) DAHDI_DISABLE_VPMADT032=1; shift ;;
 		--experimental ) EXPERIMENTAL_FEATURES=1; shift ;;
 		--extcodecs ) EXTERNAL_CODECS=1; shift ;;
 		--fast ) FAST_COMPILE=1; shift ;;
@@ -3347,6 +3506,7 @@ while true; do
 		--minimal ) ENHANCED_INSTALL=0; shift ;;
 		--vanilla ) EXTRA_FEATURES=0; shift ;;
 		--wanpipe ) DAHDI_WANPIPE=1; shift ;;
+		--openr2 ) OPENR2=1; shift ;;
 		--offline ) OFFLINE_INSTALL=1; shift ;;
 		--noupdate ) PACMAN_NOUPDATE=1; shift ;;
 		# -- means the end of the arguments; drop this, and break out of the while loop
@@ -3384,7 +3544,16 @@ if which curl > /dev/null && [ "$OFFLINE_INSTALL" != "1" ]; then # only execute 
 	if [ -f /tmp/phreaknet_upstream_version.txt ]; then
 		recent=$( find /tmp/phreaknet_upstream_version.txt -mmin -720 2>/dev/null | wc -l )
 	else
-		recent=0
+		recent=$( find /tmp/phreaknet_no_update_check.txt -mmin -720 2>/dev/null | wc -l )
+		if [ "$recent" = "0" ]; then
+			# Check if we have Internet connectivity. If not (or if it's not a fast connection), don't bother trying to update right now.
+			ping -c 1 -W 3 1.1.1.1 > /dev/null
+			if [ $? -ne 0 ]; then
+				printf " *** Skipping update check (no Internet connectivity detected)\n"
+				echo "1" > /tmp/phreaknet_no_update_check.txt
+				recent=1
+			fi
+		fi
 	fi
 	if [ "$recent" != "1" ]; then
 		printf " *** Checking if a higher numbered version is available..."
@@ -3610,6 +3779,12 @@ elif [ "$cmd" = "offline" ]; then
 		git clone --depth 1 https://github.com/arkadijs/asterisk-g72x.git
 	fi
 	get_ast_source # end up with an asterisk-offline directory
+	if [ "$CHAN_SCCP" = "1" ]; then
+		get_sccp_source
+	fi
+	if [ "$OPENR2" = "1" ]; then
+		get_openr2_source
+	fi
 	echog "Offline installation source prepared in $AST_SOURCE_PARENT_DIR - copy this directory to target system for offline installation"
 	ls $AST_SOURCE_PARENT_DIR
 elif [ "$cmd" = "install" ]; then
@@ -3918,6 +4093,17 @@ elif [ "$cmd" = "install" ]; then
 		exit 1
 	fi
 
+	# chan_sccp builds out of tree, so do it at the end
+	if [ "$CHAN_SCCP" = "1" ]; then
+		if [ "$OFFLINE_INSTALL" = "1" ]; then
+			cd $AST_SOURCE_PARENT_DIR
+			cp -r $OFFLINE_DIR/chan-sccp .
+		else
+			get_sccp_source
+		fi
+		build_sccp
+	fi
+
 	install_samples
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		for FILE in $(find /usr/local/lib/asterisk/modules -name "*.so" ) ; do
@@ -3944,8 +4130,10 @@ elif [ "$cmd" = "install" ]; then
 			adduser -c "Asterisk" $AST_USER --disabled-password --gecos "" # don't allow any password logins, e.g. su - asterisk. Use passwd asterisk to manually set.
 		fi
 		sed -i "s/ASTARGS=\"\"/ASTARGS=\"-U $AST_USER\"/g" /sbin/safe_asterisk
-		sed -i "s/#AST_USER=\"asterisk\"/AST_USER=\"$AST_USER\"/g" /etc/default/asterisk
-		sed -i "s/#AST_GROUP=\"asterisk\"/AST_GROUP=\"$AST_USER\"/g" /etc/default/asterisk
+		if [ -f /etc/default/asterisk ]; then
+			sed -i "s/#AST_USER=\"asterisk\"/AST_USER=\"$AST_USER\"/g" /etc/default/asterisk
+			sed -i "s/#AST_GROUP=\"asterisk\"/AST_GROUP=\"$AST_USER\"/g" /etc/default/asterisk
+		fi
 		chown -R $AST_USER $AST_CONFIG_DIR/ /usr/lib/asterisk /var/spool/asterisk/ $AST_VARLIB_DIR/ /var/run/asterisk/ /var/log/asterisk /var/cache/asterisk /usr/sbin/asterisk
 		sed -i "s/create 640 root root/create 640 $AST_USER $AST_USER/g" /etc/logrotate.d/asterisk # by default, logrotate will make the files owned by root, so Asterisk can't write to them if it runs as non-root user, so fix this! Not much else that can be done, as it's not a bug, since Asterisk itself doesn't necessarily know what user Asterisk will run as at compile/install time.
 		# by default, it has the asterisk user, so simply uncomment it:
@@ -3962,7 +4150,9 @@ elif [ "$cmd" = "install" ]; then
 			fi
 			rm tmpuserchanges.txt
 		fi
-		chgrp $AST_USER $AST_VARLIB_DIR/astdb.sqlite3
+		if [ -f $AST_VARLIB_DIR/astdb.sqlite3 ]; then
+			chgrp $AST_USER $AST_VARLIB_DIR/astdb.sqlite3
+		fi
 		if [ -d /etc/dahdi ]; then
 			# DAHDI related permissions: https://support.digium.com/s/article/Automatically-setting-dev-dahdi-file-permissions-when-running-Asterisk-as-non-root-user
 			chown -R $AST_USER:$AST_USER /dev/dahdi
@@ -3989,25 +4179,6 @@ elif [ "$cmd" = "install" ]; then
 		make_keys_readable
 	fi
 
-	if [ "$CHAN_SCCP" = "1" ]; then
-		cd $AST_SOURCE_PARENT_DIR
-		cd chan-sccp
-		if [ $? -eq 0 ]; then
-			git fetch
-			git pull
-			if [ $AST_MAJOR_VER -ge 21 ]; then
-				# Remove macros, or it won't even compile
-				$WGET "https://github.com/chan-sccp/chan-sccp/commit/3c90b6447b17639c52b47ed61cfb154b15ee84ec.patch"
-				git apply "3c90b6447b17639c52b47ed61cfb154b15ee84ec.patch"
-			fi
-			./configure --enable-conference --enable-advanced-functions --with-asterisk=../$AST_SRC_DIR
-			$AST_MAKE -j$(nproc) && $AST_MAKE install && $AST_MAKE reload
-			if [ $? -ne 0 ]; then
-				die "Failed to install chan_sccp"
-			fi
-		fi
-	fi
-
 	# Development Mode (Asterisk Test Suite)
 	if [ "$DEVMODE" = "1" ]; then
 		if [ "$PAC_MAN" = "apt-get" ]; then
@@ -4019,9 +4190,13 @@ elif [ "$cmd" = "install" ]; then
 		install_testsuite_itself
 	fi
 
-	/etc/init.d/asterisk status
-	/etc/init.d/asterisk start # service asterisk start
-	/etc/init.d/asterisk status
+	if [ -f /etc/init.d/asterisk ]; then
+		/etc/init.d/asterisk status
+		/etc/init.d/asterisk start # service asterisk start
+		/etc/init.d/asterisk status
+	else
+		asterisk -g # Start Asterisk manually if the service isn't installed
+	fi
 
 	asterisk -V
 	rasterisk -x "core show version"

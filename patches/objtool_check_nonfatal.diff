@@ -1,0 +1,21 @@
+diff --git a/tools/objtool/check.c b/tools/objtool/check.c
+index 3f7999317..4b6c8665a 100644
+--- a/tools/objtool/check.c
++++ b/tools/objtool/check.c
+@@ -5069,9 +5069,6 @@ int check(struct objtool_file *file)
+ 
+ out:
+ 	if (ret || warnings) {
+-		if (opts.werror && warnings)
+-			ret = 1;
+-
+ 		if (opts.verbose) {
+ 			if (opts.werror && warnings)
+ 				WARN("%d warning(s) upgraded to errors", warnings);
+@@ -5095,5 +5092,5 @@ int check(struct objtool_file *file)
+ 	if (opts.backup && make_backup())
+ 		return 1;
+ 
+-	return ret;
++	return opts.werror ? 1 : 0;
+ }

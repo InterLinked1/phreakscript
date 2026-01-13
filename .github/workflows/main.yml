@@ -114,11 +114,12 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+     - name: Checkout
+       uses: actions/checkout@v4
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux
-          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
-          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff
      - name: Build kernel
        run: |
           cd /usr/src/linux
@@ -127,10 +128,9 @@ jobs:
           make -j$(nproc) modules_prepare
           make -j$(nproc)
           make -j$(nproc) modules
-     - name: Checkout
-       uses: actions/checkout@v4
      - name: Build DAHDI
        run: |
+           cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers
   dahdi-nonfatal-next:
@@ -147,11 +147,12 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Checkout
+       uses: actions/checkout@v4
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux-next
-          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
-          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff
      - name: Build kernel
        run: |
           cd /usr/src/linux-next
@@ -160,12 +161,40 @@ jobs:
           make -j$(nproc) modules_prepare
           make -j$(nproc)
           make -j$(nproc) modules
-     - name: Checkout
-       uses: actions/checkout@v4
      - name: Build DAHDI
        run: |
+           cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
+  dahdi-next-no-vpmadt032:
+    runs-on: ubuntu-24.04
+    name: DAHDI, next kernel (VPMADT032 disabled)
+    container: debian:13
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc curl
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux-next
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Build DAHDI
+       run: |
+           cd $GITHUB_WORKSPACE
+           ./phreaknet.sh make
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers --disable-vpmadt032
   dahdi-next-fortified:
     runs-on: ubuntu-24.04
     name: DAHDI, fortified
@@ -180,12 +209,12 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+     - name: Checkout
+       uses: actions/checkout@v4
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux-next
-          dnf -y install patch
-          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
-          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff
      - name: Build kernel
        run: |
           cd /usr/src/linux-next
@@ -197,10 +226,9 @@ jobs:
           cat .config
           make -j$(nproc)
           make -j$(nproc) modules
-     - name: Checkout
-       uses: actions/checkout@v4
      - name: Build DAHDI
        run: |
+           cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
   ubuntu-latest:
@@ -252,14 +280,14 @@ jobs:
           phreaknet runtests
   debian-12-asterisk-latest:
     runs-on: ubuntu-24.04
-    name: Debian 12
+    name: Debian 12, with OpenR2
     container: debian:12
     steps:
       - uses: actions/checkout@v4
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --sip --testsuite
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --openr2 --sip --testsuite
       - name: Run tests
         run: |
           phreaknet runtests
@@ -294,10 +322,31 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} INSTALL_LIBPRI=0 INSTALL_LIBSS7=0 phreaknet install --fast --dahdi --autokvers --drivers --devmode --lightweight --vanilla
+  sccp:
+    runs-on: ubuntu-24.04
+    name: chan_sccp
+    steps:
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Build Asterisk with chan_sccp
+       run: |
+          sudo ./phreaknet.sh make
+          sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --devmode --sccp
   alpine-linux:
     runs-on: ubuntu-24.04
     name: Alpine Linux
     container: alpine:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --autokvers --drivers --devmode --disable-vpmadt032
+  alpine-linux-322:
+    runs-on: ubuntu-24.04
+    # Newer versions need the fatal objtool patch reverted, which requires building the kernel... not worth it on Alpine
+    name: Alpine Linux 3.22
+    container: alpine:3.22
     steps:
       - uses: actions/checkout@v4
       - name: Build DAHDI and Asterisk
