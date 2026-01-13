@@ -1075,7 +1075,7 @@ install_prereq() {
 			fi
 		fi
 	elif [ "$PAC_MAN" = "zypper" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk autoconf subversion bzip2 gcc-c++"
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git-core make patch gawk autoconf automake libtool subversion bzip2 gcc-c++"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES newt-devel dwarves"
 		fi
@@ -4216,6 +4216,10 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		echog "Note that DAHDI was installed and requires a reboot (or hotswap of kernel modules, e.g. phreaknet restart) before it can be used."
 		echog "Note that you will need to manually configure /etc/dahdi/system.conf appropriately for your spans."
+		if [ "$PAC_MAN" = "zypper" ]; then
+			echog "Additionally, since you appear to be using openSUSE/SUSE Linux Enterprise, you will need to enable the loading of unsupported kernel modules."
+			echog "See https://support.scc.suse.com/s/kb/Enable-loading-of-unsupported-kernel-modules for details on how to do this."
+		fi
 	fi
 	if [ "$FREEPBX_GUI" = "1" ]; then
 		printf "%s\n" "Installation of FreePBX GUI will begin in 5 seconds..."
