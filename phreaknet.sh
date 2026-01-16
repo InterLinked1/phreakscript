@@ -1767,7 +1767,14 @@ linux_headers_install_apt() {
 	if [ $? -ne 0 ]; then
 		apt-get install -y linux-headers-`uname -r`
 	else
-		apt-get install -y raspberrypi-kernel-headers
+		# raspberrypi-kernel-headers isn't used on Raspberry Pi OS 13+, instead it uses a more normal linux-headers-* package.
+		# If we are on Debian 13 or later, we will install that package instead.
+		DEB_VERSION=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
+		if [ $DEB_VERSION -ge 13 ]; then
+			apt-get install -y linux-headers-`uname -r`
+		else
+			apt-get install -y raspberrypi-kernel-headers
+		fi
 	fi
 	if [ $? -ne 0 ]; then
 		kernel=`uname -r`
