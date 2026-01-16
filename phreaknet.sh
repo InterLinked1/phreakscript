@@ -2226,9 +2226,15 @@ install_dahdi() {
 	# Check if this directory exists, otherwise try looking in /usr/src
 	# This is for openSUSE compatibility
 	if [ ! -d "$KBUILD_DIR" ]; then
-		KERNEL_VER=$( uname -r | cut -d'-' -f1-2)
-		printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}...\n"
-		KBUILD_DIR="/usr/src/linux-${KERNEL_VER}"
+		# RPi OS/Debian 13 use the full kernel version string for their kbuild directory,
+		# So we'll check for that first before checking /usr/src.
+		KERNEL_VER=$( uname -r | cut -d'-' -f1-1)
+		printf "No /usr/lib/linux-kbuild-major.minor dir, checking for dir with full kernel version (${KERNEL_VER})...\n"
+		KBUILD_DIR="/usr/lib/linux-kbuild-${KERNEL_VER}"
+		if [ ! -d "$KBUILD_DIR" ]; then
+			printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}...\n"
+			KBUILD_DIR="/usr/src/linux-${KERNEL_VER}"
+		fi
 	fi
 	if [ -d "$KBUILD_DIR" ]; then
 		MODFINAL_FILE="${KBUILD_DIR}/scripts/Makefile.modfinal"
