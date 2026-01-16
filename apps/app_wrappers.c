@@ -104,7 +104,9 @@ static int dial_exec(struct ast_channel *chan, const char *data)
 	}
 
 	if (ts) {
-		int res = ast_playtones_start(chan, 0, ts->data, 0);
+		int res;
+		ast_indicate(chan, AST_CONTROL_PROGRESS); /* In case no progress has been sent yet, send it now so audio passes reliably */
+		res = ast_playtones_start(chan, 0, ts->data, 0);
 		ts = ast_tone_zone_sound_unref(ts);
 		if (res) {
 			ast_log(LOG_WARNING, "Unable to start tones on channel %s\n", ast_channel_name(chan));
