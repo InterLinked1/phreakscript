@@ -1767,7 +1767,14 @@ linux_headers_install_apt() {
 	if [ $? -ne 0 ]; then
 		apt-get install -y linux-headers-`uname -r`
 	else
-		apt-get install -y raspberrypi-kernel-headers
+		# raspberrypi-kernel-headers isn't used on Raspberry Pi OS 13+, instead it uses a more normal linux-headers-* package.
+		# If we are on Debian 13 or later, we will install that package instead.
+		DEB_VERSION=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
+		if [ $DEB_VERSION -ge 13 ]; then
+			apt-get install -y linux-headers-`uname -r`
+		else
+			apt-get install -y raspberrypi-kernel-headers
+		fi
 	fi
 	if [ $? -ne 0 ]; then
 		kernel=`uname -r`
@@ -2219,9 +2226,15 @@ install_dahdi() {
 	# Check if this directory exists, otherwise try looking in /usr/src
 	# This is for openSUSE compatibility
 	if [ ! -d "$KBUILD_DIR" ]; then
-		KERNEL_VER=$( uname -r | cut -d'-' -f1-2)
-		printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}...\n"
-		KBUILD_DIR="/usr/src/linux-${KERNEL_VER}"
+		# RPi OS/Debian 13 use the full kernel version string for their kbuild directory,
+		# So we'll check for that first before checking /usr/src.
+		KERNEL_VER=$( uname -r | cut -d'-' -f1-1)
+		printf "No /usr/lib/linux-kbuild-major.minor dir, checking for dir with full kernel version (${KERNEL_VER})...\n"
+		KBUILD_DIR="/usr/lib/linux-kbuild-${KERNEL_VER}"
+		if [ ! -d "$KBUILD_DIR" ]; then
+			printf "No build directory found in /usr/lib, checking /usr/src for ${KERNEL_VER}...\n"
+			KBUILD_DIR="/usr/src/linux-${KERNEL_VER}"
+		fi
 	fi
 	if [ -d "$KBUILD_DIR" ]; then
 		MODFINAL_FILE="${KBUILD_DIR}/scripts/Makefile.modfinal"
