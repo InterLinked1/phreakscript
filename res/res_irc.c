@@ -266,7 +266,7 @@ static int irc_authenticate(const char *username, const char *password, const ch
 	/* Confused about the difference between the two? See https://stackoverflow.com/questions/31666247/ */
 	res |= irc_send("NICK %s", username); /* Actual IRC nickname */
 	res |= irc_send("USER %s 0 * :%s", username, S_OR(realname, username)); /* User part of hostmask, mode, unused, real name for WHOIS */
-	return 0;
+	return res;
 }
 
 static int irc_nickserv_login(const char *username, const char *password)
@@ -284,7 +284,7 @@ static int irc_nickserv_login(const char *username, const char *password)
 
 	/* Confused about the difference between the two? See https://stackoverflow.com/questions/31666247/ */
 	res |= irc_send("PRIVMSG NickServ :IDENTIFY %s %s", username, password); /* Actual IRC nickname */
-	return 0;
+	return res;
 }
 
 /*! \brief # is not automatic, channels should include leading # or & */

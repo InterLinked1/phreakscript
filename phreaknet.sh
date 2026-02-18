@@ -2860,6 +2860,7 @@ phreak_patches() {
 	asterisk_pr_if 1782 230300 220900 201900 # Fix discarded-qualifiers const errors with BETTER_BACKTRACES
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
+	asterisk_pr_unconditional 1784 # Fix unused-but-set-variable warnings
 
 	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
 	git_patch "dahdicleanup.diff"

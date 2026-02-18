@@ -2087,6 +2087,9 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 	}
 
 	/* Cursory try of all eligible routes failed. */
+	if (total_unavailable) {
+		ast_debug(1, "%d route%s unavailable\n", total_unavailable, ESS(total_unavailable));
+	}
 	ccsa_log(chan, fd, "First pass unsuccessful\n");
 
 	if (total_unauthorized == total_attempted) {
@@ -2145,6 +2148,7 @@ static int ccsa_run(struct ast_channel *chan, int fd, const char *exten, const c
 	}
 
 	/* We couldn't preempt any calls (including not authorized to) */
+	ast_debug(1, "%d preemption%s failed\n", total_preempt_fails, ESS(total_preempt_fails));
 
 	if (!ohq && !cbq) {
 		if (preempt) {

@@ -930,7 +930,7 @@ static int george_exec(struct ast_channel *chan, const char *data)
 		}
 		actual_waitms = tollsaver * 1000;
 	}
-	if (ast_safe_sleep(chan, waitsec * 1000)) {
+	if (ast_safe_sleep(chan, actual_waitms)) {
 		return -1;
 	}
 
