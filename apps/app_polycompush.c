@@ -75,7 +75,7 @@ static int get_ip(char *buf, size_t len, const char *device)
 {
 	char tmp[282];
 	char workspace[256];
-	char *endpoint;
+	const char *endpoint;
 
 	endpoint = strchr(device, '/');
 	if (!endpoint) {

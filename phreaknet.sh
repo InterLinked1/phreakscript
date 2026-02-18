@@ -2856,6 +2856,8 @@ phreak_patches() {
 
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
 	asterisk_pr_if 1704 230300 220900 201900 # res_pjsip_pubsub: Fix ao2 reference leak of subscription tree in ast_sip_subscription, esp. important for --experimental patches
+	asterisk_pr_if 1772 230300 220900 201900 # Fix discarded-qualifiers const errors
+	asterisk_pr_if 1782 230300 220900 201900 # Fix discarded-qualifiers const errors with BETTER_BACKTRACES
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
 
@@ -2884,8 +2886,9 @@ phreak_patches() {
 	git_patch "app_confbridge_Fix_bridge_shutdown_race_condition.patch" # app_confbridge: Fix bridge shutdown race condition
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
-	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI
 	git_patch "asterisk-prevent-duplicate-processes.diff" # Prevent duplicate Asterisk process creation
+
+	#git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI. Patch no longer applies after https://github.com/asterisk/asterisk/pull/1772
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ] && [ $AST_MAJOR_VER -ge 21 ]; then
 		printf "Installing 21+ patches for experimental features\n"

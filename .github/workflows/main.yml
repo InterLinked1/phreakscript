@@ -405,6 +405,16 @@ jobs:
         run: |
           ./phreaknet.sh make
           GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --devmode --sip
+  archlinux:
+    runs-on: ubuntu-24.04
+    name: Arch Linux
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --devmode --sip
 # FreeBSD CI disabled since libuuid headers can't get installed in CI?
 #  freebsd-14:
 #    runs-on: ubuntu-24.04

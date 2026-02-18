@@ -189,7 +189,10 @@ static int handle_find_prompt(const char *dir_name, const char *filename, void *
 {
 	size_t flen;
 	struct find_prompt_search *s = obj;
-	char *ext;
+	const char *ext;
+#ifndef NO_WAY_TO_DETERMINE_EXTENSION_FROM_FILESTREAM
+	char *ext2;
+#endif
 	const char *prefix = s->prefix;
 
 	if (strncmp(prefix, filename, strlen(prefix))) {
@@ -216,9 +219,9 @@ static int handle_find_prompt(const char *dir_name, const char *filename, void *
 	/* Use this one */
 	ast_copy_string(s->result, filename, sizeof(s->result));
 #ifndef NO_WAY_TO_DETERMINE_EXTENSION_FROM_FILESTREAM
-	ext = strrchr(s->result, '.');
-	if (ext) {
-		*ext++ = '\0'; /* Ditch the extension */
+	ext2 = strrchr(s->result, '.');
+	if (ext2) {
+		*ext2++ = '\0'; /* Ditch the extension */
 	}
 #endif
 #ifdef EXTRA_DEBUG

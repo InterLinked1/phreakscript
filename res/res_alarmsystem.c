@@ -1732,7 +1732,7 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 		AST_LIST_LOCK(&c->events);
 		AST_LIST_TRAVERSE(&c->events, e, entry) {
 			char encoded[MAX_PACKET_SIZE];
-			char *tmp;
+			const char *tmp;
 			if (module_shutting_down) {
 				break;
 			}
