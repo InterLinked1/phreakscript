@@ -8,7 +8,7 @@ if [ "$src" = "https://docs.phreaknet.org/script" ]; then
 	src="https://docs.phreaknet.org/script/phreaknet.sh" # needed for compatability with < 0.0.38, can be removed eventually
 fi
 printf "Upstream: %s\n" "$src"
-if test -h /bin/ls && [[ `readlink /bin/ls` =~ busybox ]]; then
+if test -h /bin/ls && readlink /bin/ls | grep -q "busybox"; then
 	curl -s $src > $tmp
 else
 	wget -q $src -O $tmp --no-cache # always replace

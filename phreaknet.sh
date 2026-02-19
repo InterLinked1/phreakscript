@@ -468,7 +468,7 @@ if [ "$WGET" = "" ]; then
 		WGET="$WGET --show-progress"
 	fi
 fi
-if test -h /bin/ls && [[ `readlink /bin/ls` =~ busybox ]] && [ "$PAC_MAN" != "apk" ]; then
+if test -h /bin/ls && readlink /bin/ls | grep -q "busybox" && [ "$PAC_MAN" != "apk" ]; then
 	# wget is useless on BusyBox (at least with AstLinux, but not Alpine Linux), use curl instead
 	WGET="curl -s -O"
 fi
