@@ -1085,12 +1085,16 @@ install_prereq() {
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libedit-devel libuuid-devel libxml2-devel sqlite3-devel openssl-devel"
 		fi
 	elif [ "$PAC_MAN" = "pacman" ]; then
-		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gawk gcc pkg-config autoconf automake m4 libtool"
+		# base-devel is needed for pod2man
+		PREREQ_PACKAGES="$PREREQ_PACKAGES git make patch gawk gcc pkg-config autoconf automake m4 libtool base-devel"
 		if [ "$CHAN_DAHDI" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES libnewt pahole"
 		fi
 		if [ "$1" = "1" ]; then
 			PREREQ_PACKAGES="$PREREQ_PACKAGES subversion libedit"
+			if [ "$RPT_MODULES" = "1" ]; then
+				PREREQ_PACKAGES="$PREREQ_PACKAGES libusb libusb-compat alsa-utils"
+			fi
 		fi
 	elif [ "$PAC_MAN" = "apk" ]; then
 		PREREQ_PACKAGES="$PREREQ_PACKAGES build-base git curl"
@@ -1132,6 +1136,9 @@ install_prereq() {
 				dnf --enablerepo=devel install -y libedit-devel
 			fi
 		fi
+	elif [ "$PAC_MAN" = "pacman" ]; then
+		# pod2man isn't in the default path, we need to add it
+		export PATH="/usr/bin/core_perl:$PATH"
 	elif [ "$PAC_MAN" = "pkg" ]; then
 		if [ "$1" = "1" ]; then
 			pkg info e2fsprogs-libuuid
@@ -2435,7 +2442,12 @@ install_dahdi() {
 		tar -zxvf ${LIBPRI_SOURCE_NAME}.tar.gz
 		rm ${LIBPRI_SOURCE_NAME}.tar.gz
 		cd ${LIBPRI_SOURCE_NAME}
+		# Not yet merged to master:
+		github_apply_pr "asterisk/libpri" "12" # Use signal.h instead of sys/signal.h for musl compatibility
 		$AST_MAKE && $AST_MAKE install
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
 	fi
 
 	# LibSS7
@@ -2445,7 +2457,13 @@ install_dahdi() {
 		tar -zxvf ${LIBSS7_VERSION}.tar.gz
 		rm ${LIBSS7_VERSION}.tar.gz
 		cd libss7-${LIBSS7_VERSION}
+		# Not yet merged to master:
+		github_apply_pr "asterisk/libss7" "5" # Use const char if possible for APIs
+		github_apply_pr "asterisk/libss7" "7" # Use poll.h instead of sys/poll.h
 		$AST_MAKE && $AST_MAKE install
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
 	fi
 
 	# Wanpipe
@@ -2861,6 +2879,7 @@ phreak_patches() {
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged
 	asterisk_pr_unconditional 1784 # Fix unused-but-set-variable warnings
+	asterisk_pr_unconditional 1787 # chan_dahdi: Fix discarded-qualifiers errors
 
 	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
 	git_patch "dahdicleanup.diff"

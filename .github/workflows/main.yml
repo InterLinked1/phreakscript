@@ -414,7 +414,7 @@ jobs:
       - name: Build Asterisk
         run: |
           ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --devmode --sip
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --disable-vpmadt032 --devmode --sip
 # FreeBSD CI disabled since libuuid headers can't get installed in CI?
 #  freebsd-14:
 #    runs-on: ubuntu-24.04
