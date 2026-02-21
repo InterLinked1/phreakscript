@@ -1,0 +1,14 @@
+; res_phreaknet.conf - PhreakNet specific configuration
+
+[general]
+;hostname=pbx.example.net ; Your public PhreakNet hostname
+;autokeyfetch=yes ; Whether to automatically fetch RSA public keys periodically. Default is yes
+;autokeyrotate=yes ; Whether to automatically rotate the local PhreakNet RSA keypair once per day. Default is yes.
+;requesttoken=no ; Whether to automatically request a token on outgoing PhreakNet calls.
+;fallbackwarning=no ; Provide audible warning tone if a call initially attempted using RSA authentication is forced to fallback to MD5 authentication. Default is no.
+;blacklistthreshold=2.1 ; Blacklisting threshold for lookup requests. Default is 2.1.
+;requirekeytoload=yes ; Specifies whether this module should decline to load if API key is missing. Default is yes.
+
+[intervals]
+;keyfetch_interval=1800 ; How often (in seconds) all RSA public keys will be downloaded. Default is 1800.
+;keyrotate_hour=4 ; The hour of the day (from 0-23), in system time, to rotate the local PhreakNet RSA keypair. Default is 4.

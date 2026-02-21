@@ -2795,6 +2795,7 @@ phreak_patches() {
 	phreak_tree_module "configs/samples/verify.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/irc.conf.sample" "1" # will fail for obsolete versions of Asterisk b/c of different directory structure, okay.
 	phreak_tree_module "configs/samples/res_alarmsystem.conf.sample" "1"
+	phreak_tree_module "configs/samples/res_phreaknet.conf.sample" "1"
 	phreak_tree_module "configs/samples/res_smdr_whozz.conf.sample" "1"
 	phreak_tree_module "configs/samples/res_telos_1a2.conf.sample" "1"
 
