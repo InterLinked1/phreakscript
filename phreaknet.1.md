@@ -352,6 +352,9 @@ directories if necessary.
 **--sccp**
 : Install community chan_sccp channel driver (Cisco Skinny)
 
+**--overlay**
+: Overlay an external directory tree into the Asterisk source, applying any Makefile.diff patches present
+
 **-t**, **--testsuite**
 : Compile with developer support for Asterisk test suite and unit tests.
 

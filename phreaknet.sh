@@ -287,6 +287,7 @@ PACMAN_NOUPDATE=0
 OFFLINE_INSTALL=0
 OFFLINE_PREP=0
 OFFLINE_DIR="/tmp/phreakscript_offline_src"
+OVERLAY_DIR=""
 
 handler() {
 	kill $BGPID
@@ -651,6 +652,7 @@ Options:
        --cisco        install: Add full support for Cisco Call Manager phones (chan_sip only)
        --rpt          install: Add radio repeater modules
        --sccp         install: Install chan_sccp channel driver (Cisco Skinny)
+       --overlay      install: Overlay an external directory tree into the Asterisk source, applying any Makefile.diff patches present
        --drivers      install: Also install DAHDI drivers removed in 2018
 	   --disable-vpmadt032  install: Disable VPMADT032 echo canceller driver from building (temporarily required on newer kernels)
        --generic      install: Use generic kernel headers that do not match the installed kernel version
@@ -3494,7 +3496,7 @@ else
 fi
 
 FLAG_TEST=0
-PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,clli:,debug:,devmode,disa:,drivers,disable-vpmadt032,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,openr2,offline,noupdate -- "$@")
+PARSED_ARGUMENTS=$(getopt -n phreaknet -o bc:u:dfhostu:v:w -l backtraces,cc:,dahdi,force,flag-test,help,sip,testsuite,user:,version:,weaktls,alsa,cisco,rpt,sccp,overlay:,clli:,debug:,devmode,disa:,drivers,disable-vpmadt032,experimental,extcodecs,g72x,fast,freepbx,generic,autokvers,lightweight,api-key:,rotate,audit,boilerplate,upstream:,manselect,minimal,vanilla,wanpipe,openr2,offline,noupdate -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -3529,6 +3531,7 @@ while true; do
 		--cisco ) SIP_CISCO=1; shift ;;
 		--rpt ) RPT_MODULES=1; shift ;;
 		--sccp ) CHAN_SCCP=1; shift ;;
+		--overlay ) OVERLAY_DIR=$2; shift 2;;
 		--boilerplate ) BOILERPLATE_SOUNDS=1; shift ;;
 		--clli ) PHREAKNET_CLLI=$2; shift 2;;
 		--disa ) PHREAKNET_DISA=$2; shift 2;;
@@ -3638,6 +3641,45 @@ require_installed_asterisk() {
 	fi
 	if [ ! -d $AST_SOUNDS_DIR ]; then
 		die "$AST_SOUNDS_DIR does not exist; please install Asterisk before running this commands"
+	fi
+}
+
+apply_overlay_sub() {
+	subdir="$1"
+	for fullfiledir in $OVERLAY_DIR/$subdir/*; do
+		filedir=$( basename "$fullfiledir" )
+		if [ -d "$fullfiledir" ]; then
+			# It's a directory. Copy the whole thing over.
+			printf " -- Copying directory $fullfiledir -> $subdir\n"
+			cp -r "$fullfiledir" "$subdir"
+		elif [ -f "$fullfiledir" ]; then
+			# It's a file. Copy the file over, unless it's named Makefile.diff, in which case we just apply it.
+			if [ "$filedir" = "Makefile.diff" ]; then
+				printf " -- Applying patch $fullfiledir -> $subdir/Makefile\n"
+				patch -u -b "$subdir/Makefile" -i "$fullfiledir"
+			else
+				printf " -- Copying file $fullfiledir -> $subdir\n"
+				cp "$fullfiledir" "$subdir"
+			fi
+		else
+			die "Error: $filedir"
+		fi
+		if [ $? -ne 0 ]; then
+			exit 1
+		fi
+	done
+}
+
+apply_overlays() {
+	if [ "$OVERLAY_DIR" != "" ]; then
+		if [ ! -d "$OVERLAY_DIR" ]; then
+			die "Overlay directory $OVERLAY_DIR does not exist"
+		fi
+		for subdir in $OVERLAY_DIR/*; do
+			printf "Applying overlay of $subdir\n"
+			subdirbase=$( basename "$subdir" )
+			apply_overlay_sub "$subdirbase"
+		done
 	fi
 }
 
@@ -3927,6 +3969,8 @@ elif [ "$cmd" = "install" ]; then
 		printf "%s %d" "libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
 	fi
 	./contrib/scripts/install_prereq install
+
+	apply_overlays
 
 	if [ "$PAC_MAN" = "apk" ]; then
 		# No bundled pjproject for Alpine Linux
