@@ -62,6 +62,12 @@
 						<para>Public PhreakNet hostname of this machine, used for key rotation.</para>
 					</description>
 				</configOption>
+				<configOption name="iaxcategory" default="phreaknet">
+					<synopsis>Name of your PhreakNet config section in iax.conf</synopsis>
+					<description>
+						<para>The name of the configuration section in <literal>iax.conf</literal> used for your incoming PhreakNet calls.</para>
+					</description>
+				</configOption>
 				<configOption name="autokeyfetch" default="yes">
 					<synopsis>Whether to automatically fetch RSA public keys periodically.</synopsis>
 					<description>
@@ -70,6 +76,7 @@
 						the <literal>KeyPrefetch</literal> application to download keys ad hoc, and also ensures that you have the public keys
 						for nodes that have not attempted to call you before, ensuring that even the first call can use RSA authentication
 						instead of being forced to fall back to MD5 authentication.</para>
+						<para>Ensure the <literal>iaxcategory</literal> variable is set correctly if you are using this.</para>
 					</description>
 				</configOption>
 				<configOption name="autokeyrotate" default="yes">
@@ -216,7 +223,7 @@
 /*! \brief Default IAX2 bindport is 4569 */
 #define IAX_DEFAULT_BINDPORT 4569
 
-#define IAX_CATEGORY_NAME "phreaknet"
+#define IAX_CATEGORY_NAME_DEFAULT "phreaknet"
 
 /*! \brief Name of PhreakNet RSA keypair files */
 #define MY_KEYPAIR_NAME "phreaknetrsa"
@@ -247,6 +254,7 @@ static int keyfetch_interval;
 static int keyrotate_hour;
 static float blacklist_threshold;
 
+static char iaxcategory[64];
 static char interlinked_api_key[INTERLINKED_API_KEYLEN + 1];
 static char mainphreaknetdisa[8];
 
@@ -929,11 +937,11 @@ static int update_rsa_pubkeys(void)
 				}
 
 				/* Find phreaknet inkeys */
-				currentinkeys = ast_variable_retrieve(cfg, IAX_CATEGORY_NAME, "inkeys");
+				currentinkeys = ast_variable_retrieve(cfg, iaxcategory, "inkeys");
 				if (currentinkeys) {
 					ast_str_append(&keylist, 0, "%s", currentinkeys);
 				} else {
-					ast_log(LOG_WARNING, "Could not find category '%s' in IAX2 configuration\n", IAX_CATEGORY_NAME);
+					ast_log(LOG_WARNING, "Could not find category '%s' in IAX2 configuration\n", iaxcategory);
 				}
 			}
 			if (keylist) {
@@ -952,7 +960,7 @@ cleanup:
 	if (cfg) {
 		/* Update iax.conf config */
 		ast_debug(3, "New key list: %s\n", ast_str_buffer(keylist));
-		category = ast_category_get(cfg, IAX_CATEGORY_NAME, NULL);
+		category = ast_category_get(cfg, iaxcategory, NULL);
 		if (category) {
 			if (currentinkeys) {
 				ast_debug(3, "Already have an inkeys list, updating it\n");
@@ -963,9 +971,9 @@ cleanup:
 				const char *newinkeys;
 				struct ast_variable *v;
 
-				ast_debug(3, "Found category '%s', but no inkeys variable, creating one now\n", IAX_CATEGORY_NAME);
+				ast_debug(3, "Found category '%s', but no inkeys variable, creating one now\n", iaxcategory);
 				if (!(v = ast_variable_new("inkeys", ast_str_buffer(keylist), IAX_CONFIG_FILE))) {
-					ast_log(LOG_WARNING, "Failed to create 'inkeys' variable for category '%s'\n", IAX_CATEGORY_NAME);
+					ast_log(LOG_WARNING, "Failed to create 'inkeys' variable for category '%s'\n", iaxcategory);
 				} else {
 					ast_variable_append(category, v);
 				}
@@ -979,7 +987,7 @@ cleanup:
 				ast_log(LOG_WARNING, "Failed to save config\n");
 			}
 		} else {
-			ast_log(LOG_WARNING, "No %s category?\n", IAX_CATEGORY_NAME);
+			ast_log(LOG_WARNING, "No %s category?\n", iaxcategory);
 		}
 		ast_config_destroy(cfg);
 		ast_free(keylist);
@@ -1017,7 +1025,7 @@ static int iax_purge_keys(void)
 	}
 
 	/* Find phreaknet inkeys */
-	while ((category = ast_category_browse_filtered(cfg, IAX_CATEGORY_NAME, category, NULL))) {
+	while ((category = ast_category_browse_filtered(cfg, iaxcategory, category, NULL))) {
 		const char *currentinkeys = ast_variable_find(category, "inkeys");
 		if (currentinkeys) {
 			if (ast_variable_update(category, "inkeys", "", NULL, 0)) {
@@ -1576,6 +1584,7 @@ static int load_config(int reload)
 	keyfetch_interval = DEFAULT_KEYFETCH_INTERVAL;
 	keyrotate_hour = DEFAULT_KEYROTATE_HOUR;
 	blacklist_threshold = DEFAULT_BLACKLIST_THRESHOLD;
+	ast_copy_string(iaxcategory, IAX_CATEGORY_NAME_DEFAULT, sizeof(iaxcategory));
 
 	find_bindport(reload); /* Determine what IAX2 bindport we're using. */
 
@@ -1603,6 +1612,8 @@ static int load_config(int reload)
 			while (var) {
 				if (!strcasecmp(var->name, "hostname")) {
 					ast_copy_string(hostname_override, var->value, sizeof(hostname_override));
+				} else if (!strcasecmp(var->name, "iaxcategory")) {
+					ast_copy_string(iaxcategory, var->value, sizeof(iaxcategory));
 				} else if (!strcasecmp(var->name, "autokeyfetch")) {
 					module_flags.autokeyfetch = ast_true(var->value) ? 1 : 0;
 				} else if (!strcasecmp(var->name, "autokeyrotate")) {

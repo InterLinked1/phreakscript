@@ -2,6 +2,7 @@
 
 [general]
 ;hostname=pbx.example.net ; Your public PhreakNet hostname
+;iaxcategory=phreaknet ; The name of the section in iax.conf used for receiving PhreakNet calls. Default is 'phreaknet'. RSA authentication inbound will not work if this is not set correctly.
 ;autokeyfetch=yes ; Whether to automatically fetch RSA public keys periodically. Default is yes
 ;autokeyrotate=yes ; Whether to automatically rotate the local PhreakNet RSA keypair once per day. Default is yes.
 ;requesttoken=no ; Whether to automatically request a token on outgoing PhreakNet calls.
