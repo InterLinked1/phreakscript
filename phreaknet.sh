@@ -4226,7 +4226,7 @@ elif [ "$cmd" = "install" ]; then
 		id -u "$AST_USER"
 		# Create a user, if needed
 		if [ $? -ne 0 ]; then
-			adduser -c "Asterisk" $AST_USER --disabled-password --gecos "" # don't allow any password logins, e.g. su - asterisk. Use passwd asterisk to manually set.
+			useradd -c "Asterisk" -s /usr/sbin/nologin -M "$AST_USER" # don't allow any password logins, e.g. su - asterisk. Use passwd asterisk to manually set.
 		fi
 		sed -i "s/ASTARGS=\"\"/ASTARGS=\"-U $AST_USER\"/g" /sbin/safe_asterisk
 		if [ -f /etc/default/asterisk ]; then
