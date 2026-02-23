@@ -25,8 +25,8 @@ index cafe13ba2d..10fd9cb0ac 100644
  	int silence = 0;                /* amount of silence to allow */
 +	int noise = 0;					/* amount of noise to require first */
  	int gotsilence = 0;             /* did we timeout for silence? */
- 	char *silencestr = NULL;
-+	char *noisestr = NULL;
+ 	const char *silencestr = NULL;
++	const char *noisestr = NULL;
  	RAII_VAR(struct ast_format *, rfmt, NULL, ao2_cleanup);
  	struct ast_silence_generator *silgen = NULL;
  

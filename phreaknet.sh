@@ -2880,11 +2880,16 @@ phreak_patches() {
 	asterisk_pr_if 1772 230300 220900 201900 # Fix discarded-qualifiers const errors
 	asterisk_pr_if 1782 230300 220900 201900 # Fix discarded-qualifiers const errors with BETTER_BACKTRACES
 
-	## Unmerged patches: remove or switch to asterisk_pr_if once merged
+	## Unmerged patches: remove or switch to asterisk_pr_if once merged (hopefully soon)
 	asterisk_pr_unconditional 1784 # Fix unused-but-set-variable warnings
 	asterisk_pr_unconditional 1787 # chan_dahdi: Fix discarded-qualifiers errors
 
-	#asterisk_pr_unconditional 292 # GROUP VARs # Disabled temporarily as patch does not apply anymore
+	# Stagnant patches: hopefully will be merged eventually, but not in the near term
+	asterisk_pr_unconditional 292 # GROUP VARs
+	asterisk_pr_unconditional 1504 # func_channel: Allow manually changing audio format during a call
+	asterisk_pr_unconditional 1513 # app_mixmonitor: Prevent recording to same file multiple times
+
+	# Out of tree patches
 	git_patch "dahdicleanup.diff"
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then
@@ -2910,8 +2915,7 @@ phreak_patches() {
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
 	git_patch "asterisk-prevent-duplicate-processes.diff" # Prevent duplicate Asterisk process creation
-
-	#git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI. Patch no longer applies after https://github.com/asterisk/asterisk/pull/1772
+	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI. Patch no longer applies after https://github.com/asterisk/asterisk/pull/1772
 
 	if [ "$EXPERIMENTAL_FEATURES" = "1" ] && [ $AST_MAJOR_VER -ge 21 ]; then
 		printf "Installing 21+ patches for experimental features\n"
