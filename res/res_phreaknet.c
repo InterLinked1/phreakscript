@@ -260,6 +260,8 @@ static char mainphreaknetdisa[8];
 
 static char hostname_override[256] = "";
 
+static char tempkeyprefix[1024];
+
 static pthread_t phreaknet_thread = AST_PTHREADT_NULL;
 static ast_mutex_t refreshlock;
 static ast_cond_t refresh_condition;
@@ -1048,7 +1050,32 @@ static int iax_purge_keys(void)
 	return 0;
 }
 
-#define MY_KEYPAIR_TEMPFILE_PREFIX "/tmp/" MY_KEYPAIR_NAME
+static int my_rename(const char *old, const char *new)
+{
+	char *oldfile = ast_strdupa(old);
+	char *newfile = ast_strdupa(new);
+	char *argv[4] = { "mv", oldfile, newfile, NULL };
+
+	/* This is the common, easy case */
+	if (!rename(old, new)) {
+		return 0;
+	}
+
+	if (errno != EXDEV) {
+		ast_log(LOG_ERROR, "Failed to rename %s to %s: %s\n", old, new, strerror(errno));
+		return -1;
+	}
+
+	/* rename() failed, but only because the source and target files are not on the same filesystem.
+	 * mv(1) handles this by doing a manual copy + delete, which we could do,
+	 * but we may as well just let mv do it. */
+	ast_debug(3, "%s and %s are on different file systems, using mv instead\n", old, new);
+	if (ast_safe_execvp(0, argv[0], argv)) {
+		ast_log(LOG_ERROR, "Failed to move %s to %s: %s\n", old, new, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
 
 /*! \brief Generate a new or rotated PhreakNet public key pair and upload it to the server */
 static int gen_keypair(int rotate)
@@ -1062,7 +1089,12 @@ static int gen_keypair(int rotate)
 	struct ast_str *str;
 	const char *clli;
 	struct stat st;
-	char *const argv[] = { "astgenkey", "-q", "-n", MY_KEYPAIR_TEMPFILE_PREFIX, NULL };
+	char tempkeypub[2048];
+	char tempkeypriv[2048];
+	char *const argv[] = { "astgenkey", "-q", "-n", tempkeyprefix, NULL };
+
+	snprintf(tempkeypub, sizeof(tempkeypub), "%s.pub", tempkeyprefix);
+	snprintf(tempkeypriv, sizeof(tempkeypriv), "%s.key", tempkeyprefix);
 
 	if (ast_strlen_zero(interlinked_api_key)) {
 		/* Can't successfully upload to server with no API key */
@@ -1109,22 +1141,18 @@ static int gen_keypair(int rotate)
 	}
 
 	/* Generate the new keypair, and wait for it to finish. */
-	ast_debug(3, "Executing: astgenkey -q -n %s\n", MY_KEYPAIR_TEMPFILE_PREFIX);
+	ast_debug(3, "Executing: astgenkey -q -n %s\n", tempkeyprefix);
 	if (ast_safe_execvp(0, "astgenkey", argv) == -1) {
 		ast_log(LOG_WARNING, "Failed to execute astgenkey: %s\n", strerror(errno));
 		return -1;
-	} else if (stat(MY_KEYPAIR_TEMPFILE_PREFIX ".key", &st)) {
-		ast_log(LOG_WARNING, "Failed to stat %s: %s\n", MY_KEYPAIR_TEMPFILE_PREFIX ".key", strerror(errno));
+	} else if (stat(tempkeypriv, &st)) {
+		ast_log(LOG_WARNING, "Failed to stat %s: %s\n", tempkeypriv, strerror(errno));
 		return -1;
 	}
 
 	/* astgenkey will create files in the current working directory, not ast_config_AST_KEY_DIR.
 	 * We could chdir after we fork but before we execvp, but let's just rename the file from what it is to what it should be. */
-	if (rename(MY_KEYPAIR_TEMPFILE_PREFIX ".key", privkeyfile)) {
-		ast_log(LOG_ERROR, "Failed to rename %s to %s: %s\n", MY_KEYPAIR_TEMPFILE_PREFIX ".key", privkeyfile, strerror(errno));
-		return -1;
-	} else if (rename(MY_KEYPAIR_TEMPFILE_PREFIX ".pub", pubkeyfile)) {
-		ast_log(LOG_ERROR, "Failed to rename %s to %s: %s\n", MY_KEYPAIR_TEMPFILE_PREFIX ".pub", pubkeyfile, strerror(errno));
+	if (my_rename(tempkeypriv, privkeyfile) || my_rename(tempkeypub, pubkeyfile)) {
 		return -1;
 	}
 
@@ -2217,6 +2245,10 @@ static int load_module(void)
 {
 	int res = 0;
 
+	/* Use /var/spool/asterisk/tmp instead of /tmp as the temporary directory,
+	 * because /tmp is often on a different filesystem from /var/lib/asterisk,
+	 * so rename() will fail because it doesn't do cross-device moves. */
+	snprintf(tempkeyprefix, sizeof(tempkeyprefix), "%s/tmp/%s", ast_config_AST_SPOOL_DIR, MY_KEYPAIR_NAME);
 	load_time = time(NULL);
 
 	ast_mutex_init(&stat_lock);
