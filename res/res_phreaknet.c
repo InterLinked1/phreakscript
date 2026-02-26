@@ -1254,6 +1254,7 @@ static char *handle_show_settings(struct ast_cli_entry *e, int cmd, struct ast_c
 	ast_cli(a->fd, CLI_FMT_S, "InterLinked API key loaded", strlen(interlinked_api_key) == INTERLINKED_API_KEYLEN ? "Yes" : "No");
 	ast_cli(a->fd, CLI_FMT_S, "Main PhreakNet DISA", S_OR(mainphreaknetdisa, "Not Loaded"));
 	ast_cli(a->fd, CLI_FMT_D, "IAX2 bindport", iax_bindport);
+	ast_cli(a->fd, CLI_FMT_S, "IAX2 PhreakNet category", iaxcategory);
 	ast_cli(a->fd, CLI_FMT_S, "Autofetch public keys", AST_CLI_YESNO(module_flags.autokeyfetch));
 	ast_cli(a->fd, CLI_FMT_D, "Keyfetch frequency (s)", keyfetch_interval);
 	ast_cli(a->fd, CLI_FMT_S, "Autorotate keypair", AST_CLI_YESNO(module_flags.autokeyrotate));

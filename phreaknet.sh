@@ -2879,10 +2879,10 @@ phreak_patches() {
 	asterisk_pr_if 1704 230300 220900 201900 # res_pjsip_pubsub: Fix ao2 reference leak of subscription tree in ast_sip_subscription, esp. important for --experimental patches
 	asterisk_pr_if 1772 230300 220900 201900 # Fix discarded-qualifiers const errors
 	asterisk_pr_if 1782 230300 220900 201900 # Fix discarded-qualifiers const errors with BETTER_BACKTRACES
+	asterisk_pr_if 1784 230300 220900 201900 # Fix unused-but-set-variable warnings
+	asterisk_pr_if 1787 230300 220900 201900 # chan_dahdi: Fix discarded-qualifiers errors
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged (hopefully soon)
-	asterisk_pr_unconditional 1784 # Fix unused-but-set-variable warnings
-	asterisk_pr_unconditional 1787 # chan_dahdi: Fix discarded-qualifiers errors
 
 	# Stagnant patches: hopefully will be merged eventually, but not in the near term
 	asterisk_pr_unconditional 292 # GROUP VARs
