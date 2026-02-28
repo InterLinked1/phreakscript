@@ -2885,7 +2885,9 @@ phreak_patches() {
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged (hopefully soon)
 
 	# Stagnant patches: hopefully will be merged eventually, but not in the near term
-	asterisk_pr_unconditional 292 # GROUP VARs
+	#asterisk_pr_unconditional 292 # GROUP VARs. The current version of this patch on Git is unstable and causes frequent crashes. Do not use it.
+	git_patch "groupvars_old.diff" # This is an older version of the GROUP VARs patch (PR #292) that is stable and does not cause issues. Until the PR is fixed, we use this one.
+
 	asterisk_pr_unconditional 1504 # func_channel: Allow manually changing audio format during a call
 	asterisk_pr_unconditional 1513 # app_mixmonitor: Prevent recording to same file multiple times
 
