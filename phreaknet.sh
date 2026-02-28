@@ -3974,7 +3974,11 @@ elif [ "$cmd" = "install" ]; then
 	if [ "$PAC_MAN" = "apt-get" ]; then
 		printf "%s %d" "libvpb1/countrycode string" "$AST_CC" | debconf-set-selections -v
 	fi
+
+	# install_prereq takes a moment, and produces no output, so make it clear that something is happening
+	printf "Installing prereqs, this may take a moment... " # No newline, so DONE can conclude on the same line
 	./contrib/scripts/install_prereq install
+	printf "DONE\n"
 
 	apply_overlays
 
