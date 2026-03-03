@@ -2140,8 +2140,6 @@ get_dahlin_source() {
 	dahlin_apply_pr 64 # PR 64: More struct device to const struct device
 	dahlin_apply_pr 66 # PR 66: Add braces around empty if body
 	dahlin_apply_pr 69 # PR 69: DEFINE_SEMAPHORE for RHEL
-
-	# Not yet merged
 	dahlin_apply_pr 77 # EXTRA_CFLAGS removal
 	dahlin_apply_pr 92 # del_timer_sync wrapper
 	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
@@ -2155,7 +2153,7 @@ get_dahlin_source() {
 	if [ "$DAHDI_DISABLE_VPMADT032" = "1" ]; then
 		git_patch "vpmadt032_disable.diff"
 	else
-		# Not yet merged
+		# Merged in master, but not yet in a current release
 		dahlin_apply_pr 79 # vpmadt032 binary blob
 	fi
 
@@ -2188,7 +2186,7 @@ get_dahtool_source() {
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$DAHDI_TOOLS_SRC_DIR
 
-	# Not yet merged
+	# Merged in master, but not yet in a current release
 	dahtool_apply_pr 22 # PR 22 (dahdi_cfg: fix truncation warning)
 	dahtool_apply_pr 23 # PR 23 (xpp/echo_loader.c: static get_ver)
 
@@ -2783,6 +2781,7 @@ phreak_patches() {
 	phreak_tree_module "apps/app_polycompush.c"
 	phreak_tree_module "apps/app_predial.c"
 	phreak_tree_module "apps/app_pulsar.c"
+	phreak_tree_module "apps/app_r2.c" # could theoretically be upstreamed, but I'd like to get compelled signaling working properly first
 	phreak_tree_module "apps/app_randomplayback.c"
 	phreak_tree_module "apps/app_remoteaccess.c"
 	phreak_tree_module "apps/app_saytelnumber.c"
@@ -2881,6 +2880,11 @@ phreak_patches() {
 	asterisk_pr_if 1782 230300 220900 201900 # Fix discarded-qualifiers const errors with BETTER_BACKTRACES
 	asterisk_pr_if 1784 230300 220900 201900 # Fix unused-but-set-variable warnings
 	asterisk_pr_if 1787 230300 220900 201900 # chan_dahdi: Fix discarded-qualifiers errors
+
+	#asterisk_pr_if 1805 230300 220900 201900 # dsp.c: Add support for detecting R2 signaling tones. Disabled, patch doesn't cleanly apply.
+	if [ $AST_MAJOR_VER -le 23 ]; then
+		rm apps/app_r2.c # Only build app_r2 in master, until the next release comes out
+	fi
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged (hopefully soon)
 

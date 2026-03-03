@@ -2,12 +2,10 @@ diff --git a/main/dsp.c b/main/dsp.c
 index 8b4e3ee60f..9ddaf68bec 100644
 --- a/main/dsp.c
 +++ b/main/dsp.c
-@@ -199,7 +199,7 @@ enum gsamp_thresh {
+@@ -199,5 +199,5 @@ enum gsamp_thresh {
  
  #define BELL_MF_THRESHOLD	1.6e9
  #define BELL_MF_TWIST		4.0     /* 6dB */
 -#define BELL_MF_RELATIVE_PEAK	12.6    /* 11dB */
 +#define BELL_MF_RELATIVE_PEAK	6.3     /* 6dB */
  
- #if defined(BUSYDETECT_TONEONLY) && defined(BUSYDETECT_COMPARE_TONE_AND_SILENCE)
- #error You cant use BUSYDETECT_TONEONLY together with BUSYDETECT_COMPARE_TONE_AND_SILENCE

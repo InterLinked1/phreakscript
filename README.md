@@ -21,6 +21,7 @@ PhreakScript installs:
    - Signaling enhancements
       - Native coin detection and blue boxing support
       - Class 4 and Class 5 coin trunk support
+	  - Support for sending/receiving R2 signaling tones
    - Analog enhancements
       - Real time dial pulsing support
       - "Hearpulsing" patches
@@ -75,6 +76,10 @@ PhreakScript installs:
       - ``LocalCoinDisposition``
       - ``CoinCall``
       - ``ACTS``
+	  - ``R2Incoming``
+	  - ``R2Outgoing``
+	  - ``ReceiveR2``
+	  - ``SendR2``
       - ``SendCWCID``
       - ``DAHDIMonitor``
       - ``DialSpeedTest``
