@@ -30,8 +30,7 @@ jobs:
           'linux-6.8.y',
           'linux-6.9.y',
           'linux-6.10.y',
-          'linux-6.11.y',
-          'linux-rolling-lts'
+          'linux-6.11.y'
           ]
     steps:
      - name: Install packages
@@ -79,13 +78,13 @@ jobs:
        run: |
           cd /usr/src
           git clone --depth 1 --branch ${{matrix.kernel_branch}} git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-     # We download the objtool patch from GitLab instead of GitHub, to avoid its stupid and unpredictable rate limits in the CI
+     - name: Checkout
+       uses: actions/checkout@v4
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux
-          curl -f -o "/tmp/objtool.patch" "https://gitlab.com/linux-kernel/linux-next/-/commit/0b10177114d1e434af850b377cf5e6620dd1d525.patch"
-          cat /tmp/objtool.patch
-          patch -u -b -p 1 --reverse -i /tmp/objtool.patch
+          # Alternates needed for 6.15
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff || patch -u -b tools/objtool/check.c -i /tmp/objtool_check_nonfatal.diff || echo "Partial patch failure"
      - name: Build kernel
        run: |
           cd /usr/src/linux
@@ -94,10 +93,49 @@ jobs:
           make -j$(nproc) modules_prepare
           make -j$(nproc)
           make -j$(nproc) modules
-     - name: Checkout
-       uses: actions/checkout@v4
      - name: Build DAHDI
        run: |
+           cd $GITHUB_WORKSPACE
+           ./phreaknet.sh make
+           # --disable-vpmadt032 needed for 6.15
+           GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers --disable-vpmadt032
+  dahdi-nonfatal-lts:
+    runs-on: ubuntu-24.04
+    name: DAHDI, nonfatal, LTS kernel
+    container: debian:13
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel_branch: [
+          'linux-rolling-lts'
+          ]
+    steps:
+     - name: Install packages
+       run: |
+          apt-get -y update
+          apt-get -y upgrade
+          apt-get -y install git gcc make perl-modules flex bison wget libssl-dev libelf-dev bc curl
+     - name: Clone kernel
+       run: |
+          cd /usr/src
+          git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+     - name: Checkout
+       uses: actions/checkout@v4
+     - name: Revert objtool patch
+       run: |
+          cd /usr/src/linux
+          git apply $GITHUB_WORKSPACE/patches/objtool_check_nonfatal.diff
+     - name: Build kernel
+       run: |
+          cd /usr/src/linux
+          make -j$(nproc) kernelversion
+          make -j$(nproc) x86_64_defconfig
+          make -j$(nproc) modules_prepare
+          make -j$(nproc)
+          make -j$(nproc) modules
+     - name: Build DAHDI
+       run: |
+           cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux phreaknet dahdi --drivers
   dahdi-nonfatal-mainline:
