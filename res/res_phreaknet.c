@@ -1141,12 +1141,19 @@ static int gen_keypair(int rotate)
 	}
 
 	/* Generate the new keypair, and wait for it to finish. */
-	ast_debug(3, "Executing: astgenkey -q -n %s\n", tempkeyprefix);
-	if (ast_safe_execvp(0, "astgenkey", argv) == -1) {
+	ast_debug(3, "Executing: /usr/sbin/astgenkey -q -n %s\n", tempkeyprefix);
+	if (ast_safe_execvp(0, "/usr/sbin/astgenkey", argv) == -1) { /* On some systems, we need to include the full path here for this to work */
 		ast_log(LOG_WARNING, "Failed to execute astgenkey: %s\n", strerror(errno));
 		return -1;
 	} else if (stat(tempkeypriv, &st)) {
+		char tempkeydir[2048];
 		ast_log(LOG_WARNING, "Failed to stat %s: %s\n", tempkeypriv, strerror(errno));
+		snprintf(tempkeydir, sizeof(tempkeydir), "%s/tmp", ast_config_AST_SPOOL_DIR);
+		/* If the directory is not writable, that's probably why we failed to create the key */
+		if (eaccess(tempkeydir, W_OK)) {
+			ast_log(LOG_ERROR, "%s is not writable\n", tempkeydir);
+			return -1;
+		}
 		return -1;
 	}
 
