@@ -609,11 +609,14 @@ static int cdr_handler(struct ast_cdr *cdr)
 	}
 
 	if (!billsec && answer->tv_sec) {
-		int oldduration = duration;
+		int calcduration, oldduration = duration;
 		/* XXX May or may not be necessary anymore. Edge case where called party hangs up first... */
 		/* Manually fix the duration. Unfortunately, this sets billsec=duration, which is wrong. */
-		duration = duration ? duration : time(NULL) - cdr_channel->startsecs;
-		ast_log(LOG_WARNING, "Call was answered, but billsec is 0? Adjusting duration from %d to %d\n", oldduration, duration);
+		calcduration = time(NULL) - cdr_channel->startsecs;
+		duration = duration ? duration : calcduration;
+		if (duration != oldduration) {
+			ast_log(LOG_WARNING, "Call was answered, but billsec is 0? Adjusting duration from %d to %d\n", oldduration, duration);
+		}
 	}
 
 	ast_localtime(answer, &tm, NULL); /* Use the local time zone here, the server will use UTC. */
