@@ -336,7 +336,7 @@ static void modem_put_bit(void *user_data, int bit)
 					}
 
 					if (!paritybits || (paritybits && (rx->bitbuffer[(rx->readpos + databits + 1) % MODEM_BITBUFFER_SIZE] == ((rx->session->paritytype == 2) ^ __builtin_parity(byte))))) {
-						ast_debug(7, "send: %d, %c\n", rx->sock, byte);
+						ast_debug(7, "send(%d), [%d] %c\n", rx->sock, byte, isprint(byte) ? byte : ' ');
 #ifdef HAVE_OPENSSL
 						if (rx->ssl) {
 							SSL_write(rx->ssl, &byte, 1);
@@ -798,6 +798,11 @@ static int manager_softmodem_sessions(struct mansession *s, const struct message
 	return 0;
 }
 
+/*!
+ * \internal
+ * \retval -1 on error or hangup after connection
+ * \retval 1 if connection failed
+ */
 static int softmodem_communicate(modem_session *s, int tls)
 {
 	int res = -1;
@@ -835,7 +840,7 @@ static int softmodem_communicate(modem_session *s, int tls)
 		res = ast_set_read_format(s->chan, ast_format_slin);
 		if (res < 0) {
 			ast_log(LOG_WARNING, "Unable to set to linear read mode on %s\n", ast_channel_name(s->chan));
-			return res;
+			return 1;
 		}
 	}
 
@@ -844,14 +849,14 @@ static int softmodem_communicate(modem_session *s, int tls)
 		res = ast_set_write_format(s->chan, ast_format_slin);
 		if (res < 0) {
 			ast_log(LOG_WARNING, "Unable to set to linear write mode on %s\n", ast_channel_name(s->chan));
-			return res;
+			return 1;
 		}
 	}
 
 	sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock < 0) {
 		ast_log(LOG_ERROR, "Could not create socket: %s\n", strerror(errno));
-		return res;
+		return 1;
 	}
 
 	server.sin_family = AF_INET;
@@ -865,7 +870,7 @@ static int softmodem_communicate(modem_session *s, int tls)
 	if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0) {
 		ast_log(LOG_ERROR, "Cannot connect to remote host '%s': %s\n", s->host, strerror(errno));
 		ast_autoservice_stop(s->chan);
-		return res;
+		return 1;
 	}
 
 	if (s->track_session) {
@@ -1081,7 +1086,20 @@ static int softmodem_communicate(modem_session *s, int tls)
 						pres = read(sock, buf + 2, sizeof(buf) - 3);
 					}
 					if (pres <= 0) {
-						ast_debug(1, "read returned %d, socket must have disconnected on us\n", pres); /* Socket hangup, read will return 0 */
+#ifdef HAVE_OPENSSL
+						if (ssl) {
+							int sslerr = SSL_get_error(ssl, pres);
+							ast_debug(1, "SSL_read returned %d\n", pres);
+							/* Since socket is nonblocking, we may need to retry */
+							if (sslerr == SSL_ERROR_WANT_READ) {
+								continue;
+							}
+						} else
+#else
+						{
+							ast_debug(1, "read returned %d, socket must have disconnected on us\n", pres); /* Socket hangup, read will return 0 */
+						}
+#endif
 						res = -1;
 						break;
 					}
@@ -1296,7 +1314,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 
 	session.track_session = 1;
 	res = softmodem_communicate(&session, ast_test_flag(&options, OPT_TLS));
-	if (session.track_session) {
+	if (res <= 0 && session.track_session) { /* Session was only tracked if we didn't return 1 */
 		untrack_session(&session);
 	}
 	return res;
@@ -1316,4 +1334,4 @@ static int load_module(void)
 	return ast_register_application_xml(app, softmodem_exec);
 }
 
-AST_MODULE_INFO_STANDARD_EXTENDED(ASTERISK_GPL_KEY, "Softmodem (V18, V21, V22, V23)");
+AST_MODULE_INFO_STANDARD_EXTENDED(ASTERISK_GPL_KEY, "Softmodem (V18, V21, V22, V23, Baudot)");
