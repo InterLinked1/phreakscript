@@ -51,7 +51,7 @@ jobs:
           make -j$(nproc)
           make -j$(nproc) modules
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build DAHDI
        run: |
            ./phreaknet.sh make
@@ -79,7 +79,7 @@ jobs:
           cd /usr/src
           git clone --depth 1 --branch ${{matrix.kernel_branch}} git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux
@@ -120,7 +120,7 @@ jobs:
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux
@@ -153,7 +153,7 @@ jobs:
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux
@@ -186,7 +186,7 @@ jobs:
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux-next
@@ -219,7 +219,7 @@ jobs:
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build kernel
        run: |
           cd /usr/src/linux-next
@@ -248,7 +248,7 @@ jobs:
           cd /usr/src
           git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Revert objtool patch
        run: |
           cd /usr/src/linux-next
@@ -269,22 +269,42 @@ jobs:
            cd $GITHUB_WORKSPACE
            ./phreaknet.sh make
            GIT_REPO_PATH=${GITHUB_WORKSPACE} KSRC=/usr/src/linux-next phreaknet dahdi --drivers
-  ubuntu-latest:
+  ubuntu-26:
+    runs-on: ubuntu-24.04
+    name: Ubuntu 26.04
+    container: ubuntu:26.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} KPKG="linux-headers-7.0.0-10 linux-headers-generic-7.0" PKG_KSRC="/usr/src/linux-headers-7.0.0-1002-azure" phreaknet install --fast --dahdi --drivers --disable-vpmadt032 --sip --devmode
+  ubuntu-25:
+    runs-on: ubuntu-24.04
+    name: Ubuntu 25.10
+    container: ubuntu:25.10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build DAHDI and Asterisk
+        run: |
+          ./phreaknet.sh make
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} phreaknet install --fast --dahdi --drivers --sip --devmode
+  ubuntu-24:
     runs-on: ubuntu-24.04
     name: Ubuntu 24.04
     steps:
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build DAHDI and Asterisk
        run: |
           sudo ./phreaknet.sh make
           sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --dahdi --drivers --devmode --sip
-  ubuntu-stable:
+  ubuntu-22:
     runs-on: ubuntu-22.04
     name: Ubuntu 22.04
     steps:
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build DAHDI and Asterisk
        run: |
           sudo ./phreaknet.sh make
@@ -295,7 +315,7 @@ jobs:
     name: Debian 13
     container: debian:13
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -308,7 +328,7 @@ jobs:
     name: Debian 12, Asterisk 20
     container: debian:12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -321,7 +341,7 @@ jobs:
     name: Debian 12, with OpenR2
     container: debian:12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -334,7 +354,7 @@ jobs:
     name: Debian 13, vanilla Asterisk
     container: debian:13
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -345,7 +365,7 @@ jobs:
     name: Debian 12, wanpipe, Asterisk master
     container: debian:12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -355,7 +375,7 @@ jobs:
     name: Debian 13, without libpri and libss7
     container: debian:13
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI (without libpri or libss7) and Asterisk (chan_dahdi)
         run: |
           ./phreaknet.sh make
@@ -365,7 +385,7 @@ jobs:
     name: chan_sccp
     steps:
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build Asterisk with chan_sccp
        run: |
           sudo ./phreaknet.sh make
@@ -375,7 +395,7 @@ jobs:
     name: Alpine Linux
     container: alpine:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -386,7 +406,7 @@ jobs:
     name: Alpine Linux 3.22
     container: alpine:3.22
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -396,7 +416,7 @@ jobs:
     name: Alma Linux 9.5
     container: almalinux:9.5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -406,7 +426,7 @@ jobs:
     name: Rocky Linux 9.6
     container: rockylinux:9
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           dnf install -y git tar
@@ -418,7 +438,7 @@ jobs:
     name: Rocky Linux 9.3
     container: rockylinux:9.3
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -428,7 +448,7 @@ jobs:
     name: Rocky Linux 8.9
     container: rockylinux:8.9
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -438,7 +458,7 @@ jobs:
     name: openSUSE Tumbleweed
     container: opensuse/tumbleweed
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build Asterisk
         run: |
           ./phreaknet.sh make
@@ -448,7 +468,7 @@ jobs:
     name: Arch Linux
     container: archlinux:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build Asterisk
         run: |
           ./phreaknet.sh make
@@ -458,7 +478,7 @@ jobs:
 #    runs-on: ubuntu-24.04
 #    name: FreeBSD
 #    steps:
-#      - uses: actions/checkout@v4
+#      - uses: actions/checkout@v6
 #      - name: Build Asterisk
 #        uses: vmactions/freebsd-vm@v1
 #        with:

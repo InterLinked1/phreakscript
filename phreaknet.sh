@@ -1771,18 +1771,30 @@ linux_headers_info() {
 }
 
 linux_headers_install_apt() {
-	# Special case for Raspberry Pi
-	grep -i Model /proc/cpuinfo | grep -q Raspberry
-	if [ $? -ne 0 ]; then
-		apt-get install -y linux-headers-`uname -r`
+	if [ "$KPKG" != "" ]; then
+		# Needed for Ubuntu 26.04 / 7.0 kernel
+		printf "Installing override packages: $KPKG\n"
+		apt-get install -y $KPKG # no quotes, in case multiple packages are specified
+		ls -la /usr/src
+		if [ "$KSRC" != "" ] && [ ! -d "$KSRC" ]; then
+			echoerr "$KSRC does not exist"
+			ls /usr/src/linux-*/*
+		fi
+		export KSRC="$PKG_KSRC"
 	else
-		# raspberrypi-kernel-headers isn't used on Raspberry Pi OS 13+, instead it uses a more normal linux-headers-* package.
-		# If we are on Debian 13 or later, we will install that package instead.
-		DEB_VERSION=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
-		if [ $DEB_VERSION -ge 13 ]; then
+		# Special case for Raspberry Pi
+		grep -i Model /proc/cpuinfo | grep -q Raspberry
+		if [ $? -ne 0 ]; then
 			apt-get install -y linux-headers-`uname -r`
 		else
-			apt-get install -y raspberrypi-kernel-headers
+			# raspberrypi-kernel-headers isn't used on Raspberry Pi OS 13+, instead it uses a more normal linux-headers-* package.
+			# If we are on Debian 13 or later, we will install that package instead.
+			DEB_VERSION=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
+			if [ $DEB_VERSION -ge 13 ]; then
+				apt-get install -y linux-headers-`uname -r`
+			else
+				apt-get install -y raspberrypi-kernel-headers
+			fi
 		fi
 	fi
 	if [ $? -ne 0 ]; then
