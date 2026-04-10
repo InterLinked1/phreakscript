@@ -12,7 +12,7 @@
  * TDD (45.45 bps and 50 bps Baudot code) capabilities, Bell 202,
  * originate mode, TLS support, and coding guidelines fixes and updates,
  * by Naveen Albert <asterisk@phreaknet.org>, 2021, 2023.
- * Note that default behavior has been changed from LSB to MSB.
+ * Note that default behavior has been changed from MSB to LSB.
  *
  * This program is free software, distributed under the terms of
  * the GNU General Public License
@@ -98,10 +98,11 @@
 						that use different settings for the originating and answering sides.</para>
 					</option>
 					<option name="l">
-						<para>Least significant bit first (default is most significant bit)</para>
+						<para>Least significant bit first (default, but in older versions, MSB was the default,
+						so as a best practice, always specify the LSB/MSB mode explicitly).</para>
 					</option>
 					<option name="m">
-						<para>Most significant bit first (default)</para>
+						<para>Most significant bit first (default is least significant bit)</para>
 					</option>
 					<option name="n">
 						<para>Send NULL-Byte to modem after carrier detection (Btx)</para>
@@ -128,7 +129,7 @@
 								<para>300/300 baud</para>
 							</enum>
 							<enum name="V23">
-								<para>1200/75 baud</para>
+								<para>1200/75 baud (default)</para>
 							</enum>
 							<enum name="Bell103">
 								<para>300/300 baud</para>
@@ -158,6 +159,12 @@
 		</syntax>
 		<description>
 			<para>Simulates a FSK(V.23), V.22bis, or Baudot modem. The modem on the other end is connected to the specified server using a simple TCP connection (like Telnet).</para>
+			<example title="Bell 103 modem gateway to local Telnet port">
+			same => n,Softmodem(127.0.0.1,23,v(Bell103)l)
+			</example>
+			<example title="TAP terminal - 7 data bits, even parity">
+			same => n,Softmodem(127.0.0.1,4827,v(Bell103)led(7))
+			</example>
 		</description>
 	</application>
 	<manager name="SoftmodemSessions" language="en_US" module="res_xmpp">
@@ -1203,7 +1210,7 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 	session.rxcutoff = -35.0f;
 	session.txpower = -28.0f;
 	session.version = VERSION_V23;
-	session.lsb = 0;
+	session.lsb = 1;
 	session.databits = 8;
 	session.stopbits = 1;
 	session.paritytype = 0;
@@ -1265,12 +1272,12 @@ static int softmodem_exec(struct ast_channel *chan, const char *data)
 			}
 		}
 
-		if (ast_test_flag(&options, OPT_LSB_FIRST)) {
-			if (ast_test_flag(&options, OPT_MSB_FIRST)) {
+		if (ast_test_flag(&options, OPT_MSB_FIRST)) {
+			if (ast_test_flag(&options, OPT_LSB_FIRST)) {
 				ast_log(LOG_ERROR, "Please only set l or m flag, not both.\n");
 				return -1;
 			}
-			session.lsb = 1;
+			session.lsb = 0;
 		}
 
 		if (ast_test_flag(&options, OPT_DATABITS)) {
