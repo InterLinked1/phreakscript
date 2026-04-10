@@ -4311,20 +4311,24 @@ elif [ "$cmd" = "install" ]; then
 		install_testsuite_itself
 	fi
 
-	if [ -f /etc/init.d/asterisk ]; then
-		/etc/init.d/asterisk status
-		/etc/init.d/asterisk start # service asterisk start
-		/etc/init.d/asterisk status
+	if [ "$NO_AUTOSTART" != "1" ]; then
+		if [ -f /etc/init.d/asterisk ]; then
+			/etc/init.d/asterisk status
+			/etc/init.d/asterisk start # service asterisk start
+			/etc/init.d/asterisk status
+		else
+			asterisk -g # Start Asterisk manually if the service isn't installed
+		fi
+		asterisk -V
+		rasterisk -x "core show version"
+		echo $?
+		printf "%s\n" "Asterisk installation has completed. You may now connect to the Asterisk CLI: asterisk -r"
+		printf "%s\n" "If you upgraded Asterisk, you will need to run 'core restart now' for the new version to load."
 	else
-		asterisk -g # Start Asterisk manually if the service isn't installed
+		printf "%s\n" "Asterisk installation has completed."
+		asterisk -V
 	fi
 
-	asterisk -V
-	rasterisk -x "core show version"
-	echo $?
-
-	printf "%s\n" "Asterisk installation has completed. You may now connect to the Asterisk CLI: asterisk -r"
-	printf "%s\n" "If you upgraded Asterisk, you will need to run 'core restart now' for the new version to load."
 	if [ "$CHAN_DAHDI" = "1" ]; then
 		echog "Note that DAHDI was installed and requires a reboot (or hotswap of kernel modules, e.g. phreaknet restart) before it can be used."
 		echog "Note that you will need to manually configure /etc/dahdi/system.conf appropriately for your spans."
