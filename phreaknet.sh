@@ -2780,6 +2780,7 @@ phreak_patches() {
 	phreak_tree_module "apps/app_dahdimonitor.c"
 	phreak_tree_module "apps/app_dialtone.c"
 	phreak_tree_module "apps/app_ffplayer.c"
+	phreak_tree_module "apps/app_fsk.c"
 	phreak_tree_module "apps/app_frame.c"
 	phreak_tree_module "apps/app_george.c"
 	phreak_tree_module "apps/app_hookstate.c"
@@ -2849,7 +2850,6 @@ phreak_patches() {
 	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
 		download_github_module "dgorski/app_tdd" "main" "app_tdd.c" "apps/app_tdd.c"
 	fi
-	download_github_module "alessandrocarminati/app-fsk" "master" "app_fsk_18.c" "apps/app_fsk.c"
 	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
 		sed -i '' '/defaultenabled/d' apps/app_fsk.c
 	else
