@@ -2850,11 +2850,6 @@ phreak_patches() {
 	if [ "$HAVE_COMPATIBLE_SPANDSP" = "1" ]; then
 		download_github_module "dgorski/app_tdd" "main" "app_tdd.c" "apps/app_tdd.c"
 	fi
-	if [ "$OS_DIST_INFO" = "FreeBSD" ]; then
-		sed -i '' '/defaultenabled/d' apps/app_fsk.c
-	else
-		sed -i 's/<defaultenabled>no<\/defaultenabled>//g' apps/app_fsk.c # temporary bug fix
-	fi
 
 	## Add patches to existing modules
 	phreak_tree_patch "apps/app_stack.c" "returnif.patch" # Add ReturnIf application

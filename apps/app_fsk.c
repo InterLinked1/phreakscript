@@ -1,36 +1,34 @@
 /*
-*  FSK util for Asterisk
-*
-*  Copyright (C) 2013-2021 Alessandro Carminati <alessandro.carminati@gmail.com>
-*
-*  This program is free software: you can redistribute it and/or modify
-*  it under the terms of the GNU General Public License as published by
-*  the Free Software Foundation, either version 3 of the License, or
-*  (at your option) any later version.
-*
-*  This program is distributed in the hope that it will be useful,
-*  but WITHOUT ANY WARRANTY; without even the implied warranty of
-*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-*  GNU General Public License for more details.
-*
-*  You should have received a copy of the GNU General Public License
-*  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ * Asterisk -- An open source telephony toolkit.
+ *
+ * Copyright (C) 2013-2021 Alessandro Carminati <alessandro.carminati@gmail.com>
+ * Copyright (C) 2026 Naveen Albert <asterisk@phreaknet.org>
+ *
+ * See http://www.asterisk.org for more information about
+ * the Asterisk project. Please do not directly contact
+ * any of the maintainers of this project for assistance;
+ * the project provides a web site, mailing lists and IRC
+ * channels for your use.
+ *
+ * This program is free software, distributed under the terms of
+ * the GNU General Public License Version 2. See the LICENSE file
+ * at the top of the source tree.
+ */
 
 /*! \file
-*
-* \brief App to Send/Receive fsk audio stream (Bell103)
-*
-* \author Alessandro Carminati <alessandro.carminati@gmail.com>
-*
-* \ingroup applications
-*/
+ *
+ * \brief FSK applications
+ *
+ * \author Alessandro Carminati <alessandro.carminati@gmail.com>
+ * \author Naveen Albert <asterisk@phreaknet.org>
+ *
+ * \ingroup applications
+ */
 
 /*** MODULEINFO
-	<defaultenabled>no</defaultenabled>
 	<depend>spandsp</depend>
 	<support_level>extended</support_level>
-***/
+ ***/
 
 /* Needed for spandsp headers */
 #define ASTMM_LIBC ASTMM_IGNORE
@@ -74,16 +72,19 @@
 				<para>Name of modem protocol to use. Default is Bell 103.</para>
 				<enumlist>
 					<enum name="103">
-						<para>Bell 103 modem (300 baud), originating side</para>
+						<para>Bell 103 modem (300 baud), originating</para>
 					</enum>
 					<enum name="202">
 						<para>Bell 202 modem (1200 baud)</para>
 					</enum>
 				</enumlist>
 			</parameter>
+			<parameter name="data" required="yes">
+				<para>The data to send</para>
+			</parameter>
 		</syntax>
 		<description>
-			<para>SendFSK() is an utility to send digital messages over an audio channel</para>
+			<para>Sends digital messages over an audio channel</para>
 		</description>
 		<see-also>
 			<ref type="application">ReceiveFSK</ref>
@@ -101,7 +102,7 @@
 				<para>Name of modem protocol to use. Default is Bell 103.</para>
 				<enumlist>
 					<enum name="103">
-						<para>Bell 103 modem (300 baud), terminating side</para>
+						<para>Bell 103 modem (300 baud), terminating</para>
 					</enum>
 					<enum name="202">
 						<para>Bell 202 modem (1200 baud)</para>
@@ -120,7 +121,7 @@
 			</parameter>
 		</syntax>
 		<description>
-			<para>ReceiveFSK() is an utility to receive digital messages from an audio channel</para>
+			<para>Receives digital messages from an audio channel</para>
 			<para>This application will answer the channel if it has not yet been answered.</para>
 		</description>
 		<see-also>
@@ -130,8 +131,8 @@
 ***/
 
 enum read_option_flags {
-	OPT_HANGOUT    = (1 << 0),
-	OPT_SILENCE    = (1 << 1),
+	OPT_HANGOUT = (1 << 0),
+	OPT_SILENCE = (1 << 1),
 };
 
 AST_APP_OPTIONS(read_app_options, {
@@ -139,56 +140,49 @@ AST_APP_OPTIONS(read_app_options, {
 	AST_APP_OPTION('s', OPT_SILENCE),
 });
 
-struct receive_buffer_s {
+struct receive_buffer {
 	int ptr;
-	int quitoncarrierlost;
-	int FSK_eof;
+	unsigned int quitoncarrierlost:1;
+	unsigned int fsk_eof:1;
 	char *buffer;
 };
 
-struct transmit_buffer_s {
+struct transmit_buffer {
 	int ptr;
 	int bytes2send;
 	int current_bit_no;
 	char *buffer;
 };
 
-typedef struct transmit_buffer_s transmit_buffer_t;
-typedef struct receive_buffer_s  receive_buffer_t;
+static const char app_fsk_tx[] = "SendFSK";
+static const char app_fsk_rx[] = "ReceiveFSK";
 
-static const char app_fskTX[] = "SendFSK";
-static const char app_fskRX[] = "ReceiveFSK";
-
-static void rx_status(void *user_data, int status){
-	receive_buffer_t *data;
-
-	data = (receive_buffer_t *) user_data;
+static void rx_status(void *user_data, int status)
+{
+	struct receive_buffer *data = user_data;
 	ast_debug(1, "FSK rx status is %s (%d)\n", signal_status_to_str(status), status);
-	if ((status == -1) && (data->quitoncarrierlost)) {
-		data->FSK_eof = 1;
+	if (status == -1 && data->quitoncarrierlost) {
+		data->fsk_eof = 1;
 	}
 }
 
 static void get_bit(void *user_data, int bit)
 {
-	receive_buffer_t *data;
-
-	data=(receive_buffer_t *) user_data;
+	struct receive_buffer *data = user_data;
 	if (bit < 0) {
 		rx_status(user_data, bit);
 		return;
 	}
-
-	ast_debug(1, "Got '%c' on the stream\n", (char) bit & 0xff);
-	*(data->buffer + data->ptr++)=(char) bit & 0xff;
+	ast_debug(2, "Got '%c' on the stream\n", (char) bit & 0xff);
+	*(data->buffer + data->ptr++) = (char) bit & 0xff;
 }
 
-static int put_bit(transmit_buffer_t *user_data)
+static int put_bit(struct transmit_buffer *user_data)
 {
 	int8_t data;
 
 	if (user_data->ptr <= user_data->bytes2send) {
-		if ( (user_data->current_bit_no != 0) && (user_data->current_bit_no != 9) ) {
+		if ((user_data->current_bit_no != 0) && (user_data->current_bit_no != 9)) {
 			data = *((int8_t *)user_data->buffer + user_data->ptr) & (1 << (user_data->current_bit_no - 1));
 		} else if (user_data->current_bit_no != 9) {
 			data = 0;
@@ -198,8 +192,6 @@ static int put_bit(transmit_buffer_t *user_data)
 		++user_data->current_bit_no;
 		if (user_data->current_bit_no == 10) {
 			user_data->ptr++;
-		}
-		if (user_data->current_bit_no == 10) {
 			user_data->current_bit_no = 0;
 		}
 		return data != 0 ? 1 : 0;
@@ -208,13 +200,13 @@ static int put_bit(transmit_buffer_t *user_data)
 	}
 }
 
-static int fskTX_exec(struct ast_channel *chan, const char *data) { /* SendFSK */
-	typedef struct ast_frame ast_frame_t;
+static int fsk_tx_exec(struct ast_channel *chan, const char *data)
+{
 	char *argcopy = NULL;
 	fsk_tx_state_t *caller_tx;
-	transmit_buffer_t *out;
+	struct transmit_buffer *out;
 	int16_t caller_amp[BLOCK_LEN];
-	ast_frame_t *fr;
+	struct ast_frame *fr;
 	struct ast_frame f = {
 		.frametype = AST_FRAME_VOICE,
 		.src = "SendFSK",
@@ -243,7 +235,7 @@ static int fskTX_exec(struct ast_channel *chan, const char *data) { /* SendFSK *
 		ast_log(LOG_WARNING, "SendFSK requires an argument\n");
 		return -1;
 	}
-	if (chan == NULL) {
+	if (!chan) {
 		ast_log(LOG_ERROR, "SendFSK channel is NULL. Giving up.\n");
 		return -1;
 	}
@@ -265,50 +257,56 @@ static int fskTX_exec(struct ast_channel *chan, const char *data) { /* SendFSK *
 
 	ast_debug(1, "Modem channel is '%s'\n", preset_fsk_specs[modem].name);
 
-	out = (transmit_buffer_t *) ast_malloc(sizeof(*out));
-	out->buffer = (char *) arglist.data;
+	out = ast_malloc(sizeof(*out));
+	if (!out) {
+		return -1;
+	}
+	out->buffer = arglist.data;
 	out->bytes2send = strlen(arglist.data);
 	out->current_bit_no = 0;
 	out->ptr = 0;
+
 	memset(caller_amp, 0, sizeof(*caller_amp));
+
 	caller_tx = fsk_tx_init(NULL, &preset_fsk_specs[modem], (get_bit_func_t) &put_bit, out);
 	while (out->ptr < out->bytes2send) {
 		res = ast_waitfor(chan, 1000);
 		fr = ast_read(chan);
 		if (!fr) {
-			ast_debug(1, "Null == hangup() detected\n");
+			ast_debug(2, "User hung up\n");
 			res = -1;
 			break;
 		}
 		if (fr->frametype == AST_FRAME_DTMF) {
 			ast_debug(1, "User pressed a key\n");
 		}
+		ast_frfree(fr);
 		samples = fsk_tx(caller_tx, caller_amp, BLOCK_LEN);
 		if ((res = ast_write(chan, &f)) < 0) {
 			ast_debug(1, "Failed to write %d samples\n", samples);
 			res = -1;
-			ast_frfree(fr);
 			break;
 		}
 	}
 	memset(caller_amp, 0, sizeof(caller_amp));
 	res = ast_waitfor(chan, -1);
 	fr = ast_read(chan);
-	if (fr != NULL) {
-		if (ast_write(chan, &f) < 0) {
-			res = -1;
-			ast_frfree(fr);
-		}
-	} else {
-		ast_log(LOG_WARNING, "ast_read returned NULL value.\n");
+	if (!fr) {
+		ast_debug(2, "User hung up\n");
+		return -1;
+	}
+	ast_frfree(fr);
+	if (ast_write(chan, &f) < 0) {
+		res = -1;
 	}
 	ast_debug(1, "SendFSK Completed.\n");
 	return 0;
 }
 
-static int fskRX_exec(struct ast_channel *chan, const char *data) { /* ReceiveFSK */
+static int fsk_rx_exec(struct ast_channel *chan, const char *data)
+{
 	fsk_rx_state_t *caller_rx;
-	receive_buffer_t *in;
+	struct receive_buffer *in;
 	char *argcopy = NULL;
 	struct ast_frame *f;
 	struct ast_flags flags = {0};
@@ -330,7 +328,7 @@ static int fskRX_exec(struct ast_channel *chan, const char *data) { /* ReceiveFS
 		ast_log(LOG_WARNING, "ReceiveFSK requires at least a variable as argument\n");
 		return -1;
 	}
-	if (chan == NULL)          {
+	if (!chan) {
 		ast_log(LOG_ERROR, "ReceiveFSK channel is NULL. Giving up.\n");
 		return -1;
 	}
@@ -362,10 +360,12 @@ static int fskRX_exec(struct ast_channel *chan, const char *data) { /* ReceiveFS
 	}
 
 	memset(output_frame, 0, sizeof(output_frame));
-	in = (receive_buffer_t *) ast_malloc(sizeof(*in));
+	in = ast_malloc(sizeof(*in));
+	if (!in) {
+		return -1;
+	}
 
 	if (!ast_strlen_zero(arglist.options)) {
-		ast_debug(1, "This instance has flags\n");
 		ast_app_parse_options(read_app_options, &flags, NULL, arglist.options);
 		if (ast_test_flag(&flags, OPT_HANGOUT )) {
 			in->quitoncarrierlost = 0;
@@ -375,13 +375,16 @@ static int fskRX_exec(struct ast_channel *chan, const char *data) { /* ReceiveFS
 		}
 	}
 
-	in->FSK_eof = 0;
+	in->fsk_eof = 0;
 	in->quitoncarrierlost = 1;
 
-	in->buffer = (char *) ast_malloc(65536);
-	memset(in->buffer, 0, 65536); /* Reserve 64KB space for receive buffer and set to 0 its pointer. */
+	in->buffer = ast_calloc(1, 65536); /* Reserve 64KB space for receive buffer. */
+	if (!in->buffer) {
+		ast_free(in);
+		return -1;
+	}
+
 	in->ptr = 0;
-	ast_debug(1, "output buffer allocated\n");
 
 	if (silence_flag) {
 		silgen = ast_channel_start_silence_generator(chan);
@@ -397,8 +400,8 @@ static int fskRX_exec(struct ast_channel *chan, const char *data) { /* ReceiveFS
 		if (f->frametype == AST_FRAME_VOICE){
 			fsk_rx(caller_rx, f->data.ptr, f->samples);
 		}
-		if (in->FSK_eof != 0) {
-			ast_log(LOG_NOTICE, "FSK_eof\n");
+		if (in->fsk_eof != 0) {
+			ast_debug(1, "fsk_eof\n");
 			break;
 		}
 		f->subclass.format = ast_format_slin;
@@ -428,22 +431,24 @@ static int fskRX_exec(struct ast_channel *chan, const char *data) { /* ReceiveFS
 	return 0;
 }
 
-static int unload_module(void) {
+static int unload_module(void)
+{
 	int res;
 
-	res = ast_unregister_application(app_fskTX);
-	res |= ast_unregister_application(app_fskRX);
+	res = ast_unregister_application(app_fsk_tx);
+	res |= ast_unregister_application(app_fsk_rx);
 
 	return res;
 }
 
-static int load_module(void) {
+static int load_module(void)
+{
 	int res;
 
-	res = ast_register_application_xml(app_fskTX, fskTX_exec);
-	res |= ast_register_application_xml(app_fskRX, fskRX_exec);
+	res = ast_register_application_xml(app_fsk_tx, fsk_tx_exec);
+	res |= ast_register_application_xml(app_fsk_rx, fsk_rx_exec);
 
 	return res;
 }
 
-AST_MODULE_INFO_STANDARD_EXTENDED(ASTERISK_GPL_KEY, "FSK utility application");
+AST_MODULE_INFO_STANDARD_EXTENDED(ASTERISK_GPL_KEY, "FSK send/receive applications");
