@@ -102,7 +102,7 @@
 				<para>Name of modem protocol to use. Default is Bell 103.</para>
 				<enumlist>
 					<enum name="103">
-						<para>Bell 103 modem (300 baud), terminating</para>
+						<para>Bell 103 modem (300 baud), originating</para>
 					</enum>
 					<enum name="202">
 						<para>Bell 202 modem (1200 baud)</para>
@@ -144,6 +144,7 @@ struct receive_buffer {
 	int ptr;
 	unsigned int quitoncarrierlost:1;
 	unsigned int fsk_eof:1;
+	unsigned int got_data:1;
 	char *buffer;
 };
 
@@ -168,13 +169,16 @@ static void rx_status(void *user_data, int status)
 
 static void get_bit(void *user_data, int bit)
 {
+	char c;
 	struct receive_buffer *data = user_data;
 	if (bit < 0) {
 		rx_status(user_data, bit);
 		return;
 	}
-	ast_debug(2, "Got '%c' on the stream\n", (char) bit & 0xff);
-	*(data->buffer + data->ptr++) = (char) bit & 0xff;
+	c = (char) bit & 0xff;
+	data->got_data = 1;
+	ast_debug(2, "Got %d '%c' on the stream\n", c, isprint(c) ? c : ' ');
+	*(data->buffer + data->ptr++) = c;
 }
 
 static int put_bit(struct transmit_buffer *user_data)
@@ -182,12 +186,12 @@ static int put_bit(struct transmit_buffer *user_data)
 	int8_t data;
 
 	if (user_data->ptr <= user_data->bytes2send) {
-		if ((user_data->current_bit_no != 0) && (user_data->current_bit_no != 9)) {
-			data = *((int8_t *)user_data->buffer + user_data->ptr) & (1 << (user_data->current_bit_no - 1));
-		} else if (user_data->current_bit_no != 9) {
-			data = 0;
+		if (user_data->current_bit_no == 0) {
+			data = 0; /* start bit */
+		} else if (user_data->current_bit_no <= 8) {
+			data = *((int8_t *) user_data->buffer + user_data->ptr) & (1 << (user_data->current_bit_no - 1));
 		} else {
-			data = 1;
+			data = 1; /* stop bit */
 		}
 		++user_data->current_bit_no;
 		if (user_data->current_bit_no == 10) {
@@ -214,9 +218,6 @@ static int fsk_tx_exec(struct ast_channel *chan, const char *data)
 		.samples = BLOCK_LEN,
 		.data.ptr = &caller_amp,
 	};
-	struct ast_format * native_format;
-	unsigned int sampling_rate;
-	struct ast_format * write_format;
 	int samples;
 	int modem;
 	int res = 0;
@@ -226,10 +227,7 @@ static int fsk_tx_exec(struct ast_channel *chan, const char *data)
 		AST_APP_ARG(data);
 	);
 
-	native_format = ast_format_cap_get_format(ast_channel_nativeformats(chan), 0);
-	sampling_rate = ast_format_get_sample_rate(native_format);
-	write_format = ast_format_cache_get_slin_by_rate(sampling_rate);
-	f.subclass.format = write_format;
+	f.subclass.format = ast_format_slin;
 
 	if (ast_strlen_zero(data)) {
 		ast_log(LOG_WARNING, "SendFSK requires an argument\n");
@@ -257,25 +255,49 @@ static int fsk_tx_exec(struct ast_channel *chan, const char *data)
 
 	ast_debug(1, "Modem channel is '%s'\n", preset_fsk_specs[modem].name);
 
-	out = ast_malloc(sizeof(*out));
+	if ((res = ast_set_write_format(chan, ast_format_slin)) < 0) {
+		ast_log(LOG_ERROR, "Unable to set channel to linear mode\n");
+		return -1;
+	}
+
+	out = ast_calloc(1, sizeof(*out));
 	if (!out) {
 		return -1;
 	}
 	out->buffer = arglist.data;
 	out->bytes2send = strlen(arglist.data);
-	out->current_bit_no = 0;
-	out->ptr = 0;
 
 	memset(caller_amp, 0, sizeof(*caller_amp));
 
 	caller_tx = fsk_tx_init(NULL, &preset_fsk_specs[modem], (get_bit_func_t) &put_bit, out);
+	if (!caller_tx) {
+		ast_free(out);
+		return -1;
+	}
+
+	/* Send a few frames of mark tone first, to allow receiver to synchronize */
+	for (samples = 0; samples < 7; samples++) {
+		res = ast_waitfor(chan, -1);
+		fr = ast_read(chan);
+		if (!fr) {
+			ast_debug(2, "User hung up\n");
+			goto abort;
+		}
+		ast_frfree(fr);
+		fsk_tx(caller_tx, caller_amp, BLOCK_LEN);
+		if (ast_write(chan, &f) < 0) {
+			ast_debug(1, "Failed to write mark tone\n");
+			goto abort;
+		}
+	}
+
+	/* Send the payload */
 	while (out->ptr < out->bytes2send) {
 		res = ast_waitfor(chan, 1000);
 		fr = ast_read(chan);
 		if (!fr) {
 			ast_debug(2, "User hung up\n");
-			res = -1;
-			break;
+			goto abort;
 		}
 		if (fr->frametype == AST_FRAME_DTMF) {
 			ast_debug(1, "User pressed a key\n");
@@ -284,23 +306,35 @@ static int fsk_tx_exec(struct ast_channel *chan, const char *data)
 		samples = fsk_tx(caller_tx, caller_amp, BLOCK_LEN);
 		if ((res = ast_write(chan, &f)) < 0) {
 			ast_debug(1, "Failed to write %d samples\n", samples);
-			res = -1;
-			break;
+			goto abort;
 		}
 	}
-	memset(caller_amp, 0, sizeof(caller_amp));
-	res = ast_waitfor(chan, -1);
-	fr = ast_read(chan);
-	if (!fr) {
-		ast_debug(2, "User hung up\n");
-		return -1;
+
+	/* Send a few extra frames of mark tone to allow receiver to reliably receive last bit of data */
+	for (samples = 0; samples < 4; samples++) {
+		res = ast_waitfor(chan, -1);
+		fr = ast_read(chan);
+		if (!fr) {
+			ast_debug(2, "User hung up\n");
+			goto abort;
+		}
+		ast_frfree(fr);
+		fsk_tx(caller_tx, caller_amp, BLOCK_LEN);
+		if (ast_write(chan, &f) < 0) {
+			ast_debug(1, "Failed to write mark tone\n");
+			goto abort;
+		}
 	}
-	ast_frfree(fr);
-	if (ast_write(chan, &f) < 0) {
-		res = -1;
-	}
+
 	ast_debug(1, "SendFSK Completed.\n");
+	ast_free(out);
+	fsk_tx_free(caller_tx);
 	return 0;
+
+abort:
+	ast_free(out);
+	fsk_tx_free(caller_tx);
+	return -1;
 }
 
 static int fsk_rx_exec(struct ast_channel *chan, const char *data)
@@ -315,6 +349,8 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 	int modem;
 	int silence_flag = 0;
 	int res = 0;
+	int retries = 0;
+	int eof_count = 0;
 
 	AST_DECLARE_APP_ARGS(arglist,
 		AST_APP_ARG(variable);
@@ -340,10 +376,10 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 		}
 	}
 
-	modem = FSK_BELL103CH2;
+	modem = FSK_BELL103CH1;
 	if (!ast_strlen_zero(arglist.modem)) {
 		if (!strcmp(arglist.modem, "103")) {
-			modem = FSK_BELL103CH2;
+			modem = FSK_BELL103CH1;
 		} else if (!strcmp(arglist.modem, "202")) {
 			modem = FSK_BELL202;
 		} else {
@@ -360,10 +396,12 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 	}
 
 	memset(output_frame, 0, sizeof(output_frame));
-	in = ast_malloc(sizeof(*in));
+	in = ast_calloc(1, sizeof(*in));
 	if (!in) {
 		return -1;
 	}
+
+	in->quitoncarrierlost = 1;
 
 	if (!ast_strlen_zero(arglist.options)) {
 		ast_app_parse_options(read_app_options, &flags, NULL, arglist.options);
@@ -375,34 +413,59 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 		}
 	}
 
-	in->fsk_eof = 0;
-	in->quitoncarrierlost = 1;
-
 	in->buffer = ast_calloc(1, 65536); /* Reserve 64KB space for receive buffer. */
 	if (!in->buffer) {
 		ast_free(in);
 		return -1;
 	}
-
-	in->ptr = 0;
-
 	if (silence_flag) {
 		silgen = ast_channel_start_silence_generator(chan);
 	}
 	caller_rx = fsk_rx_init(NULL, &preset_fsk_specs[modem], FSK_FRAME_MODE_8N1_FRAMES, get_bit, in);
+	if (!caller_rx) {
+		ast_free(in->buffer);
+		ast_free(in);
+		return -1;
+	}
 	fsk_rx_set_modem_status_handler(caller_rx, rx_status, (void *) in);
 	while (ast_waitfor(chan, -1) > -1) {
 		f = ast_read(chan);
 		if (!f) {
-			res = -1;
-			break;
+			ast_debug(1, "No more frames to read\n");
+			goto done; /* Caller hung up immediately, but there might be data to read */
 		}
-		if (f->frametype == AST_FRAME_VOICE){
+		if (f->frametype == AST_FRAME_VOICE) {
 			fsk_rx(caller_rx, f->data.ptr, f->samples);
 		}
-		if (in->fsk_eof != 0) {
-			ast_debug(1, "fsk_eof\n");
-			break;
+		if (in->fsk_eof) {
+			if (!in->got_data) {
+				/* Don't abort immediately if there's no carrier present yet,
+				 * the sender may not have started sending yet...
+				 * to a point, if we never get anything after a while (5 seconds), abort anyways. */
+				if (++retries > 250) {
+					ast_log(LOG_WARNING, "No FSK data received\n");
+					ast_frfree(f);
+					goto done; /* This is normal success */
+				}
+				ast_debug(4, "fsk_eof, but no data received yet, waiting...\n");
+				eof_count = in->fsk_eof = 0; /* Reset */
+			} else {
+				eof_count++;
+				ast_debug(3, "FSK eof count %d\n", eof_count);
+				/* Require 2 carrier downs in a row to signify EOF
+				 * Note that rx_status only fires when receiving FSK audio,
+				 * but even if we really only get one carrier down,
+				 * this still works because the next loop iteration here,
+				 * fsk_eof will still be set true and we'll break,
+				 * i.e. SpanDSP telling us carrier down + next frame is not FSK. */
+				if (eof_count > 1) {
+					ast_debug(1, "FSK carrier seems to have dropped\n");
+					ast_frfree(f);
+					goto done; /* This is typically normal success */
+				}
+			}
+		} else {
+			eof_count = 0;
 		}
 		f->subclass.format = ast_format_slin;
 		f->datalen = BLOCK_LEN;
@@ -411,24 +474,32 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 		f->src = __PRETTY_FUNCTION__;
 		f->data.ptr = &output_frame;
 		if (ast_write(chan, f) < 0) {
-			res = -1;
+			ast_debug(1, "No more frames to read\n");
 			ast_frfree(f);
-			break;
+			goto abort;
 		}
-		ast_frfree(f);
 	}
 	if (!f) {
 		ast_debug(1, "Got hangup\n");
-		res = -1;
+		goto abort;
 	}
+
+done:
 	ast_debug(1, "received buffer is: %s\n", in->buffer);
 	pbx_builtin_setvar_helper(chan, arglist.variable, in->buffer);
-	ast_free(in->buffer);
 	if (silgen) {
 		ast_channel_stop_silence_generator(chan, silgen);
 	}
+	ast_free(in->buffer);
 	ast_free(in);
+	fsk_rx_free(caller_rx);
 	return 0;
+
+abort:
+	ast_free(in->buffer);
+	ast_free(in);
+	fsk_rx_free(caller_rx);
+	return -1;
 }
 
 static int unload_module(void)
