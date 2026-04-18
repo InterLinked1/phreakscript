@@ -1779,6 +1779,22 @@ linux_headers_install_apt() {
 		if [ "$KSRC" != "" ] && [ ! -d "$KSRC" ]; then
 			echoerr "$KSRC does not exist"
 			ls /usr/src/linux-*/*
+			ls /usr/src/linux-headers* | grep "azure"
+		fi
+		if [ "$PKG_KSRC" = "" ]; then
+			# Try to determine the right one to use ourselves
+			# It'll be something like '/usr/src/linux-headers-7.0.0-1002-azure'
+			# We only do this in the CI, so this doesn't need to be generic
+			printf "Autodetermining directory to use in /usr/src\n"
+			srcdir=$( ls /usr/src | grep "linux-headers" | grep "azure" | grep -v "fde" | tr -d '\n' )
+			PKG_KSRC="/usr/src/$srcdir"
+			printf "PKG_KSRC=%s\n" "$PKG_KSRC"
+		fi
+		if [ ! -d "$PKG_KSRC" ]; then
+			echoerr "PKG_KSRC=$PKG_KSRC does not exist"
+			ls /usr/src/linux-*/.config
+			ls /usr/src/linux-headers* | grep "azure"
+			exit 1
 		fi
 		export KSRC="$PKG_KSRC"
 	else
@@ -4632,11 +4648,11 @@ elif [ "$cmd" = "config" ]; then
 		sed -i "s/abcdefghijklmnopqrstuvwxyz/$INTERLINKED_APIKEY/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
 		sed -i "s/WWWWXXYYZZZ/$PHREAKNET_CLLI/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
 		sed -i "s/5551111/$PHREAKNET_DISA/g" $AST_CONFIG_DIR/$EXTENSIONS_CONF_FILE
-		printf "Updated [globals] in %s/extensions.conf with dynamic variables. If globals are stored in a different file, manual updating is required." $AST_CONFIG_DIR
+		printf "Updated [globals] in %s/extensions.conf with dynamic variables. If globals are stored in a different file, manual updating is required.\n" $AST_CONFIG_DIR
 		## Also update verify.conf
 		sed -i "s/HSTNTXMOCG0/$PHREAKNET_CLLI/g" $AST_CONFIG_DIR/verify.conf
 		sed -i "s/5551111/$PHREAKNET_DISA/g" $AST_CONFIG_DIR/verify.conf
-		printf "Updated %s/verify.conf" $AST_CONFIG_DIR
+		printf "Updated %s/verify.conf\n" $AST_CONFIG_DIR
 	fi
 	printf "%s\n" "Boilerplate config installed! Note that these files may still require manual editing before use."
 elif [ "$cmd" = "bconfig" ]; then

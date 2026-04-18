@@ -278,7 +278,7 @@ jobs:
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
-          GIT_REPO_PATH=${GITHUB_WORKSPACE} KPKG="linux-headers-7.0.0-10 linux-headers-generic-7.0" PKG_KSRC="/usr/src/linux-headers-7.0.0-1002-azure" phreaknet install --fast --dahdi --drivers --disable-vpmadt032 --sip --devmode
+          GIT_REPO_PATH=${GITHUB_WORKSPACE} KPKG="linux-headers-7.0.0-10 linux-headers-generic-7.0" phreaknet install --fast --dahdi --drivers --disable-vpmadt032 --sip --devmode
   ubuntu-25:
     runs-on: ubuntu-24.04
     name: Ubuntu 25.10
