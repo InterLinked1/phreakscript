@@ -61,11 +61,16 @@
 	</info>
 ***/
 
+static int msp_sendto(int s, const char *buf, size_t len, int flags, struct sockaddr_in *dst)
+{
+	return sendto(s, buf, len, 0, (struct sockaddr *) dst, sizeof(*dst));
+}
+
 static int msp_send(const struct ast_msg *msg, const char *destination, const char *from)
 {
 	ssize_t res;
 	int sfd;
-	struct ast_sockaddr addr;
+	struct sockaddr_in addr;
 	char destbuf[128];
 	char *tmp;
 	const char *hostname, *recip;
@@ -113,8 +118,12 @@ static int msp_send(const struct ast_msg *msg, const char *destination, const ch
 	ast_debug(3, "TO: %s\n", ast_msg_get_to(msg));
 
 	memset(&addr, 0, sizeof(addr));
-	ast_parse_arg(hostname, PARSE_ADDR, &addr);
-	ast_sockaddr_set_port(&addr, 18);
+	/* To parse hostnames, we need to use PARSE_INADDR instead of PARSE_ADDR, and struct sockaddr_in instead of struct ast_sockaddr */
+	if (ast_parse_arg(hostname, PARSE_INADDR, &addr)) {
+		ast_log(LOG_ERROR, "Failed to parse hostname: %s\n", hostname);
+		return -1;
+	}
+	addr.sin_port = htons(18);
 
 	/* Message Send Protocol supports delivery via both TCP and UDP.
 	 * Send via UDP, since there's less overhead, and we don't care about the acknowledgment */
@@ -124,7 +133,7 @@ static int msp_send(const struct ast_msg *msg, const char *destination, const ch
 		return -1;
 	}
 
-	res = ast_sendto(sfd, buf, len, 0, &addr);
+	res = msp_sendto(sfd, buf, len, 0, &addr);
 	if (res <= 0) {
 		ast_log(LOG_ERROR, "ast_sendto(%s) failed: %s\n", hostname, strerror(errno));
 	}
