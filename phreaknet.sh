@@ -821,7 +821,6 @@ restart_telephony() {
 	start_telephony
 }
 
-# Mainly intended to start the telephony drivers on bootup, since this doesn't always happen automatically
 start_telephony() {
 	if [ ! -f /etc/udev/rules.d/dahdi.rules ]; then
 		echoerr "DAHDI udev rules are missing..."
@@ -900,6 +899,11 @@ start_telephony() {
 	else
 		dahdi_genconf -vvvvv
 	fi
+
+	# /etc/dahdi/modules isn't populated automatically, and this is needed for modules to get loaded automatically at boot
+	# Regardless, you can also run "phreaknet restart" to get things started manually...
+	# Re-run whenever the installed hardware changes
+	dahdi_genconf modules
 
 	# Finally, run dahdi_cfg
 	printf "Applying DAHDI channel configuration...\n"
