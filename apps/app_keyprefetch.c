@@ -141,6 +141,7 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 	int reload = 1, newkey = 1, needreload = 0;
 	struct ast_key *inkey;
 	char *filepath;
+	struct ast_config *cfg = NULL;
 
 	AST_DECLARE_APP_ARGS(args,
 		AST_APP_ARG(cat);
@@ -306,8 +307,38 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		}
 		ast_free(tmp_filename);
 	}
+	if (!newkey) {
+		/* Check if the key is loaded but isn't present in the inkeys in iax.conf.
+		 * If this happens for some reason, we still need to add it. */
+		struct ast_flags config_flags = { CONFIG_FLAG_WITHCOMMENTS | CONFIG_FLAG_NOCACHE };
+		char *sfn = "iax.conf";
+		if ((cfg = ast_config_load2(sfn, "app_keyprefetch", config_flags))) {
+			const char *currentinkeys = ast_variable_retrieve(cfg, args.cat, "inkeys");
+			if (currentinkeys) {
+				char search_str[256];
+				size_t curlen = strlen(currentinkeys);
+				/* Surround existing key list with : before/after to ensure we can match even if it's the first or last key name,
+				 * and to avoid false positive on a key name with a partial name match. */
+				char *haystack = ast_alloca(curlen + 3); /* 2 colons and NUL */
+				*haystack = ':'; /* Before */
+				strcpy(haystack + 1, currentinkeys); /* Safe */
+				haystack[curlen + 1] = ':'; /* After */
+				haystack[curlen + 2] = '\0';
+				snprintf(search_str, sizeof(search_str), ":%s:", args.keyname);
+				if (!strstr(haystack, search_str)) {
+					ast_debug(1, "Key '%s' is loaded but not an inkey of %s currently (%s), need to add it\n", args.keyname, args.cat, haystack);
+					newkey = 1;
+				}
+			}
+		}
+		if (!newkey) {
+			/* If we don't need the config anymore, we can destroy it now.
+			 * If we set newkey true above, then we keep using it below without reopening. */
+			ast_config_destroy(cfg);
+			cfg = NULL;
+		}
+	}
 	if (newkey) { /* add the new key we just got to the list of inkeys allowed */
-		struct ast_config *cfg;
 		struct ast_category *category = NULL;
 		struct ast_flags config_flags = { CONFIG_FLAG_WITHCOMMENTS | CONFIG_FLAG_NOCACHE };
 		char *sfn = "iax.conf", *dfn = "iax.conf";
@@ -317,12 +348,14 @@ static int fetch_exec(struct ast_channel *chan, const char *data)
 		ast_debug(1, "Got a new key, '%s', adding to inkeys\n", args.keyname);
 		pbx_builtin_setvar_helper(chan, "KEYPREFETCHSTATUS", "NEW");
 
-		if (!(cfg = ast_config_load2(sfn, "app_keyprefetch", config_flags))) {
-			ast_log(LOG_WARNING, "Config file not found: %s\n", sfn);
-			goto done;
-		} else if (cfg == CONFIG_STATUS_FILEINVALID) {
-			ast_log(LOG_WARNING, "Config file has invalid format: %s\n", sfn);
-			goto cfgcleanup;
+		if (!cfg) { /* Open config, if not already open from the !newkey branch above */
+			if (!(cfg = ast_config_load2(sfn, "app_keyprefetch", config_flags))) {
+				ast_log(LOG_WARNING, "Config file not found: %s\n", sfn);
+				goto done;
+			} else if (cfg == CONFIG_STATUS_FILEINVALID) {
+				ast_log(LOG_WARNING, "Config file has invalid format: %s\n", sfn);
+				goto cfgcleanup;
+			}
 		}
 
 		while ((category = ast_category_browse_filtered(cfg, cat, category, NULL))) {
