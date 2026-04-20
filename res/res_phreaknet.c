@@ -1495,7 +1495,7 @@ static int find_bindport(int reload)
 
 	if ((varval = ast_variable_retrieve(cfg, "general", "bindport")) && !ast_strlen_zero(varval)) {
 		int tmp;
-		if (!ast_str_to_int(varval, &tmp)) {
+		if (ast_str_to_int(varval, &tmp)) {
 			ast_log(LOG_WARNING, "Invalid IAX2 bindport %s\n", varval);
 		} else {
 			iax_bindport = tmp;
