@@ -2902,11 +2902,7 @@ phreak_patches() {
 	fi
 
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
-	asterisk_pr_if 1704 230300 220900 201900 # res_pjsip_pubsub: Fix ao2 reference leak of subscription tree in ast_sip_subscription, esp. important for --experimental patches
-	asterisk_pr_if 1772 230300 220900 201900 # Fix discarded-qualifiers const errors
-	asterisk_pr_if 1782 230300 220900 201900 # Fix discarded-qualifiers const errors with BETTER_BACKTRACES
-	asterisk_pr_if 1784 230300 220900 201900 # Fix unused-but-set-variable warnings
-	asterisk_pr_if 1787 230300 220900 201900 # chan_dahdi: Fix discarded-qualifiers errors
+	asterisk_pr_if 1879 230400 221000 202000 # chan_iax2: Add auth_method property getter
 
 	#asterisk_pr_if 1805 230300 220900 201900 # dsp.c: Add support for detecting R2 signaling tones. Disabled, patch doesn't cleanly apply.
 	if [ $AST_MAJOR_VER -le 23 ]; then
@@ -4513,7 +4509,9 @@ elif [ "$cmd" = "fullpatch" ]; then
 		fi
 	fi
 	instantiate_repo
+	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
 	phreak_tree_module "$filename"
+	$AST_MAKE && $AST_MAKE install
 elif [ "$cmd" = "runtest" ]; then
 	if [ ${#2} -eq 0 ]; then
 		die "Missing argument."
