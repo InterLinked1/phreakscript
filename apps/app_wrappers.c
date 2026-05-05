@@ -83,9 +83,9 @@ static int dial_exec(struct ast_channel *chan, const char *data)
 	ast_channel_unlock(chan);
 
 	if (!ast_strlen_zero(hangupcause)) {
-		ast_verb(4, "Call ended, DIALSTATUS: %s (HANGUPCAUSE: %s)\n", dialstatus, hangupcause);
+		ast_verb(4, "Call ended on %s, DIALSTATUS: %s (HANGUPCAUSE: %s)\n", ast_channel_name(chan), dialstatus, hangupcause);
 	} else {
-		ast_verb(4, "Call ended, DIALSTATUS: %s\n", dialstatus);
+		ast_verb(4, "Call ended on %s, DIALSTATUS: %s\n", ast_channel_name(chan), dialstatus);
 	}
 
 	if (!strcmp(dialstatus, "ANSWER")) {
