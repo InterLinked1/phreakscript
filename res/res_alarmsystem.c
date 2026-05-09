@@ -1285,7 +1285,9 @@ static int send_event_ip(struct alarm_client *c, const char *msg, int len)
 	return 0;
 }
 
-#define INFERRED_EVENT(e) (e == EVENT_INTERNET_LOST || e == EVENT_INTERNET_RESTORED || e == EVENT_ALARM_BREACH)
+/* Breaches can technically be inferred if using IP reporting, but doesn't do much harm to send explicitly either way */
+#define INFERRED_EVENT(e) (e == EVENT_INTERNET_LOST || e == EVENT_INTERNET_RESTORED)
+#define NEED_TO_SEND_EVENT(c, e) (!INFERRED_EVENT(e))
 
 /*! \brief Generate an event and add it to the send queue, and schedule it for delivery (but don't actually send it yet) */
 static int generate_event(struct alarm_client *c, enum alarm_event_type event, struct alarm_sensor *s, const char *data)
@@ -1298,41 +1300,29 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 	struct alarm_event *e;
 
 	AST_LIST_LOCK(&c->events);
-	sequence_no = c->sequence_no;
+
+	if (NEED_TO_SEND_EVENT(c, event)) {
+		sequence_no = c->sequence_no++; /* Increment sequence number for the next event we send */
+	} else {
+		sequence_no = c->sequence_no;
+	}
+
 	if (event == EVENT_PING) {
 		strcpy(seqno, ""); /* No sequence number usage for pings */
 		strcpy(ddhhmmss, ""); /* No timestamp for pings */
 	} else {
 		/* INTERNET events: Since these events aren't sent to the server (they are inferred events by the server),
 		 * don't consume a sequence number for them, or that will mess up synchronization. */
-		if (INFERRED_EVENT(event)) {
+		if (!NEED_TO_SEND_EVENT(c, event)) {
 			sequence_no = 0;
 		}
 		snprintf(seqno, sizeof(seqno), "%u", sequence_no);
 		build_ddhhmmss(ddhhmmss, sizeof(ddhhmmss));
 	}
 	len = snprintf(msgbuf, sizeof(msgbuf), "%s*%s*%s*%s*%d*%s*%s#", c->client_id, S_OR(c->client_pin, ""), seqno, ddhhmmss, event, s ? s->sensor_id : "", S_OR(data, ""));
-	if (event != EVENT_PING || !c->sequence_no) {
-		/* Don't log pings, except the first one, since that would be too noisy */
+	if (event != EVENT_PING) {
+		/* Don't log pings, since that would be too noisy */
 		alarm_client_log(c, sequence_no, ddhhmmss, event, s, data);
-	}
-
-	if (event != EVENT_PING && !INFERRED_EVENT(event)) {
-		/* Don't increment sequence number for pings,
-		 * since it doesn't really matter for those,
-		 * and that would unnecessarily increment every few seconds. */
-		c->sequence_no++;
-	}
-
-	/* If there is dialplan to execute for this event, do it async now */
-	if (c->contexts[event]) {
-		spawn_dialplan(c->contexts[event], "client", event, c->client_id, s ? s->sensor_id : "");
-	}
-
-	/* Certain events aren't actually sent across the wire, they can be inferred by the server */
-	if (INFERRED_EVENT(event)) {
-		AST_LIST_UNLOCK(&c->events);
-		return 0;
 	}
 
 	if (event == EVENT_PING) {
@@ -1343,33 +1333,49 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 		 * Also, we attempt pings regardless of the value of c->ip_connected.
 		 * No way to know if the connection is back without constantly retrying. */
 		send_event_ip(c, msgbuf, len);
-	} else {
-		if (c->sfd == -1 && c->server_dialstr[0] == '\0') {
-			/* IP and phone are disabled, so we can't report to any server. */
-			AST_LIST_UNLOCK(&c->events);
-			return 1;
-		}
-		/* Add the event to the send queue for guaranteed FIFO delivery. */
-		e = ast_calloc(1, sizeof(*e) + len + 1);
-		if (!e) {
-			AST_LIST_UNLOCK(&c->events);
-			ast_log(LOG_ERROR, "Failed to add message to send queue\n");
-			return -1;
-		}
-		strcpy(e->data, msgbuf); /* Safe */
-		e->encoded = e->data;
-		e->seqno = sequence_no;
-		AST_LIST_INSERT_TAIL(&c->events, e, entry);
-
-		if (event == EVENT_ALARM_BREACH) {
-			c->flush_messages |= FLUSH_BREACH; /* Normally if batch reporting is enabled, messages are queued and not reported in realtime, but breaches trigger immediate reporting */
-		}
-
-		/* Wake up the client thread to tell it to send the message */
-		ast_alertpipe_write(c->alertpipe);
-
-		AST_LIST_UNLOCK(&c->events);
+		return 0;
 	}
+
+	/* If there is dialplan to execute for this event, do it async now */
+	if (c->contexts[event]) {
+		spawn_dialplan(c->contexts[event], "client", event, c->client_id, s ? s->sensor_id : "");
+	}
+
+	/* Certain events aren't actually sent across the wire, they can be inferred by the server */
+	if (!NEED_TO_SEND_EVENT(c, event)) {
+		AST_LIST_UNLOCK(&c->events);
+		ast_debug(10, "Dropping event (can be inferred by server)\n");
+		return 0;
+	}
+
+	if (c->sfd == -1 && c->server_dialstr[0] == '\0') {
+		/* IP and phone are disabled, so we can't report to any server. */
+		AST_LIST_UNLOCK(&c->events);
+		return 1;
+	}
+	/* Add the event to the send queue for guaranteed FIFO delivery. */
+	e = ast_calloc(1, sizeof(*e) + len + 1);
+	if (!e) {
+		AST_LIST_UNLOCK(&c->events);
+		ast_log(LOG_ERROR, "Failed to add message to send queue\n");
+		return -1;
+	}
+	strcpy(e->data, msgbuf); /* Safe */
+	e->encoded = e->data;
+	e->seqno = sequence_no;
+	AST_LIST_INSERT_TAIL(&c->events, e, entry);
+
+	if (event == EVENT_ALARM_BREACH) {
+		c->flush_messages |= FLUSH_BREACH; /* Normally if batch reporting is enabled, messages are queued and not reported in realtime, but breaches trigger immediate reporting */
+		/* Reset the phone sync failure counter as we want to try immediately to report this,
+		 * even if we were previously unable to report by phone successfully. */
+		c->consecutive_failed_phonesyncs = 0;
+	}
+
+	/* Wake up the client thread to tell it to send the message */
+	ast_alertpipe_write(c->alertpipe);
+
+	AST_LIST_UNLOCK(&c->events);
 	return 0;
 }
 
@@ -1688,7 +1694,7 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 		}
 
 		/* Wait for initial ACK from AlarmEventReceiver to synchronize */
-		res = ast_app_getdata_terminator(c->phonechan, "", buf, sizeof(buf), 60000, "*");
+		res = ast_app_getdata_terminator(c->phonechan, "", buf, sizeof(buf), 55000, "*");
 		if (res != AST_GETDATA_EMPTY_END_TERMINATED) {
 			ast_log(LOG_WARNING, "Failed to synchronize with reporting server\n");
 			ast_hangup(c->phonechan);
@@ -1913,9 +1919,21 @@ static void *client_thread(void *arg)
 	generate_event(c, EVENT_ALARM_OKAY, NULL, NULL);
 
 	while (!module_shutting_down) {
-		int res;
+		int res, this_poll_interval = poll_interval;
 		pfds[0].revents = pfds[1].revents = 0;
-		res = poll(pfds, numfds, poll_interval);
+		if (c->breach_time > 0) {
+			time_t now = time(NULL);
+			if ((1000 * (c->breach_time - now)) < poll_interval) {
+				/* A breach would occur before the poll interval would finish,
+				 * use the smaller of the two. That way we report a breach as soon as possible. */
+				this_poll_interval = 1000 * (c->breach_time - now);
+				if (this_poll_interval <= 0) {
+					ast_log(LOG_WARNING, "Breach occured in the past? %lu < %lu\n", c->breach_time, now);
+					this_poll_interval = 0;
+				}
+			}
+		}
+		res = poll(pfds, numfds, this_poll_interval);
 		if (res < 0) {
 			if (module_shutting_down) {
 				ast_debug(3, "Client thread '%s' exiting\n", c->client_id);
@@ -2582,11 +2600,11 @@ static int alarmeventreceiver_exec(struct ast_channel *chan, const char *data)
 	}
 
 	/* Answer, since we need bidirectional audio */
-	if (ast_answer(chan)) {
+	if (ast_channel_state(chan) != AST_STATE_UP && ast_answer(chan)) {
 		return -1;
 	}
 
-	res = ast_dtmf_stream(chan, NULL, "*", 0, DTMF_LEN);
+	res = ast_dtmf_stream(chan, NULL, "*", DTMF_INBETWEEN_LEN, DTMF_LEN);
 	if (res) {
 		ast_log(LOG_WARNING, "Channel disappeared before ACK completed\n");
 		return -1;
@@ -2595,7 +2613,7 @@ static int alarmeventreceiver_exec(struct ast_channel *chan, const char *data)
 	/* Read the client ID and client PIN */
 	res = ast_app_getdata_terminator(chan, "", clientid, sizeof(clientid), 10000, "*");
 	if (res != AST_GETDATA_COMPLETE) {
-		ast_log(LOG_WARNING, "Failed to receive client ID\n");
+		ast_log(LOG_WARNING, "Failed to receive client ID (res: %d)\n", res);
 		return -1;
 	}
 	ast_debug(3, "Client ID received is '%s'\n", clientid);
