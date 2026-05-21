@@ -1590,19 +1590,19 @@ static int phone_retry_time(struct alarm_client *c)
 	case 2:
 		return 240;
 	case 3:
-		return 600;
+		return 300;
 	case 4:
-		return 1200;
+		return 600;
 	case 5:
-		return 1800;
+		return 900;
 	case 6:
-		return 3600;
+		return 1200;
 	case 7:
-		return 7200;
+		return 1800;
 	case 8:
-		return 14400;
+		return 3600;
 	default:
-		return 86400;
+		return 7200;
 	}
 }
 
@@ -1643,7 +1643,8 @@ static int send_events_to_server_by_phone(struct alarm_client *c)
 			if (c->last_failed_phonesync + retry_interval > now) {
 				int next_retry = (c->last_failed_phonesync + retry_interval) - now;
 				AST_LIST_UNLOCK(&c->events);
-				ast_debug(2, "Phone reporting failed recently (%ld s ago), waiting %d s before retrying again\n", now - c->last_failed_phonesync, next_retry);
+				ast_debug(2, "Phone reporting failed recently (attempt %d, %ld s ago), waiting %d s before retrying again\n",
+					c->consecutive_failed_phonesyncs, now - c->last_failed_phonesync, next_retry);
 				return -1;
 			}
 		}
