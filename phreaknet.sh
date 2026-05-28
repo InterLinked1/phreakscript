@@ -2147,7 +2147,10 @@ get_dahlin_source() {
 
 	# Download the dahdi-linux-extra repo. This is needed for OSLEC support.
 	if [ ! -d dahdi-linux-extra.git ]; then
-		git clone --depth 1 --single-branch --branch extra-2.10.y https://notabug.org/tzafrir/dahdi-linux-extra.git
+		git clone --single-branch http://git.tzafrir.org.il/cgit/dahdi-extra.git/
+		if [ $? -ne 0 ]; then
+			die "Failed to clone dahdi-extra repo"
+		fi
 	fi
 	cp -r dahdi-linux-extra/drivers/staging $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR/drivers
 	# Since the OSLEC code is unlikely to change, there isn't much point in redownloading dahdi-linux-extra more than once.
@@ -2177,6 +2180,11 @@ get_dahlin_source() {
 	dahlin_apply_pr 96 # from_timer renamed to timer_container_of
 	dahlin_apply_pr 98 # hrtimer_init changed to hrtimer_setup
 	dahlin_apply_pr 99 # use module_init/module_exit instead of init_module/cleanup_module
+
+	# Not yet merged
+	# This is a two-parter: the first patch is needed for the second one to apply
+	dahlin_apply_pr 105 # Also handle renamed from_timer function for RHEL
+	dahlin_apply_pr 106 # Add wrapper for renamed from_timer function
 
 	# See https://github.com/asterisk/dahdi-linux/issues/97
 	# Sangoma needs to recreate the binary, until they do that, this driver is unusable on newer kernels
