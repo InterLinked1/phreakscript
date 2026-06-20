@@ -1790,7 +1790,7 @@ linux_headers_install_apt() {
 			# It'll be something like '/usr/src/linux-headers-7.0.0-1002-azure'
 			# We only do this in the CI, so this doesn't need to be generic
 			printf "Autodetermining directory to use in /usr/src\n"
-			srcdir=$( ls /usr/src | grep "linux-headers" | grep "azure" | grep -v "fde" | tr -d '\n' )
+			srcdir=$( ls /usr/src | grep "linux-headers" | grep "azure" | grep -v "fde" | tail -1 | tr -d '\n' )
 			PKG_KSRC="/usr/src/$srcdir"
 			printf "PKG_KSRC=%s\n" "$PKG_KSRC"
 		fi
