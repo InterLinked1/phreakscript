@@ -1405,39 +1405,29 @@ run_testsuite_tests() {
 install_phreak_testsuite_test() { # $1 = test path
 	parent=`dirname "$1"`
 	base=`basename "$1"`
-	if [ ! -d "testsuite/tests/$parent" ]; then
-		echoerr "Directory testsuite/tests/$parent does not exist!"
+	if [ ! -d "$AST_SOURCE_PARENT_DIR/testsuite/tests/$parent" ]; then
+		echoerr "Directory $AST_SOURCE_PARENT_DIR/testsuite/tests/$parent does not exist!"
 		exit 2
 	fi
-	if [ ! -f "testsuite/tests/$parent/tests.yaml" ]; then
-		echoerr "File tests/$parent/tests.yaml does not exist!"
+	if [ ! -f "$AST_SOURCE_PARENT_DIR/testsuite/tests/$parent/tests.yaml" ]; then
+		echoerr "File $AST_SOURCE_PARENT_DIR/tests/$parent/tests.yaml does not exist!"
 		exit 2
 	fi
-	if [ ! -d "phreakscript/testsuite/tests/$1" ]; then
-		echoerr "Directory phreakscript/testsuite/tests/$1 does not exist!"
-		ls -la phreakscript/testsuite/tests
+	if [ ! -d "testsuite/tests/$1" ]; then
+		echoerr "Directory testsuite/tests/$1 does not exist!"
+		ls -la testsuite/tests
 		exit 2
 	fi
-	cp -r "phreakscript/testsuite/tests/$1" "testsuite/tests/$parent"
-	echo "    - test: '$base'" >> "testsuite/tests/$parent/tests.yaml" # rather than have a patch for this file, which could be subject to frequent change and result in a finicky patch that's likely to fail, simply append it to the list of tests to run
+	cp -r "testsuite/tests/$1" "$AST_SOURCE_PARENT_DIR/testsuite/tests/$parent"
+	echo "    - test: '$base'" >> "$AST_SOURCE_PARENT_DIR/testsuite/tests/$parent/tests.yaml" # rather than have a patch for this file, which could be subject to frequent change and result in a finicky patch that's likely to fail, simply append it to the list of tests to run
 	printf "Installed test: %s\n" "$1"
 }
 
 add_phreak_testsuite() {
 	printf "%s\n" "Applying PhreakNet test suite additions"
-	cd $AST_SOURCE_PARENT_DIR
-	if [ ! -d phreakscript ]; then # if dir exists, assume it's the repo
-		git clone https://github.com/InterLinked1/phreakscript.git
-	fi
-	cd phreakscript
-	if [ $? -ne 0 ]; then
-		echoerr "Failed to find phreakscript directory"
-		pwd
-		exit 1
-	fi
-	git config pull.rebase false # this is the default. Do this solely to avoid those annoying "Pulling without specifying" warnings...
-	git pull # in case it already existed, update the repo
-	cd $AST_SOURCE_PARENT_DIR
+
+	instantiate_repo
+	cd "$GIT_REPO_PATH"
 
 	install_phreak_testsuite_test "apps/assert"
 	install_phreak_testsuite_test "apps/dialtone"
@@ -1501,13 +1491,106 @@ install_testsuite_itself() {
 	fi
 
 	add_phreak_testsuite
+	cd $AST_SOURCE_PARENT_DIR/testsuite
+
 	if [ "$RPT_MODULES" = "1" ]; then
 		# Add radio tests
-		cd $AST_SOURCE_PARENT_DIR/testsuite
 		git apply $AST_SOURCE_PARENT_DIR/app_rpt/tests/apps/tests_apps.diff
 		cp -r $AST_SOURCE_PARENT_DIR/app_rpt/tests/apps/rpt tests/apps
 	fi
+	if [ "$CHAN_SIP" = "1" ]; then
+		if [ ! -d tests/channels/SIP ]; then
+			cp -r $AST_SOURCE_PARENT_DIR/chan_sip/testsuite/tests/channels/SIP tests/channels
+			cp -r $AST_SOURCE_PARENT_DIR/chan_sip/testsuite/tests/fax/sip tests/fax
+			git apply $AST_SOURCE_PARENT_DIR/chan_sip/testsuite/tests.diff
+		fi
+	fi
+
 	printf "%s\n" "Asterisk Test Suite installation complete"
+}
+
+apply_menuselect() {
+	# Change Compile Options: https://docs.asterisk.org/Getting-Started/Installing-Asterisk/Installing-Asterisk-From-Source/Using-Menuselect-to-Select-Asterisk-Options/
+	$AST_MAKE menuselect.makeopts
+	menuselect/menuselect --enable format_mp3 menuselect.makeopts # add mp3 support
+	# Apply menuselects for patches
+	if [ "$EXTRA_FEATURES" = "1" ]; then
+		menuselect/menuselect --enable app_memory --enable res_cliexec menuselect.makeopts # enable modules that are not built by default
+	fi
+	# We want ulaw, not gsm (default)
+	menuselect/menuselect --disable-category MENUSELECT_MOH --disable-category MENUSELECT_CORE_SOUNDS --disable-category MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
+	# Only grab sounds if this is the first time
+	if [ ! -d "$AST_SOUNDS_DIR" ]; then
+		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW --enable MOH-OPSOUND-ULAW --enable EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
+	else
+		echo "Sounds already installed, skipping installation of sound files."
+	fi
+	if [ "$ENABLE_BACKTRACES" = "1" ]; then
+		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
+	fi
+	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. This will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
+	if [ -d /etc/dahdi ]; then
+		# in reality, this will never fail, even if they can't be enabled...
+		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
+	fi
+	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
+		menuselect/menuselect --enable chan_sip menuselect.makeopts
+	else
+		if [ $AST_MAJOR_VER -lt 21 ]; then
+			menuselect/menuselect --disable chan_sip menuselect.makeopts
+		fi
+	fi
+	# in 19+, ADSI is not built by default. We should always build and enable it.
+	menuselect/menuselect --enable res_adsi --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
+	if [ $AST_MAJOR_VER -lt 21 ]; then
+		# Disable the built-in skinny and mgcp modules, since there are better alternatives, and they're deprecated as of 19
+		menuselect/menuselect --disable chan_skinny --disable chan_mgcp menuselect.makeopts
+		# Who's actually using this?
+		menuselect/menuselect --disable app_osplookup menuselect.makeopts
+	fi
+
+	if [ "$LIGHTWEIGHT" = "1" ]; then
+		printf "Disabling most modules from building...\n"
+		# This is less intended for lean production systems than for situations where we may want to recompile Asterisk a very large number of times,
+		# and we can afford to exclude modules to compile as fast as possible.
+
+		# Start by disabling almost everything.
+		menuselect/menuselect --disable-category MENUSELECT_ADDONS --disable-category MENUSELECT_APPS menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_CDR --disable-category MENUSELECT_CEL menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_CHANNELS --disable-category MENUSELECT_CODECS menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_FORMATS --disable-category MENUSELECT_FUNCS --disable-category MENUSELECT_PBX --disable-category MENUSELECT_RES menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_TESTS --disable-category MENUSELECT_CFLAGS menuselect.makeopts
+		menuselect/menuselect --disable-category MENUSELECT_UTILS --disable-category MENUSELECT_AGIS menuselect.makeopts
+
+		# Now explicitly enable things we probably want.
+		# Core
+		menuselect/menuselect --enable app_bridgeaddchan --enable app_channelredirect --enable app_chanspy --enable app_confbridge --enable app_dial --enable app_exec menuselect.makeopts
+		menuselect/menuselect --enable app_flash --enable app_mixmonitor --enable app_originate --enable app_playback --enable app_playtones --enable app_read --enable app_userevent menuselect.makeopts
+		menuselect/menuselect --enable chan_bridge_media --enable chan_dahdi --enable chan_iax2 --enable chan_pjsip menuselect.makeopts
+		menuselect/menuselect --enable codec_a_mu --enable codec_dahdi --enable codec_ulaw menuselect.makeopts
+		menuselect/menuselect --enable format_pcm --enable format_sln --enable format_wav menuselect.makeopts
+		menuselect/menuselect --enable func_callerid --enable func_cdr --enable func_channel --enable func_curl --enable func_cut --enable func_db --enable func_global menuselect.makeopts
+		menuselect/menuselect --enable func_pjsip_aor --enable func_pjsip_contact --enable func_pjsip_endpoint --enable func_shell --enable func_volume menuselect.makeopts
+		menuselect/menuselect --enable pbx_config --enable pbx_spool menuselect.makeopts
+		menuselect/menuselect --enable res_clialiases --enable res_clioriginate --enable res_crypto --enable res_curl --enable res_fax menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip --enable res_pjsip_acl --enable res_pjsip_authenticator_digest --enable res_pjsip_caller_id menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip_dtmf_info --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip_header_funcs --enable res_pjsip_logger --enable res_pjsip_notify --enable res_pjsip_outbound_registration menuselect.makeopts
+		menuselect/menuselect --enable res_pjsip_pubsub --enable res_pjsip_session --enable res_rtp_asterisk menuselect.makeopts
+		menuselect/menuselect --enable res_sorcery_astdb --enable res_sorcery_config --enable res_sorcery_memory --enable res_sorcery_memory_cache menuselect.makeopts
+		menuselect/menuselect --enable res_srtp --enable res_timing_timerfd menuselect.makeopts
+		menuselect/menuselect --enable res_geolocation --enable res_statsd menuselect.makeopts # required for res_pjsip to load
+		# Extended
+		menuselect/menuselect --enable app_stack --enable app_if menuselect.makeopts
+		menuselect/menuselect --enable func_frame_trace menuselect.makeopts
+		menuselect/menuselect --enable res_cliexec menuselect.makeopts
+		# "Deprecated"
+		menuselect/menuselect --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
+		menuselect/menuselect --enable res_adsi menuselect.makeopts
+	else
+		# Disable non pbx_config config modules to avoid dialplan conflict issues.
+		menuselect/menuselect --disable pbx_ael --disable pbx_lua menuselect.makeopts
+	fi
 }
 
 configure_devmode() {
@@ -1515,7 +1598,8 @@ configure_devmode() {
 	if [ $? -ne 0 ]; then
 		exit 2
 	fi
-	$AST_MAKE menuselect.makeopts
+	# configure will reset the compilation options so we need to reapply menuselect modifications again to avoid changing anything else in the build
+	apply_menuselect
 	menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES --enable COMPILE_DOUBLE --enable DO_CRASH menuselect.makeopts
 	menuselect/menuselect --enable DEBUG_THREADS --enable MALLOC_DEBUG --enable DEBUG_FD_LEAKS menuselect.makeopts
 	menuselect/menuselect --enable TEST_FRAMEWORK --enable-category MENUSELECT_TESTS menuselect.makeopts
@@ -1532,10 +1616,16 @@ install_testsuite() { # $1 = $FORCE_INSTALL
 		return 1
 	fi
 	cd $AST_SOURCE_PARENT_DIR/$AST_SRC_DIR
+
 	# Ensure we're compiled with dev mode, or recompile in dev mode if needed
-	configure_devmode
-	$AST_MAKE
-	$AST_MAKE install
+	# If we already compiled in dev mode, then don't run configure again or we'll needlessly recompile everything
+	grep "BETTER_BACKTRACES" menuselect.makeopts > /dev/null
+	if [ $? -ne 0 ]; then
+		configure_devmode
+		$AST_MAKE
+		$AST_MAKE install
+	fi
+
 	install_testsuite_itself
 }
 
@@ -4047,100 +4137,19 @@ elif [ "$cmd" = "install" ]; then
 	if [ $? -ne 0 ]; then
 		exit 2
 	fi
+	apply_menuselect
+	if [ "$MANUAL_MENUSELECT" = "1" ]; then
+		$AST_MAKE menuselect # allow user to run menuselect manually if requested. This will block until user finishes.
+	fi
+
 	cp contrib/scripts/voicemailpwcheck.py /usr/local/bin
 	chmod +x /usr/local/bin/voicemailpwcheck.py
-
-	# Change Compile Options: https://wiki.asterisk.org/wiki/display/AST/Using+Menuselect+to+Select+Asterisk+Options
-	$AST_MAKE menuselect.makeopts
-	menuselect/menuselect --enable format_mp3 menuselect.makeopts # add mp3 support
-	# Apply menuselects for patches
-	if [ "$EXTRA_FEATURES" = "1" ]; then
-		menuselect/menuselect --enable app_memory --enable res_cliexec menuselect.makeopts # enable modules that are not built by default
-	fi
-	# We want ulaw, not gsm (default)
-	menuselect/menuselect --disable-category MENUSELECT_MOH --disable-category MENUSELECT_CORE_SOUNDS --disable-category MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
-	# Only grab sounds if this is the first time
-	if [ ! -d "$AST_SOUNDS_DIR" ]; then
-		menuselect/menuselect --enable CORE-SOUNDS-EN-ULAW --enable MOH-OPSOUND-ULAW --enable EXTRA-SOUNDS-EN-ULAW menuselect.makeopts # get the ulaw audio files...
-	else
-		echo "Sounds already installed, skipping installation of sound files."
-	fi
-	if [ "$ENABLE_BACKTRACES" = "1" ]; then
-		menuselect/menuselect --enable DONT_OPTIMIZE --enable BETTER_BACKTRACES menuselect.makeopts
-	fi
-	# If $CHAN_DAHDI is 1, then /etc/dahdi should already exist. This will ensure these are enabled if DAHDI already was present and we're not upgrading it now.
-	if [ -d /etc/dahdi ]; then
-		# in reality, this will never fail, even if they can't be enabled...
-		menuselect/menuselect --enable chan_dahdi --enable app_meetme --enable app_flash menuselect.makeopts
-	fi
-	if [ "$CHAN_SIP" = "1" ]; then # somebody still wants chan_sip, okay...
-		menuselect/menuselect --enable chan_sip menuselect.makeopts
-	else
-		if [ $AST_MAJOR_VER -lt 21 ]; then
-			menuselect/menuselect --disable chan_sip menuselect.makeopts
-		fi
-	fi
-	# in 19+, ADSI is not built by default. We should always build and enable it.
-	menuselect/menuselect --enable res_adsi --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
-	if [ $AST_MAJOR_VER -lt 21 ]; then
-		# Disable the built-in skinny and mgcp modules, since there are better alternatives, and they're deprecated as of 19
-		menuselect/menuselect --disable chan_skinny --disable chan_mgcp menuselect.makeopts
-		# Who's actually using this?
-		menuselect/menuselect --disable app_osplookup menuselect.makeopts
-	fi
 
 	# Expand TLS support from 1.2 to 1.0 for older ATAs, if needed
 	if [ "$WEAK_TLS" = "1" ]; then
 		sed -i 's/TLSv1.2/TLSv1.0/g' /etc/ssl/openssl.cnf
 		sed -i 's/DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=1/g' /etc/ssl/openssl.cnf
 		printf "%s\n" "Successfully patched OpenSSL to allow TLS 1.0..."
-	fi
-
-	if [ "$LIGHTWEIGHT" = "1" ]; then
-		printf "Disabling most modules from building...\n"
-		# This is less intended for lean production systems than for situations where we may want to recompile Asterisk a very large number of times,
-		# and we can afford to exclude modules to compile as fast as possible.
-
-		# Start by disabling almost everything.
-		menuselect/menuselect --disable-category MENUSELECT_ADDONS --disable-category MENUSELECT_APPS menuselect.makeopts
-		menuselect/menuselect --disable-category MENUSELECT_CDR --disable-category MENUSELECT_CEL menuselect.makeopts
-		menuselect/menuselect --disable-category MENUSELECT_CHANNELS --disable-category MENUSELECT_CODECS menuselect.makeopts
-		menuselect/menuselect --disable-category MENUSELECT_FORMATS --disable-category MENUSELECT_FUNCS --disable-category MENUSELECT_PBX --disable-category MENUSELECT_RES menuselect.makeopts
-		menuselect/menuselect --disable-category MENUSELECT_TESTS --disable-category MENUSELECT_CFLAGS menuselect.makeopts
-		menuselect/menuselect --disable-category MENUSELECT_UTILS --disable-category MENUSELECT_AGIS menuselect.makeopts
-
-		# Now explicitly enable things we probably want.
-		# Core
-		menuselect/menuselect --enable app_bridgeaddchan --enable app_channelredirect --enable app_chanspy --enable app_confbridge --enable app_dial --enable app_exec menuselect.makeopts
-		menuselect/menuselect --enable app_flash --enable app_mixmonitor --enable app_originate --enable app_playback --enable app_playtones --enable app_read --enable app_userevent menuselect.makeopts
-		menuselect/menuselect --enable chan_bridge_media --enable chan_dahdi --enable chan_iax2 --enable chan_pjsip menuselect.makeopts
-		menuselect/menuselect --enable codec_a_mu --enable codec_dahdi --enable codec_ulaw menuselect.makeopts
-		menuselect/menuselect --enable format_pcm --enable format_sln --enable format_wav menuselect.makeopts
-		menuselect/menuselect --enable func_callerid --enable func_cdr --enable func_channel --enable func_curl --enable func_cut --enable func_db --enable func_global menuselect.makeopts
-		menuselect/menuselect --enable func_pjsip_aor --enable func_pjsip_contact --enable func_pjsip_endpoint --enable func_shell --enable func_volume menuselect.makeopts
-		menuselect/menuselect --enable pbx_config --enable pbx_spool menuselect.makeopts
-		menuselect/menuselect --enable res_clialiases --enable res_clioriginate --enable res_crypto --enable res_curl --enable res_fax menuselect.makeopts
-		menuselect/menuselect --enable res_pjsip --enable res_pjsip_acl --enable res_pjsip_authenticator_digest --enable res_pjsip_caller_id menuselect.makeopts
-		menuselect/menuselect --enable res_pjsip_dtmf_info --enable res_pjsip_endpoint_identifier_ip --enable res_pjsip_endpoint_identifier_user menuselect.makeopts
-		menuselect/menuselect --enable res_pjsip_header_funcs --enable res_pjsip_logger --enable res_pjsip_notify --enable res_pjsip_outbound_registration menuselect.makeopts
-		menuselect/menuselect --enable res_pjsip_pubsub --enable res_pjsip_session --enable res_rtp_asterisk menuselect.makeopts
-		menuselect/menuselect --enable res_sorcery_astdb --enable res_sorcery_config --enable res_sorcery_memory --enable res_sorcery_memory_cache menuselect.makeopts
-		menuselect/menuselect --enable res_srtp --enable res_timing_timerfd menuselect.makeopts
-		menuselect/menuselect --enable res_geolocation --enable res_statsd menuselect.makeopts # required for res_pjsip to load
-		# Extended
-		menuselect/menuselect --enable app_stack --enable app_if menuselect.makeopts
-		menuselect/menuselect --enable func_frame_trace menuselect.makeopts
-		menuselect/menuselect --enable res_cliexec menuselect.makeopts
-		# "Deprecated"
-		menuselect/menuselect --enable app_adsiprog --enable app_getcpeid menuselect.makeopts
-		menuselect/menuselect --enable res_adsi menuselect.makeopts
-	else
-		# Disable non pbx_config config modules to avoid dialplan conflict issues.
-		menuselect/menuselect --disable pbx_ael --disable pbx_lua menuselect.makeopts
-	fi
-
-	if [ "$MANUAL_MENUSELECT" = "1" ]; then
-		$AST_MAKE menuselect # allow user to run menuselect manually if requested. This will block until user finishes.
 	fi
 
 	# Compile Asterisk
