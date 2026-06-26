@@ -903,7 +903,9 @@ start_telephony() {
 	# /etc/dahdi/modules isn't populated automatically, and this is needed for modules to get loaded automatically at boot
 	# Regardless, you can also run "phreaknet restart" to get things started manually...
 	# Re-run whenever the installed hardware changes
-	dahdi_genconf modules
+	if [ ! -f /etc/dahdi/modules ]; then
+		dahdi_genconf modules
+	fi
 
 	# Finally, run dahdi_cfg
 	printf "Applying DAHDI channel configuration...\n"
