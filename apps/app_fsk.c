@@ -119,6 +119,9 @@
 					</option>
 				</optionlist>
 			</parameter>
+			<parameter name="timeout" required="no">
+				<para>Timeout, in milliseconds, before application will return. Default is no timeout.</para>
+			</parameter>
 		</syntax>
 		<description>
 			<para>Receives digital messages from an audio channel</para>
@@ -351,11 +354,14 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 	int res = 0;
 	int retries = 0;
 	int eof_count = 0;
+	struct timeval start;
+	int timeout = 0, remaining_time;
 
 	AST_DECLARE_APP_ARGS(arglist,
 		AST_APP_ARG(variable);
 		AST_APP_ARG(modem);
 		AST_APP_ARG(options);
+		AST_APP_ARG(timeout);
 	);
 
 	argcopy = ast_strdupa(data);
@@ -386,6 +392,10 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 			ast_log(LOG_WARNING, "Unknown modem protocol: %s\n", arglist.modem);
 			return -1;
 		}
+	}
+
+	if (!ast_strlen_zero(arglist.timeout)) {
+		timeout = atoi(arglist.timeout);
 	}
 
 	pbx_builtin_setvar_helper(chan, arglist.variable, ""); /* initialize variable */
@@ -428,7 +438,15 @@ static int fsk_rx_exec(struct ast_channel *chan, const char *data)
 		return -1;
 	}
 	fsk_rx_set_modem_status_handler(caller_rx, rx_status, (void *) in);
+	start = ast_tvnow();
 	while (ast_waitfor(chan, -1) > -1) {
+		if (timeout > 0) {
+			remaining_time = ast_remaining_ms(start, timeout);
+			if (remaining_time <= 0) {
+				ast_debug(3, "FSK receiver timed out\n");
+				break;
+			}
+		}
 		f = ast_read(chan);
 		if (!f) {
 			ast_debug(1, "No more frames to read\n");
