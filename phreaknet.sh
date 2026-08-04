@@ -3002,7 +3002,8 @@ phreak_patches() {
 	fi
 
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
-	asterisk_pr_if 1879 230400 221000 202000 # chan_iax2: Add auth_method property getter
+	asterisk_pr_if 2055 230500 221100 202100 # backtrace.c: Avoid removed bfd_boolean type
+	asterisk_pr_if 2062 230500 221100 202100 # backtrace.c: Include stdbool.h
 
 	#asterisk_pr_if 1805 230300 220900 201900 # dsp.c: Add support for detecting R2 signaling tones. Disabled, patch doesn't cleanly apply.
 	if [ $AST_MAJOR_VER -le 23 ]; then
