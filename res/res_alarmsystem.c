@@ -1289,6 +1289,14 @@ static int send_event_ip(struct alarm_client *c, const char *msg, int len)
 #define INFERRED_EVENT(e) (e == EVENT_INTERNET_LOST || e == EVENT_INTERNET_RESTORED)
 #define NEED_TO_SEND_EVENT(c, e) (!INFERRED_EVENT(e))
 
+static inline void reset_sync_backoff(struct alarm_client *c)
+{
+	/* Reset the phone sync failure counter as we want to try immediately to report this,
+	 * even if we were previously unable to report by phone successfully. */
+	c->consecutive_failed_phonesyncs = 0;
+	c->last_failed_phonesync = 0;
+}
+
 /*! \brief Generate an event and add it to the send queue, and schedule it for delivery (but don't actually send it yet) */
 static int generate_event(struct alarm_client *c, enum alarm_event_type event, struct alarm_sensor *s, const char *data)
 {
@@ -1367,9 +1375,7 @@ static int generate_event(struct alarm_client *c, enum alarm_event_type event, s
 
 	if (event == EVENT_ALARM_BREACH) {
 		c->flush_messages |= FLUSH_BREACH; /* Normally if batch reporting is enabled, messages are queued and not reported in realtime, but breaches trigger immediate reporting */
-		/* Reset the phone sync failure counter as we want to try immediately to report this,
-		 * even if we were previously unable to report by phone successfully. */
-		c->consecutive_failed_phonesyncs = 0;
+		reset_sync_backoff(c);
 	}
 
 	/* Wake up the client thread to tell it to send the message */
@@ -1585,6 +1591,7 @@ static int phone_retry_time(struct alarm_client *c)
 		return 60;
 	}
 	switch (c->consecutive_failed_phonesyncs) {
+	case 0: /* Shouldn't get used but just in case */
 	case 1:
 		return 120;
 	case 2:
@@ -2592,6 +2599,7 @@ static int alarmeventreceiver_exec(struct ast_channel *chan, const char *data)
 {
 	int res;
 	struct reporting_client *r;
+	time_t start;
 	char clientid[32], clientpin[32];
 
 	/* XXX Name not actually checked, since there can only be 1 server profile */
@@ -2612,10 +2620,28 @@ static int alarmeventreceiver_exec(struct ast_channel *chan, const char *data)
 	}
 
 	/* Read the client ID and client PIN */
+	start = time(NULL);
 	res = ast_app_getdata_terminator(chan, "", clientid, sizeof(clientid), 10000, "*");
 	if (res != AST_GETDATA_COMPLETE) {
-		ast_log(LOG_WARNING, "Failed to receive client ID (res: %d)\n", res);
-		return -1;
+		if (start >= time(NULL) - 1) {
+			/* Might be echo back from the * we sent, ignore it and try again */
+			ast_debug(3, "Received standalone '*'?\n");
+			res = ast_app_getdata_terminator(chan, "", clientid, sizeof(clientid), 10000, "*");
+		} else {
+			/* Repeat the '*', maybe the first one didn't get through */
+			ast_debug(3, "Didn't receive any digits, resending '*'\n");
+			res = ast_dtmf_stream(chan, NULL, "*", DTMF_INBETWEEN_LEN, DTMF_LEN);
+			if (res) {
+				ast_log(LOG_WARNING, "Channel disappeared before ACK completed\n");
+				return -1;
+			}
+
+			res = ast_app_getdata_terminator(chan, "", clientid, sizeof(clientid), 10000, "*");
+			if (res != AST_GETDATA_COMPLETE) {
+				ast_log(LOG_WARNING, "Failed to receive client ID (res: %d)\n", res);
+				return -1;
+			}
+		}
 	}
 	ast_debug(3, "Client ID received is '%s'\n", clientid);
 	res = ast_app_getdata_terminator(chan, "", clientpin, sizeof(clientpin), 5000, "*");
@@ -2783,7 +2809,7 @@ static int alarmkeypad_exec(struct ast_channel *chan, const char *data)
 	} else { /* ALARM_STATE_OK */
 		/* System can be temporarily disarmed, if desired.
 		 * This just momentarily permits egress without triggering the alarm. */
-		ast_verb(6, "Arming system, permitting egress for next %d second%s\n", c->egress_delay, ESS(c->egress_delay));
+		ast_verb(6, "Temporarily disarming system, permitting egress for next %d second%s\n", c->egress_delay, ESS(c->egress_delay));
 		c->last_arm = time(NULL);
 		/* Play confirmation tone to indicate success */
 		ast_playtones_start(chan, 0, "!350+440/100,!0/100,!350+440/100,!0/1000", 0);
@@ -3025,6 +3051,12 @@ static char *handle_flush_events(struct ast_cli_entry *e, int cmd, struct ast_cl
 	AST_RWLIST_TRAVERSE(&clients, c, entry) {
 		if (strcasecmp(a->argv[3], c->name)) {
 			continue;
+		}
+		/* Reset the phone sync failure counter as we want to try immediately to report this,
+		 * even if we were previously unable to report by phone successfully.
+		 * That way flush on demand will always trigger an immediate sync up. */
+		if (c->consecutive_failed_phonesyncs) {
+			reset_sync_backoff(c);
 		}
 		/* Wake up the client thread to tell it to flush messages */
 		c->flush_messages |= FLUSH_ONDEMAND;
