@@ -227,6 +227,44 @@ static const char *state_str_func(enum line_state state)
 	__builtin_unreachable();
 }
 
+static enum ast_device_state whozz_state_to_devstate(enum line_state state)
+{
+	switch (state) {
+		case ONHOOK:
+			return AST_DEVICE_NOT_INUSE;
+		case OFFHOOK:
+			return AST_DEVICE_INUSE;
+		case RINGING:
+			return AST_DEVICE_RINGING;
+		case UNKNOWN:
+			return AST_DEVICE_UNKNOWN;
+	}
+	__builtin_unreachable();
+}
+
+static enum ast_device_state whozz_device_state(const char *device_name)
+{
+	int lineno;
+	struct whozz_line *w;
+	enum ast_device_state devstate = AST_DEVICE_UNKNOWN;
+
+	if (ast_strlen_zero(device_name)) {
+		return AST_DEVICE_UNKNOWN;
+	}
+
+	lineno = atoi(device_name);
+	AST_RWLIST_RDLOCK(&lines);
+	AST_RWLIST_TRAVERSE(&lines, w, entry) {
+		if (w->lineno == lineno) {
+			devstate = whozz_state_to_devstate(w->state);
+			break;
+		}
+	}
+	AST_RWLIST_UNLOCK(&lines);
+
+	return devstate;
+}
+
 static int serial_getline(struct pollfd *pfd, int pollfirst, char *restrict buf, size_t len)
 {
 	const char *bufstart = buf;
@@ -677,6 +715,7 @@ static int record_start(struct whozz_line *w, const char *exten)
 static void update_state(struct whozz_line *w, enum line_state newstate, enum line_state oldstate)
 {
 	w->state = newstate;
+	ast_devstate_changed(whozz_state_to_devstate(newstate), AST_DEVSTATE_CACHABLE, "WHOZZ:%d", w->lineno);
 	manager_event(EVENT_FLAG_CALL, "WHOZZLineStateChange",
 		"LineNumber: %d\r\n"
 		"CurrentState: %s\r\n"
@@ -1233,6 +1272,7 @@ static int unload_module(void)
 	struct whozz_line *w;
 
 	unloading = 1;
+	ast_devstate_prov_del("WHOZZ");
 	ast_cli_unregister_multiple(whozz_cli, ARRAY_LEN(whozz_cli));
 	ast_custom_function_unregister(&acf_whozz);
 	if (serial_fd != -1) {
@@ -1310,6 +1350,7 @@ static int load_module(void)
 
 	ast_custom_function_register(&acf_whozz);
 	ast_cli_register_multiple(whozz_cli, ARRAY_LEN(whozz_cli));
+	ast_devstate_prov_add("WHOZZ", whozz_device_state);
 	return res;
 }
 
