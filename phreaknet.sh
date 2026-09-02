@@ -1181,6 +1181,19 @@ download_github_file() { # $1 = repo, e.g. asterisk/asterisk, $2 = branch, $3 = 
 	fi
 }
 
+apply_github_patch_file() { # $1 = repo, e.g. asterisk/asterisk, $2 = branch, $3 = file, $4 = destination file (default: same as $3)
+	download_github_file "$1" "$2" "$3" "$4"
+	if [ $? -ne 0 ]; then
+		die "Failed to download patch: $3"
+	fi
+	patch -p1 < "$4"
+	if [ $? -ne 0 ]; then
+		ls -la "$4"
+		die "Failed to apply patch $3"
+	fi
+	rm "$4"
+}
+
 download_github_module() { # $1 = repo, e.g. asterisk/asterisk, $2 = branch, $3 = file, $4 = destination module filename
 	download_github_file "$1" "$2" "$3" "$AST_SOURCE_PARENT_DIR/$AST_SRC_DIR/$4"
 }
@@ -2238,7 +2251,7 @@ get_dahlin_source() {
 	fi
 
 	# Download the dahdi-linux-extra repo. This is needed for OSLEC support.
-	if [ ! -d dahdi-linux-extra.git ]; then
+	if [ ! -d dahdi-extra ]; then
 		git clone --single-branch https://git.sr.ht/~tzafrir/dahdi-extra
 		if [ $? -ne 0 ]; then
 			die "Failed to clone dahdi-extra repo"
@@ -2276,6 +2289,8 @@ get_dahlin_source() {
 	# Not yet merged
 	# This is a two-parter: the first patch is needed for the second one to apply
 	dahlin_apply_pr 105 # Also handle renamed from_timer function for RHEL
+
+	# Merged into master
 	dahlin_apply_pr 106 # Add wrapper for renamed from_timer function
 
 	# See https://github.com/asterisk/dahdi-linux/issues/97
@@ -2659,20 +2674,6 @@ phreak_tree_patch_forward_only() { # $1 = patched file, $2 = patch name
 phreak_fuzzy_patch() {
 	printf "Applying patch %s to %s\n" "$1" "$1"
 	cp "$GIT_REPO_PATH/patches/$1" "/tmp/$1"
-	if [ $? -ne 0 ]; then
-		die "Failed to download patch: $1"
-	fi
-	patch -p1 < "/tmp/$1"
-	if [ $? -ne 0 ]; then
-		ls -la "/tmp/$1"
-		die "Failed to apply patch $1"
-	fi
-	rm "/tmp/$1"
-}
-
-custom_fuzzy_patch() {
-	printf "Applying patch %s to %s\n" "$1" "$1"
-	$WGET "$2" -O "/tmp/$1"
 	if [ $? -ne 0 ]; then
 		die "Failed to download patch: $1"
 	fi
@@ -3614,11 +3615,10 @@ get_ast_source() {
 		freebsd_port_patches
 	fi
 	if [ "$PAC_MAN" = "apk" ]; then
-		# Use GitLab mirror instead of Alpine Linux for reliability
-		custom_fuzzy_patch "10-musl-mutex-init.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/10-musl-mutex-init.patch"
-		custom_fuzzy_patch "20-musl-astmm-fix.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/20-musl-astmm-fix.patch"
-		custom_fuzzy_patch "40-asterisk-cdefs.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/40-asterisk-cdefs.patch"
-		custom_fuzzy_patch "41-asterisk-ALLPERMS.patch" "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/main/asterisk/41-asterisk-ALLPERMS.patch"
+		apply_github_patch_file "alpinelinux/aports" "master" "main/asterisk/10-musl-mutex-init.patch" "10-musl-mutex-init.patch"
+		apply_github_patch_file "alpinelinux/aports" "master" "main/asterisk/20-musl-astmm-fix.patch" "20-musl-astmm-fix.patch"
+		apply_github_patch_file "alpinelinux/aports" "master" "main/asterisk/40-asterisk-cdefs.patch" "40-asterisk-cdefs.patch"
+		apply_github_patch_file "alpinelinux/aports" "master" "main/asterisk/41-asterisk-ALLPERMS.patch" "41-asterisk-ALLPERMS.patch"
 	fi
 }
 
