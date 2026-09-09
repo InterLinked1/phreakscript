@@ -498,6 +498,12 @@ else
 	AST_CONFIGURE_FLAGS="$AST_CONFIGURE_FLAGS --with-pjproject-bundled" # default
 fi
 
+if [ "$DEVMODE" = "1" ]; then
+	# Disable the AVX-512 instruction so Asterisk will run under valgrind
+	# Slightly less optimized build, but that's the idea with dev mode anyhow
+	AST_CONFIGURE_FLAGS="$AST_CONFIGURE_FLAGS CFLAGS=\"-mno-avx512f\""
+fi
+
 phreakscript_info() {
 	printf "%s" "Hostname: "
 	hostname
