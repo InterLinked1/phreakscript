@@ -2293,10 +2293,11 @@ get_dahlin_source() {
 	dahlin_apply_pr 99 # use module_init/module_exit instead of init_module/cleanup_module
 
 	# Not yet merged
-	# This is a two-parter: the first patch is needed for the second one to apply
-	dahlin_apply_pr 105 # Also handle renamed from_timer function for RHEL
+	dahlin_apply_pr 114 # umh.h include, needed explicitly for newer kernels
 
 	# Merged into master
+	# This is a two-parter: the first patch is needed for the second one to apply
+	dahlin_apply_pr 105 # Also handle renamed from_timer function for RHEL
 	dahlin_apply_pr 106 # Add wrapper for renamed from_timer function
 
 	# See https://github.com/asterisk/dahdi-linux/issues/97
@@ -5052,7 +5053,6 @@ elif [ "$cmd" = "valgrind" ]; then # https://wiki.asterisk.org/wiki/display/AST/
 	asterisk -rx "core stop now"
 	sleep 1
 	valgrind --suppressions=$AST_SOURCE_PARENT_DIR/${AST_SRC_DIR}contrib/valgrind.supp -s --log-fd=9 asterisk -vvvvcg 9 > /tmp/asteriskvalgrind.txt
-	paste_post "/tmp/asteriskvalgrind.txt"
 	ls /tmp/asteriskvalgrind.txt
 elif [ "$cmd" = "cppcheck" ]; then
 	ensure_installed cppcheck
@@ -5079,7 +5079,6 @@ elif [ "$cmd" = "malloc-debug" ]; then # https://wiki.asterisk.org/wiki/display/
 	if [ ! -f "/var/log/asterisk/mmlog" ]; then
 		die "Could not find /var/log/asterisk/mmlog"
 	fi
-	paste_post "/var/log/asterisk/mmlog"
 	ls /var/log/asterisk/mmlog
 elif [ "$cmd" = "backtrace-only" ]; then
 	get_backtrace 0
@@ -5094,9 +5093,8 @@ elif [ "$cmd" = "rundump" ]; then
 		die "Make sure to start asterisk with -g or set dumpcore=yes in asterisk.conf"
 	fi
 	cat /tmp/ast_coredumper.txt
-	rm -f /tmp/ast_coredumper.txt
 	printf "%s\n" "Uploading paste of backtrace..."
-	paste_post "$corefullpath"
+	ls -la "$corefullpath"
 elif [ "$cmd" = "threads" ]; then
 	# Debug CPU usage of specific threads.
 	pid=`cat /var/run/asterisk/asterisk.pid`
