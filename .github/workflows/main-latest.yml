@@ -42,7 +42,7 @@ jobs:
           make -j$(nproc)
           make -j$(nproc) modules
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build DAHDI
        run: |
            ./phreaknet.sh make
@@ -70,7 +70,7 @@ jobs:
           make -j$(nproc)
           make -j$(nproc) modules
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build DAHDI
        run: |
            ./phreaknet.sh make
@@ -98,7 +98,7 @@ jobs:
           make -j$(nproc)
           make -j$(nproc) modules
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build DAHDI
        run: |
            ./phreaknet.sh make
@@ -108,7 +108,7 @@ jobs:
     name: Fedora 42
     container: fedora:42
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make
@@ -118,7 +118,7 @@ jobs:
     name: Arch Linux
     container: archlinux:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build DAHDI and Asterisk
         run: |
           ./phreaknet.sh make

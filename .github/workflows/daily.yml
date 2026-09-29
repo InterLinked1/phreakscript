@@ -14,7 +14,7 @@ jobs:
     name: Ubuntu 24.04
     steps:
      - name: Checkout
-       uses: actions/checkout@v4
+       uses: actions/checkout@v6
      - name: Build DAHDI and Asterisk
        run: |
           sudo ./phreaknet.sh make
