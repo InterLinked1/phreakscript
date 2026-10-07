@@ -2743,14 +2743,6 @@ custom_module() { # $1 = filename, $2 = URL to download
 	fi
 }
 
-add_experimental() {
-	custom_module "include/asterisk/res_pjsip_body_generator_types.h" "https://code.phreaknet.org/asterisk/res_pjsip_body_generator_types.h"
-	custom_module "res/res_pjsip_device_features.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features.c"
-	custom_module "res/res_pjsip_device_features_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_device_features_body_generator.c"
-	custom_module "res/res_pjsip_sca.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca.c"
-	custom_module "res/res_pjsip_sca_body_generator.c" "https://code.phreaknet.org/asterisk/res_pjsip_sca_body_generator.c"
-}
-
 build_g72x() {
 	cd $AST_SOURCE_PARENT_DIR
 
@@ -3010,13 +3002,7 @@ phreak_patches() {
 	fi
 
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
-	asterisk_pr_if 2055 230500 221100 202100 # backtrace.c: Avoid removed bfd_boolean type
-	asterisk_pr_if 2062 230500 221100 202100 # backtrace.c: Include stdbool.h
-
-	#asterisk_pr_if 1805 230300 220900 201900 # dsp.c: Add support for detecting R2 signaling tones. Disabled, patch doesn't cleanly apply.
-	if [ $AST_MAJOR_VER -le 23 ]; then
-		rm apps/app_r2.c # Only build app_r2 in master, until the next release comes out
-	fi
+	asterisk_pr_if 2196 230700 221300 202300 # Make hashtab function arguments const
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged (hopefully soon)
 
@@ -3025,7 +3011,16 @@ phreak_patches() {
 	git_patch "groupvars_old.diff" # This is an older version of the GROUP VARs patch (PR #292) that is stable and does not cause issues. Until the PR is fixed, we use this one.
 
 	asterisk_pr_unconditional 1504 # func_channel: Allow manually changing audio format during a call
-	asterisk_pr_unconditional 1513 # app_mixmonitor: Prevent recording to same file multiple times
+
+	asterisk_pr_unconditional 2149 # file.c: Prevent duplicate recording attempts
+	asterisk_pr_unconditional 2199 # app_mixmonitor: Abort if ast_writefile fails
+
+	# Depends on res_pjsip_pubsub changes that are 21+
+	if [ $AST_MAJOR_VER -ge 21 ]; then
+		asterisk_pr_unconditional 128 # res_pjsip_device_features, res_pjsip_device_features_body_generator, res_pjsip_body_generator_types
+		phreak_tree_module "res/res_pjsip_sca.c"
+		phreak_tree_module "res/res_pjsip_sca_body_generator.c"
+	fi
 
 	# Out of tree patches
 	git_patch "dahdicleanup.diff"
@@ -3054,11 +3049,6 @@ phreak_patches() {
 	git_patch "prefixinclude.diff" # pbx: prefix includes
 	git_patch "asterisk-prevent-duplicate-processes.diff" # Prevent duplicate Asterisk process creation
 	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI. Patch no longer applies after https://github.com/asterisk/asterisk/pull/1772
-
-	if [ "$EXPERIMENTAL_FEATURES" = "1" ] && [ $AST_MAJOR_VER -ge 21 ]; then
-		printf "Installing 21+ patches for experimental features\n"
-		add_experimental
-	fi
 }
 
 universal_patches() {
@@ -3958,16 +3948,7 @@ elif [ "$cmd" = "source" ]; then
 	AST_SOURCE_PARENT_DIR=$PWD
 	get_ast_source
 elif [ "$cmd" = "experimental" ]; then
-	assert_root
-	cd $AST_SOURCE_PARENT_DIR
-	AST_SRC_DIR=`get_newest_astdir`
-	if [ $AST_MAJOR_VER -ge 21 ]; then
-		printf "Installing 21+ patches for experimental features\n"
-		add_experimental
-		$AST_MAKE
-	else
-		echoerr "Your version of Asterisk is not eligible for experimental features"
-	fi
+	die "No experimental features currently available"
 elif [ "$cmd" = "g72x" ]; then
 	assert_root
 	cd $AST_SOURCE_PARENT_DIR
