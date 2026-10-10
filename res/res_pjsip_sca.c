@@ -1649,9 +1649,10 @@ static void seize_shutdown(struct ast_sip_subscription *sub)
 	/* Change the appearance from seized to idle, for whichever appearance we were using. */
 	ast_debug(2, "Seizure terminated for %s\n", callid);
 	if (set_appearance(sca_sub, -1, SCA_APPEARANCE_IDLE, callid, NULL, NULL)) {
-		/*! \todo This can happen currently because line-seize isn't cancelled when the call is made, so when they expire
-		 * the appearance has already moved on. Ideally when the seize turns into a call, we should cancel the subscription from our end. */
-		ast_log(LOG_WARNING, "No seized appearance for Call-ID %s?\n", callid);
+		/* This can happen currently because line-seize isn't cancelled when the call is made, so when they expire
+		 * the appearance has already moved on. Ideally when the seize turns into a call, we should cancel the subscription from our end.
+		 * (However, there's no actual harm in not doing so.) */
+		ast_debug(1, "No seized appearance for Call-ID %s, ignoring seizure termination\n", callid);
 		ast_free(callid);
 	} else {
 		send_update(sca_sub); /* Notify everyone that this appearance is no longer seized. */
@@ -2357,7 +2358,7 @@ static int do_barge_unhold(struct ast_channel *chan, struct sca_subscription *sc
 	struct ast_channel *ochan = NULL;
 	struct sca_session *s;
 	struct sca_channel *c;
-	int barge_tone = 1; /*! \todo Barge warning tone currently forced, should be configurable? */
+	int barge_tone = 1; /*! \todo Barge warning tone currently forced, should be configurable as an endpoint setting? */
 
 	/* There was previously a bug where we didn't have the .method = "INVITE" filter on the supplement, which led to this function getting called twice.
 	 * This was a mechanism that detected that, left here now because it's still the case that a channel should never be bridged at this point.
