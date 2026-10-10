@@ -1802,13 +1802,11 @@ static char *callid_from_msg(pjsip_msg *msg)
 	return callid_dup;
 }
 
-static char *contact_from_msg(pjsip_msg *msg)
+static char *contact_from_hdr(pjsip_contact_hdr *contact_hdr)
 {
-	pjsip_contact_hdr *contact_hdr;
 	pjsip_sip_uri *contact_uri;
 	char *contact_str;
 
-	contact_hdr = pjsip_msg_find_hdr(msg, PJSIP_H_CONTACT, NULL);
 	if (!contact_hdr) {
 		return NULL;
 	}
@@ -1823,6 +1821,19 @@ static char *contact_from_msg(pjsip_msg *msg)
 	}
 	ast_copy_pj_str(contact_str, &contact_uri->host, pj_strlen(&contact_uri->host) + 1);
 	return contact_str;
+}
+
+static char *contact_from_msg(pjsip_msg *msg)
+{
+	return contact_from_hdr(pjsip_msg_find_hdr(msg, PJSIP_H_CONTACT, NULL));
+}
+
+static char *contact_from_dlg(struct ast_sip_session *session)
+{
+	if (!session || !session->inv_session || !session->inv_session->dlg) {
+		return NULL;
+	}
+	return contact_from_hdr(session->inv_session->dlg->remote.contact);
 }
 
 static int new_seize(struct ast_sip_endpoint *endpoint, const char *resource, pjsip_rx_data *rdata)
@@ -2961,14 +2972,15 @@ static void sca_outgoing_answer(struct ast_sip_session *session, struct pjsip_tx
 		return;
 	}
 
-	contact = contact_from_msg(tdata->msg);
+	/* Here, contact_from_msg(tdata->msg) would give us Asterisk's IP; we want the phone's IP: */
+	contact = contact_from_dlg(session);
 	if (!contact) {
 		ast_free(callid);
 		ao2_ref(sca_sub, -1);
 		return;
 	}
 
-	ast_debug(3, "SCA call answered: %s\n", callid);
+	ast_debug(3, "SCA call answered: %s (IP: %s)\n", callid, contact);
 	if (set_appearance(sca_sub, -1, SCA_APPEARANCE_ACTIVE, callid, contact, session)) {
 		ast_free(callid); /* Only free on failure */
 		ast_free(contact);
