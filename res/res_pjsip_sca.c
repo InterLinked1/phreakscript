@@ -1,7 +1,7 @@
 /*
  * Asterisk -- An open source telephony toolkit.
  *
- * Copyright (C) 2022-2023, Naveen Albert
+ * Copyright (C) 2022-2023, 2026, Naveen Albert
  *
  * Naveen Albert <asterisk@phreaknet.org>
  *
@@ -62,6 +62,7 @@
 #include "asterisk/cli.h"
 #include "asterisk/bridge.h"
 #include "asterisk/bridge_channel.h"
+#include "asterisk/core_unreal.h"
 #include "asterisk/indications.h"
 #include "asterisk/format_cache.h" /* use ast_format_slin */
 
@@ -448,7 +449,7 @@ static int sca_add_sip_sub(struct ast_sip_subscription *sip_sub, struct sca_subs
 	}
 	AST_RWLIST_UNLOCK(&sca_sub->subs);
 
-	ast_debug(1, "Now have %d subscription%s for SCA endpoint %s (SCA refcount: %d)\n", subs, ESS(subs), endpoint_name, ao2_count(sca_sub));
+	ast_debug(2, "Now have %d subscription%s for SCA endpoint %s (SCA refcount: %d)\n", subs, ESS(subs), endpoint_name, ao2_count(sca_sub));
 	return 0;
 }
 
@@ -474,7 +475,7 @@ static struct sca_subscription *sca_subscription_alloc(struct ast_sip_subscripti
 	sca_sub = sca_sub_by_endpoint(endpoint_name);
 	if (sca_sub) {
 		/* This has been ref bumped, so just return it. */
-		ast_debug(1, "Endpoint %s already has an SCA subscription, reusing the subscription data\n", endpoint_name);
+		ast_debug(2, "Endpoint %s already has an SCA subscription, reusing the subscription data\n", endpoint_name);
 
 		/* The datastore is what allows us to call get_sca_sub on an ast_sip_subscription to retrieve the appropriate sca_sub */
 		if (add_datastore(sip_sub, sca_sub)) {
@@ -625,26 +626,6 @@ static int on_tdata(struct ast_sip_subscription *sub, pjsip_tx_data *tdata)
 	return 0;
 }
 
-/*! \todo BUGBUG occasionally on startup, we crash due to restoring cached subscriptins
- * It only happens once at a time, the next startup will not crash.
- * Running "database deltree subscription_persistence" before restarting seems to prevent this.
- Always like this, PJSIP_EVSUB_STATE_NULL:
- 
-#2  0x00007f0f82fdc40f in __assert_fail_base (fmt=0x7f0f831546a8 "%s%s%s:%u: %s%sAssertion `%s' failed.n%n", assertion=0x7f0f83d76788 "sub->dst_state!=PJSIP_>
-        str = 0x7f0f6c042270 ""
-        total = 4096
-#3  0x00007f0f82feb662 in __GI___assert_fail (assertion=0x7f0f83d76788 "sub->dst_state!=PJSIP_EVSUB_STATE_NULL", file=0x7f0f83d76282 "../src/pjsip-simple/evs>
-#4  0x00007f0f83c7e43f in pjsip_evsub_send_request (sub=0x7f0f6c023718, tdata=0x7f0f6c02e058) at ../src/pjsip-simple/evsub.c:1402
-        status = 0
-        __PRETTY_FUNCTION__ = "pjsip_evsub_send_request"
-#5  0x00007f0f3fe81663 in sip_subscription_send_request (sub_tree=0x7f0f6c020af0, tdata=0x7f0f6c02e058) at res_pjsip_pubsub.c:2064
-        res = 0
-        __FUNCTION__ = "sip_subscription_send_request"
-
-XXX: This bug appears to have been in pjproject (resolved by a Dec 2022 commit) and no longer happens.
-This handling and comments, etc. can now all be restored to normal.
-*/
-
 #if 1
 static int notify_task(void *obj)
 {
@@ -681,7 +662,7 @@ static int notify_task(void *obj)
 	}
 	AST_RWLIST_UNLOCK(&task_data->sca_sub->subs);
 
-	ast_debug(2, "Sent NOTIFY to %d contact%s\n", notified, ESS(notified));
+	ast_debug(5, "Sent NOTIFY to %d contact%s\n", notified, ESS(notified));
 	return 0;
 }
 
@@ -693,7 +674,7 @@ static int send_update(struct sca_subscription *sca_sub)
 		return -1;
 	}
 
-	ast_debug(1, "Doing NOTIFY\n");
+	ast_debug(5, "Doing NOTIFY\n");
 
 	/* Initialize the task_data's sca_data with any data the body generator might need. */
 	memset(&task_data->sca_data, 0, sizeof(task_data->sca_data));
@@ -1127,6 +1108,8 @@ static void assign_appearance(struct sca_subscription *sca_sub, int appearance, 
 	/* Update the core with the new device state, if it changed. */
 	if (sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].laststate != newstate) {
 		enum ast_device_state indiv, aggregate;
+		ast_debug(1, "%s appearance %d: %s ----> %s\n", sca_sub->endpoint, appearance,
+			sca_appearance_state_str(sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].laststate), sca_appearance_state_str(newstate));
 		indiv = sca_to_ast_devstate(newstate);
 		aggregate = sca_aggregate_state(sca_sub);
 		ast_debug(4, "Changing device state for %s, appearance %d = %s, aggregate = %s\n", sca_sub->endpoint, appearance, ast_devstate2str(indiv), ast_devstate2str(aggregate));
@@ -1186,10 +1169,10 @@ static void assign_appearance(struct sca_subscription *sca_sub, int appearance, 
 		/* There was a Call ID, but the new Call ID is different... huh?
 		 * Actually, if we change from seized to progressing, and several other circumstances, the Call IDs are different so this is expected. */
 		if (safe_strcmp(sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].callid, callid)) {
-			ast_debug(1, "Oooh, old Call ID is %s, new Call ID is %s!\n", sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].callid, callid);
+			ast_debug(1, "Oooh, old Call ID is %s, new Call ID is %s!\n", S_OR(sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].callid, "(none)"), S_OR(callid, "(none)"));
 		}
 		if (safe_strcmp(sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].contact, contact)) {
-			ast_debug(1, "Oooh, old contact is %s, new contact is %s!\n", sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].contact, contact);
+			ast_debug(1, "Oooh, old contact is %s, new contact is %s!\n", sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].contact, S_OR(contact, "(none)"));
 		}
 
 		/* Only get rid of if we're going idle, or we actually have updated info to replace.
@@ -1278,7 +1261,7 @@ static inline int update_use_count(struct sca_subscription *sca_sub, int appeara
 		sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].usecount = 0;
 	}
 	newusecount = sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].usecount;
-	ast_debug(5, "Use count for appearance %d: %d -> %d\n", appearance, oldusecount, newusecount);
+	ast_debug(1, "Use count for %s appearance %d: %d ----> %d\n", sca_sub->endpoint, appearance, oldusecount, newusecount);
 	return newusecount;
 }
 
@@ -1367,11 +1350,25 @@ static inline enum sca_appearance_state sca_appearance_new_state(enum sca_appear
 			newstate = oldstate == SCA_APPEARANCE_BRIDGE_HELD ? SCA_APPEARANCE_HELD : SCA_APPEARANCE_ACTIVE;
 		}
 	} else if (newstate == SCA_APPEARANCE_ACTIVE) {
-		/*! \note usecount will be for 2 for unhold, not 1, so > 2 for bridge held */
-		if (newusecount > 2) {
-			/* Only transitions possible. We can't go from HELD to BRIDGE_ACTIVE. */
-			/* Go to BRIDGE_HELD if we were held, so that if somebody drops, we go back to HELD instead of ACTIVE. */
-			newstate = oldstate == SCA_APPEARANCE_HELD ? SCA_APPEARANCE_BRIDGE_HELD : SCA_APPEARANCE_BRIDGE_ACTIVE;
+		/* IDLE -> ACTIVE (=> use cnt 1)
+		 * HELD -> ACTIVE (=> use cnt 1)
+		 * ACTIVE -> ACTIVE (=> use cnt >= 2)
+		 *   ACTIVE -> BRIDGE_ACTIVE (use cnt 2)
+		 *   BRIDGE_ACTIVE -> BRIDGE_ACTIVE (use cnt > 2)
+		 */
+		if (newusecount > 1) {
+			/* Even though HELD -> BRIDGE_ACTIVE isn't technically possible,
+			 * if a call that was on hold is resumed from a different phone,
+			 * the usecount will briefly be 2, putting us into this branch.
+			 * However, we should transition to BRIDGE_ACTIVE in this case case (obviously),
+			 * not BRIDGE_HELD.
+			 * Otherwise, once the phone that put the call on hold originally goes away,
+			 * we'd transition to HELD, which would be wrong, rather than ACTIVE.
+			 *
+			 * Put another way, both barge-in and resuming hold from another phone hit this branch,
+			 * but in the latter case, the bridge active will be only for an instant,
+			 * and we'll immediately drop down to active as use count drops back to 1. */
+			newstate = SCA_APPEARANCE_BRIDGE_ACTIVE;
 		}
 	} else if (newstate == SCA_APPEARANCE_HELD) {
 		if (newusecount > 1) {
@@ -1506,8 +1503,10 @@ static int set_appearance_full(struct ast_channel *chan, struct sca_subscription
 				match = 1;
 				ast_debug(5, "Match on linked ID: %s\n", ast_channel_linkedid(session->channel));
 			}
-			/* We shouldn't transition to ACTIVE except from PROGRESSING or ALERTING */
-			if (match && newstate == SCA_APPEARANCE_ACTIVE && sca_sub->appearances[i].state != SCA_APPEARANCE_PROGRESSING && sca_sub->appearances[i].state != SCA_APPEARANCE_ALERTING) {
+
+			/* We shouldn't transition to ACTIVE except from PROGRESSING or ALERTING or HELD */
+			oldstate = sca_sub->appearances[i].state;
+			if (match && newstate == SCA_APPEARANCE_ACTIVE && oldstate != SCA_APPEARANCE_PROGRESSING && oldstate != SCA_APPEARANCE_ALERTING && oldstate != SCA_APPEARANCE_HELD) {
 				ast_debug(1, "Skipping match on state %s\n", sca_appearance_state_str(sca_sub->appearances[i].state));
 				continue;
 			}
@@ -1528,7 +1527,7 @@ static int set_appearance_full(struct ast_channel *chan, struct sca_subscription
 			 * Using assign_appearance ensures callid and contact are freed if not needed.
 			 * We can't just ignore them as that would leak memory. */
 			assign_appearance(sca_sub, appearance, newstate, requested_state, callid, contact, session, chan);
-			ast_debug(1, "Updated appearance %d from %s to %s\n", APPEARANCE_REAL_INDEX(i), sca_appearance_state_str(oldstate), sca_appearance_state_str(newstate));
+			ast_debug(1, "Updated %s appearance %d: %s ----> %s\n", sca_sub->endpoint, APPEARANCE_REAL_INDEX(i), sca_appearance_state_str(oldstate), sca_appearance_state_str(newstate));
 			break;
 		}
 		if (res) {
@@ -1557,7 +1556,7 @@ static int set_appearance_full(struct ast_channel *chan, struct sca_subscription
 		newusecount = update_use_count(sca_sub, appearance, newstate);
 		newstate = sca_appearance_new_state_helper(&sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)], oldstate, newstate, newusecount, session);
 		assign_appearance(sca_sub, appearance, newstate, requested_state, callid, contact, session, chan);
-		ast_debug(1, "Updated appearance %d from %s to %s\n", appearance, sca_appearance_state_str(oldstate), sca_appearance_state_str(newstate));
+		ast_debug(1, "Updated %s appearance %d: %s ----> %s\n", sca_sub->endpoint, appearance, sca_appearance_state_str(oldstate), sca_appearance_state_str(newstate));
 	}
 	ast_mutex_unlock(&sca_sub->lock);
 
@@ -2118,8 +2117,8 @@ static int process_hold_unhold(struct sca_subscription *sca_sub, struct ast_sip_
 	} else if (strstr(callinfo, ";appearance-state=held") || sdp_hold_directive(session, rdata)) {
 		/* Regular hold */
 		ast_debug(1, "Request to public hold appearance from %p\n", session);
-		/* If this the only call currently, then proceed normally.
-		 * If we're multiactive (usecount > 1, i.e. APPEARANCE_STATE_MULTI_ACTIVE), then we
+		/* If this is the only call currently, then proceed normally.
+		 * If we're multiactive (usecount > 1, i.e. APPEARANCE_STATE_MULTI_ACTIVE), then
 		 * the phone putting the call on hold is not necessarily the phone that made the call.
 		 * So in that case, force it.
 		 */
@@ -2254,121 +2253,61 @@ static int process_hold_unhold(struct sca_subscription *sca_sub, struct ast_sip_
 	return 0;
 }
 
-/*! \brief Play barge warning tone into a bridge */
-#include "asterisk/core_unreal.h"
-
-static struct ast_channel_tech barge_tech = {
-	.type = "BridgeBarge",
-	.description = "Simple channel technology for bridge barging",
-};
-
-static struct ast_channel_tech *barge_get_tech(void)
+static void *barge_tone_thread(void *data)
 {
-	return &barge_tech;
+	struct ast_channel *chan = data;
+
+	if (ast_playtones_start(chan, 0, "440/800", 0)) {
+		ast_log(LOG_ERROR, "Failed to start barge tone on %s\n", ast_channel_name(chan));
+		ast_hangup(chan);
+		return NULL;
+	}
+
+	ast_safe_sleep(chan, 800);
+	ast_playtones_stop(chan);
+
+	ast_hangup(chan);
+	return NULL;
 }
 
-static void set_channel_timeout(struct ast_channel *chan, long timeout)
+static int bridge_barge_tone(struct ast_channel *chan, struct ast_bridge *bridge, const char *endpoint, int appearance)
 {
-	struct timeval when = {0,};
-
-	when.tv_sec = timeout;
-
-	ast_channel_lock(chan);
-	ast_channel_setwhentohangup_tv(chan, when);
-	ast_channel_unlock(chan);
-}
-
-#if 0
-static void bridge_play_tone(struct ast_bridge_channel *bridge_channel, const char *playfile)
-{
-	int waitms = 0;
-	struct ast_channel *chan = ast_bridge_channel_get_chan(bridge_channel);
-	char *waitstr = strchr(playfile, '/');
-
-	if (!chan) {
-		ast_log(LOG_WARNING, "No channel?\n");
-		return;
-	}
-
-	if (!ast_channel_is_bridged(chan)) {
-		ast_log(LOG_WARNING, "Barge channel %s is not bridged?\n", ast_channel_name(chan));
-	}
-
-	/* Determine how long we should sleep from the indications string (assuming it's just a single tone) */
-	if (waitstr && !ast_strlen_zero(++waitstr)) {
-		waitms = atoi(waitstr);
-	}
-
-	ast_debug(3, "Streaming tone %s on %s (for %d ms)\n", playfile, ast_channel_name(chan), waitms);
-	if (!ast_playtones_start(chan, 0, playfile, 0)) {
-		ast_safe_sleep(chan, waitms);
-	}
-	ao2_ref(chan, -1);
-	return;
-}
-#endif
-
-static int bridge_barge(struct ast_channel *chan, struct ast_bridge *bridge, const char *endpoint, int appearance)
-{
+	RAII_VAR(struct ast_format_cap *, cap, NULL, ao2_cleanup);
 	struct ast_channel *tonechan;
-	static unsigned int barge_number = 0;
-	RAII_VAR(struct ast_format_cap *, capabilities, NULL, ao2_cleanup);
-	//struct ast_bridge_channel *bridge_channel;
-	//struct ast_unreal_pvt *pvt;
-	int generated_seqno = ast_atomic_fetchadd_int((int *) &barge_number, +1);
-
-	/*! \todo the barge stuff does not currently work, figure out how to do this simply and correctly */
-
-	/* Remember, bridge needs to be cleaned up unless ast_bridge_impart succeeds.
-	 * bridge_channel always needs to be cleaned up. */
+	pthread_t thread;
 
 	if (!bridge) {
+		ast_log(LOG_ERROR, "No bridge in which to play barge tone\n");
 		return -1;
 	}
 
-	/* Here we create a simple channel to add to the bridge and play the tone.
-	 * This is (and must be) non-blocking. */
-
-	capabilities = ast_format_cap_alloc(AST_FORMAT_CAP_FLAG_DEFAULT);
-	if (!capabilities) {
-		goto cleanup;
+	cap = ast_format_cap_alloc(AST_FORMAT_CAP_FLAG_DEFAULT);
+	if (!cap) {
+		return -1;
 	}
-	ast_format_cap_append_by_type(capabilities, AST_MEDIA_TYPE_AUDIO);
+	if (ast_format_cap_append(cap, ast_format_slin, 0)) {
+		return -1;
+	}
 
-	/* Just use everything after the PJSIP/ as part of the channel name, that way we have something unique we can use.
-	 * This is because multiple barges could happen on an SCA appearance in an overlapping manner, so that wouldn't be a sufficient source of uniqueness. */
-	tonechan = ast_channel_alloc(0, AST_STATE_UP, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, "BridgeBarge/%s-%d-%08x", endpoint, appearance, (unsigned) generated_seqno);
+	/* Announcer channel tech needs chan_bridge_media */
+	tonechan = ast_request("Announcer", cap, NULL, NULL, "PJSIP_SCA", NULL);
 	if (!tonechan) {
-		ast_log(LOG_WARNING, "Failed to allocate channel\n");
-		goto cleanup;
+		ast_log(LOG_ERROR, "Failed to allocate channel for barge tone\n");
+		return -1;
 	}
 
-	ast_channel_tech_set(tonechan, barge_get_tech());
-	ast_channel_nativeformats_set(tonechan, capabilities);
-	ast_channel_set_writeformat(tonechan, ast_format_slin);
-	ast_channel_set_rawwriteformat(tonechan, ast_format_slin);
-	ast_channel_set_readformat(tonechan, ast_format_slin);
-	ast_channel_set_rawreadformat(tonechan, ast_format_slin);
-	ast_channel_unlock(tonechan);
-
-	set_channel_timeout(tonechan, 1L); /* Channel only needed for 1 second. */
-
-	if (1) {
-		ao2_ref(bridge, -1);
-		return 0;
-	}
-	if (ast_bridge_impart(bridge, tonechan, NULL, NULL, AST_BRIDGE_IMPART_CHAN_INDEPENDENT)) {
-		ast_log(LOG_WARNING, "Failed to impart channel into bridge\n");
-		goto cleanup;
+	if (ast_unreal_channel_push_to_bridge(tonechan, bridge, AST_BRIDGE_CHANNEL_FLAG_IMMOVABLE | AST_BRIDGE_CHANNEL_FLAG_LONELY)) {
+		ast_log(LOG_ERROR, "Failed to push tone channel into bridge\n");
+		ast_hangup(tonechan);
+		return -1;
 	}
 
-	ast_log(LOG_WARNING, "bridge refcount now: %d\n", ao2_count(bridge));
-	ao2_ref(bridge, -1);
+	if (ast_pthread_create_detached_background(&thread, NULL, barge_tone_thread, tonechan)) {
+		ast_log(LOG_ERROR, "Failed to start barge tone thread\n");
+		ast_hangup(tonechan);
+		return -1;
+	}
 	return 0;
-
-cleanup:
-	ao2_ref(bridge, -1);
-	return -1;
 }
 
 /* XXX Could be moved to channel.c, ast_get_channel_by_ptr maybe?
@@ -2379,7 +2318,6 @@ static int find_by_ptr(void *obj, void *arg, void *data, int flags)
 	struct ast_channel *chan = data;
 
 	if (chan == target) {
-		ast_channel_ref(chan);
 		return CMP_MATCH | CMP_STOP;
 	}
 
@@ -2432,7 +2370,7 @@ static int do_barge_unhold(struct ast_channel *chan, struct sca_subscription *sc
 	}
 
 	ast_verb(4, "%s %s on appearance %d\n", ast_channel_name(chan),
-		APPEARANCE_STATE_ACTIVE(oldstate) ? "barging in" : "resuming hold", appearance);
+		APPEARANCE_STATE_ACTIVE(oldstate) ? "barging in" : "resuming held call", appearance);
 
 	/* Find *a* channel (if we're barging into a conference, could already be more than one),
 	 * that's associated with the appearance we want to join. */
@@ -2532,6 +2470,7 @@ static int do_barge_unhold(struct ast_channel *chan, struct sca_subscription *sc
 			 * ERROR[1802692][C-00000001]: channel.c:3572 __ast_read: ast_read() on chan 'PJSIP/PolycomSCA1-00000001' called with no recorded file descriptor. */
 			if (!ast_channel_move(ochan, mychan)) {
 				/* ast_channel_move does a masquerade, so keep a local ref to session->channel */
+				ast_debug(3, "Channel %s wasn't bridged, so swapped new/old in masquerade\n", ast_channel_name(mychan));
 				ast_hangup(mychan);
 				res = 0;
 			} else {
@@ -2544,7 +2483,12 @@ static int do_barge_unhold(struct ast_channel *chan, struct sca_subscription *sc
 	} else { /* channel is bridged */
 		struct ast_bridge *bridge, *bargebridge;
 
+		/* To barge-in, we should already be in an active state (either active or bridge active) */
+		int barge_in = APPEARANCE_STATE_ACTIVE(oldstate) && !APPEARANCE_STATE_HELD(oldstate);
+
 		ast_channel_lock(ochan);
+		ast_debug(1, "Channel %s is already bridged (%s, use count %d), %s\n", ast_channel_name(ochan),
+			sca_appearance_state_str(state), sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].usecount, barge_in ? "conferencing" : "kicking original");
 		bridge = ast_channel_get_bridge(ochan);
 		/* Note that we call ast_channel_get_bridge(ochan) again for bridge_barge so that it gets its own reference.
 		 * This is to avoid the refcount hitting 0 and the bridge getting destroyed while we're trying to use it, since we give each participant its own ref. */
@@ -2562,11 +2506,12 @@ static int do_barge_unhold(struct ast_channel *chan, struct sca_subscription *sc
 		 * For barge-in, simply don't replace the channel, that way we're both there. */
 
 		/* If we're configured to play barge-in warning tone, then do so. */
-		if (barge_tone && APPEARANCE_STATE_MULTI_ACTIVE(state)) {
+		if (barge_in && barge_tone) {
 			ast_channel_lock(ochan);
 			bargebridge = ast_channel_get_bridge(ochan);
 			ast_channel_unlock(ochan);
-			bridge_barge(chan, bargebridge, endpoint_name, appearance);
+			bridge_barge_tone(chan, bargebridge, endpoint_name, appearance);
+			ao2_cleanup(bargebridge);
 		}
 
 		if (ast_channel_pbx(chan)) {
@@ -2576,7 +2521,8 @@ static int do_barge_unhold(struct ast_channel *chan, struct sca_subscription *sc
 			res = ast_bridge_features_init(&chan_features);
 			if (!res) {
 				/* ast_bridge_join here is blocking (which is fine). */
-				res = ast_bridge_join(bridge, chan, APPEARANCE_STATE_MULTI_ACTIVE(state) ? NULL : ochan, &chan_features, NULL, AST_BRIDGE_JOIN_PASS_REFERENCE);
+				ast_debug(5, "Joining bridge synchronously\n");
+				res = ast_bridge_join(bridge, chan, barge_in ? NULL : ochan, &chan_features, NULL, AST_BRIDGE_JOIN_PASS_REFERENCE);
 				ast_log(LOG_WARNING, "bridge refcount now: %d\n", ao2_count(bridge));
 			}
 			ast_bridge_features_cleanup(&chan_features);
@@ -2585,13 +2531,13 @@ static int do_barge_unhold(struct ast_channel *chan, struct sca_subscription *sc
 			}
 		} else {
 			/* This is non-blocking. */
-			res = ast_bridge_impart(bridge, chan, APPEARANCE_STATE_MULTI_ACTIVE(state) ? NULL : ochan, NULL, AST_BRIDGE_IMPART_CHAN_INDEPENDENT);
+			ast_debug(5, "Imparting channel into bridge%s\n", barge_in ? ", conferencing" : " and kicking original");
+			res = ast_bridge_impart(bridge, chan, barge_in ? NULL : ochan, NULL, AST_BRIDGE_IMPART_CHAN_INDEPENDENT);
 			if (res) {
 				ast_log(LOG_WARNING, "Failed to impart channel into bridge\n");
 			}
 		}
 
-		ast_log(LOG_WARNING, "bridge %p refcount now: %d\n", bridge, ao2_count(bridge));
 		if (res) {
 			ao2_cleanup(bridge);
 		}
@@ -2636,12 +2582,13 @@ static int sca_incoming_unhold(struct ast_sip_session *session, struct pjsip_rx_
 	}
 	if (is_hold(session, rdata)) {
 		/* This callback will get called on holds too, if that happens, return immediately because we don't need to do anything for them here, only in the high priority callback. */
+		ast_debug(4, "Is hold, ignoring in this callback\n");
 		return 0;
 	}
 
 	sca_sub = sca_sub_by_endpoint(endpoint_name);
 	if (!sca_sub) {
-		ast_debug(4, "Receive INVITE for endpoint %s, with no associated %s subscription, ignoring\n", endpoint_name, CALLINFO_EVENT);
+		ast_debug(4, "Received INVITE for endpoint %s, with no associated %s subscription, ignoring\n", endpoint_name, CALLINFO_EVENT);
 		return 0; /* Let another module respond. */
 	}
 	if (!to_is_endpoint(session, rdata)) {
@@ -2978,6 +2925,7 @@ cleanup:
 
 static void sca_outgoing_answer(struct ast_sip_session *session, struct pjsip_tx_data *tdata)
 {
+	int appearance;
 	char *contact, *callid;
 	const char *endpoint_name = ast_sorcery_object_get_id(session->endpoint);
 	struct sca_subscription *sca_sub;
@@ -2992,6 +2940,17 @@ static void sca_outgoing_answer(struct ast_sip_session *session, struct pjsip_tx
 	sca_sub = sca_sub_by_endpoint(endpoint_name);
 	if (!sca_sub) {
 		return; /* Don't care. */
+	}
+
+	/* Sometimes this callback runs again after the call has already been answered (e.g. when going on hold), ignore it */
+	appearance = sca_appearance_by_session(sca_sub, session);
+	if (appearance) {
+		enum sca_appearance_state state = sca_sub->appearances[APPEARANCE_ARRAY_INDEX(appearance)].state;
+		if (state != SCA_APPEARANCE_PROGRESSING && state != SCA_APPEARANCE_ALERTING) {
+			ast_debug(4, "Ignoring answer callback for appearance %d since state is %s\n", appearance, sca_appearance_state_str(state));
+			ao2_ref(sca_sub, -1);
+			return;
+		}
 	}
 
 	/* This one is easy... just look for something that's currently in the SCA_APPEARANCE_PROGRESSING state,
@@ -3730,5 +3689,5 @@ AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, "PJSIP Shared Call App
 	.load = load_module,
 	.unload = unload_module,
 	.load_pri = AST_MODPRI_CHANNEL_DEPEND + 5,
-	.requires = "res_pjsip,res_pjsip_pubsub",
+	.requires = "res_pjsip,res_pjsip_pubsub,chan_bridge_media",
 );
