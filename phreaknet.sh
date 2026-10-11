@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # PhreakScript
-# (C) 2021-2025 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
-# v1.3.2 (2026-01-08)
+# (C) 2021-2026 Naveen Albert, PhreakNet, and others - https://github.com/InterLinked1/phreakscript ; https://portal.phreaknet.org ; https://docs.phreaknet.org
+# v1.4.0 (2026-10-10)
 
 # Setup (as root):
 # cd /usr/local/src
@@ -13,6 +13,7 @@
 # phreaknet install
 
 ## Begin Change Log:
+# 2026-10-10 1.4.0 Use updated pubsub patches (res_pjsip_device_features, res_pjsip_sca)
 # 2026-01-08 1.3.2 Run bootstrap.sh if needed
 # 2025-09-22 1.3.1 Improve script portability
 # 2025-07-07 1.3.0 Use GitHub API to download patches
@@ -3003,17 +3004,23 @@ phreak_patches() {
 
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
 	asterisk_pr_if 2196 230700 221300 202300 # Make hashtab function arguments const
+	asterisk_pr_if 2174 230700 221300 202300 # res_manager_devicestate: Add AMI actions to set device/mailbox states
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged (hopefully soon)
-
-	# Stagnant patches: hopefully will be merged eventually, but not in the near term
-	#asterisk_pr_unconditional 292 # GROUP VARs. The current version of this patch on Git is unstable and causes frequent crashes. Do not use it.
-	git_patch "groupvars_old.diff" # This is an older version of the GROUP VARs patch (PR #292) that is stable and does not cause issues. Until the PR is fixed, we use this one.
-
 	asterisk_pr_unconditional 1504 # func_channel: Allow manually changing audio format during a call
 
 	asterisk_pr_unconditional 2149 # file.c: Prevent duplicate recording attempts
 	asterisk_pr_unconditional 2199 # app_mixmonitor: Abort if ast_writefile fails
+
+	asterisk_pr_unconditional 2208 # chan_iax2: Avoid spurious DP cache warning
+	asterisk_pr_unconditional 2214 # res_pjsip_publish_asterisk: Add explicit dependency on res_pjsip_session
+	asterisk_pr_unconditional 2216 # app_amd: Detect fax CED tone
+	asterisk_pr_unconditional 2218 # Add ability to disable RTP learning
+	asterisk_pr_unconditional 2220 # chan_dahdi: Add on-hook ADSI script download support
+
+	# Stagnant patches: hopefully will be merged eventually, but not in the near term
+	#asterisk_pr_unconditional 292 # GROUP VARs. The current version of this patch on Git is unstable and causes frequent crashes. Do not use it.
+	git_patch "groupvars_old.diff" # This is an older version of the GROUP VARs patch (PR #292) that is stable and does not cause issues. Until the PR is fixed, we use this one.
 
 	# Depends on res_pjsip_pubsub changes that are 21+
 	if [ $AST_MAJOR_VER -ge 21 ]; then
@@ -3048,11 +3055,12 @@ phreak_patches() {
 	git_patch "blueboxing.diff" # dsp: make blue boxing easier
 	git_patch "prefixinclude.diff" # pbx: prefix includes
 	git_patch "asterisk-prevent-duplicate-processes.diff" # Prevent duplicate Asterisk process creation
-	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI. Patch no longer applies after https://github.com/asterisk/asterisk/pull/1772
+	git_patch "agi_record_noisefirst.diff" # res_agi: Add noise before silence detection option to Record AGI.
 }
 
 universal_patches() {
-	asterisk_pr_if 1370 230000 220600 211100 201600 # test_res_prometheus compiler fixes
+	# Patches that should always be applied, even if $EXTRA_FEATURES is 0 (none currently)
+	:
 }
 
 freebsd_port_patch() {

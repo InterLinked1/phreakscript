@@ -4,7 +4,7 @@
 
 PhreakScript installs:
 
-- Asterisk 22.8.2 (latest LTS release[1] of Asterisk)
+- Asterisk 22.12.0 (latest LTS release[1] of Asterisk)
 - DAHDI Linux 3.4.0 (with optional DAHDI install flag)
 - DAHDI Tools 3.4.0 (with optional DAHDI install flag)
 - wanpipe 7.0.38 (with optional wanpipe install flag)
@@ -12,7 +12,6 @@ PhreakScript installs:
 - Bug fixes and stability improvements
    - Restores the "great purge" of DAHDI drivers that were removed in 2018 by Sangoma (either by default, or with `--drivers` flag)
    - Numerous DAHDI/wanpipe/LibPRI compilation fixes
-   - Bug fixes for reading and writing configuration file templates
    - Bug fix for ConfBridge shutdown race condition
    - Enhances performance by completely removing Newexten AMI event
    - Prevents duplicate Asterisk process creation
@@ -30,15 +29,15 @@ PhreakScript installs:
       - 1A2 key system music on hold support
    - SIP enhancements
       - Automatic dialplan context to digit map generation (`res_digitmap`)
-	  - Broadworks compatible device feature key synchronization (PJSIP) (with `--experimental` flag)
-	  - Broadworks compatible Shared Call Appearances (PJSIP) (with `--experimental` flag)
+	  - Broadworks-compatible device feature key synchronization (PJSIP)
+	  - Broadworks-compatible Shared Call Appearances (PJSIP)
 	  - Presence publishing (PJSIP)
+	  - Streamlined delivery of push notifications to Polycom IP phones
 	  - Restored and enhanced [`chan_sip`](https://github.com/InterLinked1/chan_sip) for master / versions 21+ (removed by Sangoma) (with `--sip` flag)
 	     - Adds fax timing and parameter control to `chan_sip`
 	     - Cisco Call Manager support for `chan_sip` (with `--cisco` flag)
    - `chan_sccp` (improved community Skinny/SCCP channel driver), with compilation fixes (with `--sccp` flag)
    - Message Send Protocol send support
-   - Streamlined delivery of push notifications to Polycom IP phones
    - AGI `RECORD FILE` option to require noise before silence detection
    - Build system support for ALSA-dependent modules
    - Adds the following applications:
