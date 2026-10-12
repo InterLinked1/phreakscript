@@ -1,0 +1,81 @@
+diff --git a/api/tdm_api/zapcompat_user.h b/api/tdm_api/zapcompat_user.h
+index 311c6e4..753b804 100644
+--- a/api/tdm_api/zapcompat_user.h
++++ b/api/tdm_api/zapcompat_user.h
+@@ -38,6 +38,8 @@
+ #define ZT_SIG_FXOLS DAHDI_SIG_FXOLS
+ #define ZT_SIG_FXOGS DAHDI_SIG_FXOGS
+ #define ZT_SIG_FXOKS DAHDI_SIG_FXOKS
++#define ZT_SIG_RPO DAHDI_SIG_RPO
++#define ZT_SIG_RPT DAHDI_SIG_RPT
+ #define ZT_SIG_CAS DAHDI_SIG_CAS
+ #define ZT_SIG_DACS DAHDI_SIG_DACS
+ #define __ZT_SIG_DACS __DAHDI_SIG_DACS
+diff --git a/patches/kdrivers/include/zapcompat.h b/patches/kdrivers/include/zapcompat.h
+index d4b5ee6..3f1b775 100644
+--- a/patches/kdrivers/include/zapcompat.h
++++ b/patches/kdrivers/include/zapcompat.h
+@@ -89,11 +89,13 @@
+ #define ZT_TXSIG_OFFHOOK DAHDI_TXSIG_OFFHOOK
+ #define ZT_TXSIG_ONHOOK DAHDI_TXSIG_ONHOOK
+ #define ZT_TXSIG_KEWL DAHDI_TXSIG_KEWL
++#define ZT_TXSIG_PULSE DAHDI_TXSIG_PULSE
+ 
+ #define ZT_RXSIG_INITIAL DAHDI_RXSIG_INITIAL
+ #define ZT_RXSIG_OFFHOOK DAHDI_RXSIG_OFFHOOK
+ #define ZT_RXSIG_ONHOOK DAHDI_RXSIG_ONHOOK
+ #define ZT_RXSIG_RING DAHDI_RXSIG_RING
++#define ZT_RXSIG_PULSE DAHDI_RXSIG_PULSE
+ 
+ #define ZT_TONEDETECT DAHDI_TONEDETECT
+ #define ZT_TONEDETECT_ON DAHDI_TONEDETECT_ON
+@@ -153,6 +155,8 @@
+ #define ZT_SIG_FXOLS DAHDI_SIG_FXOLS
+ #define ZT_SIG_FXOGS DAHDI_SIG_FXOGS
+ #define ZT_SIG_FXOKS DAHDI_SIG_FXOKS
++#define ZT_SIG_RPO DAHDI_SIG_RPO
++#define ZT_SIG_RPT DAHDI_SIG_RPT
+ #define ZT_SIG_CAS DAHDI_SIG_CAS
+ #define ZT_SIG_DACS_RBS DAHDI_SIG_DACS_RBS
+ #define ZT_SIG_HARDHDLC DAHDI_SIG_HARDHDLC
+diff --git a/patches/kdrivers/include/zapcompat_user.h b/patches/kdrivers/include/zapcompat_user.h
+index 311c6e4..753b804 100644
+--- a/patches/kdrivers/include/zapcompat_user.h
++++ b/patches/kdrivers/include/zapcompat_user.h
+@@ -38,6 +38,8 @@
+ #define ZT_SIG_FXOLS DAHDI_SIG_FXOLS
+ #define ZT_SIG_FXOGS DAHDI_SIG_FXOGS
+ #define ZT_SIG_FXOKS DAHDI_SIG_FXOKS
++#define ZT_SIG_RPO DAHDI_SIG_RPO
++#define ZT_SIG_RPT DAHDI_SIG_RPT
+ #define ZT_SIG_CAS DAHDI_SIG_CAS
+ #define ZT_SIG_DACS DAHDI_SIG_DACS
+ #define __ZT_SIG_DACS __DAHDI_SIG_DACS
+diff --git a/util/wancfg/zaptel_conf_file_reader.cpp b/util/wancfg/zaptel_conf_file_reader.cpp
+index 7c56c9b..9aef149 100644
+--- a/util/wancfg/zaptel_conf_file_reader.cpp
++++ b/util/wancfg/zaptel_conf_file_reader.cpp
+@@ -232,6 +232,10 @@ const char *zaptel_conf_file_reader::sigtype_to_str(const int sig)
+ 		return "FXO Groundstart";
+ 	case ZT_SIG_FXOKS:
+ 		return "FXO Kewlstart";
++	case ZT_SIG_RPO:
++		return "Revertive Pulse Originating";
++	case ZT_SIG_RPT:
++		return "Revertive Pulse Terminating";
+ 	case ZT_SIG_CAS:
+ 		return "CAS / User";
+ 	case ZT_SIG_DACS:
+@@ -454,6 +458,12 @@ int zaptel_conf_file_reader::chanconfig(char *keyword, char *args)
+ 			} else if (!strcasecmp(keyword, "fxoks")) {
+ 				cc[x].sigtype = ZT_SIG_FXOKS;
+ 				sig[x] = sigtype_to_str(cc[x].sigtype);
++            } else if (!strcasecmp(keyword, "rpo")) {
++                cc[x].sigtype = DAHDI_SIG_RPO;
++                sig[x] = sigtype_to_str(cc[x].sigtype);
++            } else if (!strcasecmp(keyword, "rpt")) {
++                cc[x].sigtype = DAHDI_SIG_RPT;
++                sig[x] = sigtype_to_str(cc[x].sigtype);
+ 			} else if (!strcasecmp(keyword, "cas") || !strcasecmp(keyword, "user")) {
+ 				if (parse_idle(&cc[x].idlebits, idle))
+ 					return -1;

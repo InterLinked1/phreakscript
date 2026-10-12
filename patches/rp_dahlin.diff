@@ -1,0 +1,768 @@
+diff --git a/drivers/dahdi/dahdi-base.c b/drivers/dahdi/dahdi-base.c
+index d7cf478..3ae501e 100644
+--- a/drivers/dahdi/dahdi-base.c
++++ b/drivers/dahdi/dahdi-base.c
+@@ -171,6 +171,10 @@ enum dahdi_txstate {
+ 	DAHDI_TXSTATE_PULSEBREAK,
+ 	DAHDI_TXSTATE_PULSEMAKE,
+ 	DAHDI_TXSTATE_PULSEAFTER,
++	DAHDI_TXSTATE_RPBREAK,
++	DAHDI_TXSTATE_RPMAKE,
++	DAHDI_TXSTATE_RPAFTER,
++	DAHDI_TXSTATE_DOWNDRIVE,
+ };
+ 
+ typedef short sumtype[DAHDI_MAX_CHUNKSIZE];
+@@ -221,6 +225,7 @@ enum dahdi_digit_mode {
+ 	DIGIT_MODE_PULSE,
+ 	DIGIT_MODE_MFR2_FWD,
+ 	DIGIT_MODE_MFR2_REV,
++	DIGIT_MODE_FULLMECH,
+ };
+ 
+ /* At the end of silence, the tone stops */
+@@ -561,7 +566,7 @@ u_char __dahdi_lin2a[16384];
+ 
+ static u_char defgain[256];
+ 
+-#define NUM_SIGS	10
++#define NUM_SIGS	12
+ 
+ static DEFINE_SPINLOCK(ecfactory_list_lock);
+ 
+@@ -689,6 +694,8 @@ static void dahdi_disable_dacs(struct dahdi_chan *chan)
+ 
+ /*!
+  * \return quiescent (idle) signalling states, for the various signalling types
++ * This is checking for the rx side of the hook state - what we are getting
++ * from the channel and NOT what we should be transmitting to the channel.
+  */
+ static int dahdi_q_sig(struct dahdi_chan *chan)
+ {
+@@ -704,6 +711,8 @@ static int dahdi_q_sig(struct dahdi_chan *chan)
+ 		{ DAHDI_SIG_FXOKS, (DAHDI_ABIT << 8) },
+ 		{ DAHDI_SIG_SF,    0 },
+ 		{ DAHDI_SIG_EM_E1, DAHDI_DBIT | ((DAHDI_ABIT | DAHDI_DBIT) << 8) },
++		{ DAHDI_SIG_RPO,   (DAHDI_ABIT << 8) },	/*  Asterisk pretends to be a sender which wants 1,0 IDLE */
++		{ DAHDI_SIG_RPT,    0 },				/*  Asterisk pretends to be a selector which wants  0,0 IDLE */
+ 	};
+ 
+ 	/* must have span to begin with */
+@@ -865,6 +874,10 @@ const char *sigstr(int sig)
+ 		return "E&M";
+ 	case DAHDI_SIG_EM_E1:
+ 		return "E&M-E1";
++	case DAHDI_SIG_RPO:
++		return "RPO";
++	case DAHDI_SIG_RPT:
++		return "RPT";
+ 	case DAHDI_SIG_CLEAR:
+ 		return "Clear";
+ 	case DAHDI_SIG_HDLCRAW:
+@@ -1635,6 +1648,11 @@ static void close_channel(struct dahdi_chan *chan)
+ 	reset_conf(chan);
+ 	chan->dacs_chan = NULL;
+ 
++	/* For revertive pulsing: */
++	memset(chan->selections, 0, sizeof(chan->selections));
++	chan->selidx = 0;
++	chan->seqswitch = 0;
++
+ 	if (is_gain_allocated(chan))
+ 		rxgain = chan->rxgain;
+ 
+@@ -2789,6 +2807,16 @@ static void dahdi_rbs_sethook(struct dahdi_chan *chan, int txsig, int txstate,
+ 			.bits[DAHDI_TXSIG_OFFHOOK] = DAHDI_BITS_ABD,
+ 			.bits[DAHDI_TXSIG_START]   = DAHDI_BITS_ABD,
+ 			.bits[DAHDI_TXSIG_KEWL]    = DAHDI_DBIT,
++		}, {
++			.sig_type = DAHDI_SIG_RPO,	/* RPO used on RPT card. Them = selector, Us (DAHDI) = sender. */
++			.bits[DAHDI_TXSIG_ONHOOK]		= 0,
++			.bits[DAHDI_TXSIG_OFFHOOK] 		= DAHDI_BITS_ABCD,
++			.bits[DAHDI_TXSIG_START] 		= DAHDI_BITS_ABCD,
++		}, {
++			.sig_type = DAHDI_SIG_RPT,	/* RPT used on RPO card. Them = sender, Us (DAHDI) = selector. */
++			.bits[DAHDI_TXSIG_ONHOOK]		= DAHDI_BITS_AC,
++			.bits[DAHDI_TXSIG_OFFHOOK]		= DAHDI_BITS_BD,
++			.bits[DAHDI_TXSIG_PULSE]		= 0,
+ 		}
+ 	};
+ 	int x;
+@@ -2801,8 +2829,8 @@ static void dahdi_rbs_sethook(struct dahdi_chan *chan, int txsig, int txstate,
+ 		module_printk(KERN_NOTICE, "dahdi_rbs: Tried to set RBS hook state on non-RBS channel %s\n", chan->name);
+ 		return;
+ 	}
+-	if ((txsig > 3) || (txsig < 0)) {
+-		module_printk(KERN_NOTICE, "dahdi_rbs: Tried to set RBS hook state %d (> 3) on  channel %s\n", txsig, chan->name);
++	if ((txsig > 5) || (txsig < 0)) {
++		module_printk(KERN_NOTICE, "dahdi_rbs: Tried to set RBS hook state %d (> 5) on  channel %s\n", txsig, chan->name);
+ 		return;
+ 	}
+ 	if (!chan->span->ops->rbsbits && !chan->span->ops->hooksig) {
+@@ -2895,6 +2923,29 @@ static int dahdi_hangup(struct dahdi_chan *chan)
+ 			&& !((chan->rxhooksig == DAHDI_RXSIG_ONHOOK) && (chan->itimer <= 0))) {
+ 			/* Do RBS signalling on the channel's behalf */
+ 			dahdi_rbs_sethook(chan, DAHDI_TXSIG_KEWL, DAHDI_TXSTATE_KEWL, DAHDI_KEWLTIME);
++		} else if (chan->sig == DAHDI_SIG_RPO) {
++			/* RPO channels must drive the selector to tell-tale before they can be released */
++			/* Here, we have to do work to ensure that we gracefully "run down"
++			 * a selector that's been traveling upwards. We can't just leave it in
++			 * position (CD-25012-01 Section 14.08). If we're dialing (seqswitch 1),
++			 * we call the sender back and advance to 3 and set a pulse count which
++			 * can never be satified. This drives the selector up
++			 * to telltale. We then exit this function and come back later. */
++			if (chan->seqswitch == SDR_SEQ_1_DIALING) {
++				/* run down the selector */
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "Hung up while making selections.\n");
++#endif
++				chan->seqswitch = SDR_SEQ_2_RUNDOWN;
++				chan->selections[chan->selidx] = 101;
++				sender(chan, DAHDI_RXSIG_ONHOOK);
++				return 0;
++			} else {
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "Run down complete, going on hook.\n");
++#endif
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_ONHOOK, 0);
++			}
+ 		} else
+ 			dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_ONHOOK, 0);
+ 	} else {
+@@ -2934,6 +2985,9 @@ static int dahdi_hangup(struct dahdi_chan *chan)
+ 	chan->curtone = NULL;
+ 	chan->pdialcount = 0;
+ 	chan->cadencepos = 0;
++	chan->selidx = 0;
++	chan->seqswitch = 0;
++	chan->pulsecount = 0;
+ 	chan->txdialbuf[0] = 0;
+ 
+ 	return res;
+@@ -2985,14 +3039,22 @@ static int initialize_channel(struct dahdi_chan *chan)
+ 		chan->starttime = DAHDI_DEFAULT_STARTTIME;
+ 	chan->rxwinktime = DAHDI_DEFAULT_RXWINKTIME;
+ 	chan->rxflashtime = DAHDI_DEFAULT_RXFLASHTIME;
+-	chan->debouncetime = DAHDI_DEFAULT_DEBOUNCETIME;
+-	chan->pulsemaketime = DAHDI_DEFAULT_PULSEMAKETIME;
+-	chan->pulsebreaktime = DAHDI_DEFAULT_PULSEBREAKTIME;
+-	chan->pulseaftertime = DAHDI_DEFAULT_PULSEAFTERTIME;
++	if (chan->sig == DAHDI_SIG_RPT) {
++		/* Use RP debounce timers */
++		chan->pulsemaketime = 40;
++		chan->pulsebreaktime = 40;
++		chan->pulseaftertime = 40;
++	} else {
++		chan->debouncetime = DAHDI_DEFAULT_DEBOUNCETIME;
++		chan->pulsemaketime = DAHDI_DEFAULT_PULSEMAKETIME;
++		chan->pulsebreaktime = DAHDI_DEFAULT_PULSEBREAKTIME;
++		chan->pulseaftertime = DAHDI_DEFAULT_PULSEAFTERTIME;
++	}
+ 
+ 	/* Initialize RBS timers */
+ 	chan->itimerset = chan->itimer = chan->otimer = 0;
+ 	chan->ringdebtimer = 0;
++	chan->rpdebtimer = 0;
+ 
+ 	/* Reset conferences */
+ 	reset_conf(chan);
+@@ -5634,7 +5696,13 @@ static int ioctl_dahdi_dial(struct dahdi_chan *chan, unsigned long data)
+ 	case DAHDI_DIAL_OP_REPLACE:
+ 		strcpy(chan->txdialbuf, tdo->dialstr);
+ 		chan->dialing = 1;
+-		__do_dtmf(chan);
++		if (chan->sig == DAHDI_SIG_RPO) {
++#ifdef CONFIG_RP_DEBUG
++			module_printk(KERN_NOTICE, "%s:  REPLACED: %s\n", __func__, chan->txdialbuf);
++#endif
++		} else {
++			__do_dtmf(chan);
++		}
+ 		break;
+ 	case DAHDI_DIAL_OP_APPEND:
+ 		if (strlen(tdo->dialstr) + strlen(chan->txdialbuf) >= (DAHDI_MAX_DTMF_BUF - 1)) {
+@@ -6827,3 +6895,4 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
+ 				break;
+ 			case DAHDI_OFFHOOK:
+ 				spin_lock_irqsave(&chan->lock, flags);
++				chan->pulsecount = 0; /* Make sure we always start at 0 */
+@@ -6852,14 +6921,37 @@ static int dahdi_chan_ioctl(struct file *file, unsigned int cmd, unsigned long d
+ 					chan->cadencepos = 0;
+ 					ret = chan->ringcadence[0];
+ 					dahdi_rbs_sethook(chan, DAHDI_TXSIG_START, DAHDI_TXSTATE_RINGON, ret);
+-				} else
+-					dahdi_rbs_sethook(chan, DAHDI_TXSIG_START, DAHDI_TXSTATE_START, chan->starttime);
++				} else {
++					if (chan->sig == DAHDI_SIG_RPO) {
++						/* RPO goes off hook here
++						 * Sender wil ltake control via __dahdi_hooksig_pvt() */
++						dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_OFFHOOK, 0);
++						__qevent(chan, DAHDI_EVENT_HOOKCOMPLETE);
++
++						chan->rpdebtimer = 20000; /* This will debounce the relay chatter */
++						chan->pulsecount = 0; /* Super critical to always start at 0. */
++					} else {
++						dahdi_rbs_sethook(chan, DAHDI_TXSIG_START, DAHDI_TXSTATE_START, chan->starttime);
++					}
++				}
+ 				spin_unlock_irqrestore(&chan->lock, flags);
+ 				if (file->f_flags & O_NONBLOCK)
+ 					return -EINPROGRESS;
+ 				break;
+ 			case DAHDI_WINK:
+ 				spin_lock_irqsave(&chan->lock, flags);
++				if (chan->sig == DAHDI_SIG_RPT) {
++					/* If this is an RPT call, Asterisk should send a wink after it is satisfied
++					 * with selections (after it has stored FU). The wink comes here via ioctl,
++					 * and we advance our sequence switch. Next time the real sender goes and closes
++					 * the loop (OFF HOOK), commutator() is called, and handles the Incoming Advance
++					 * and signaling cleanup. CD-25013-01 Section 11.8
++					 */
++#ifdef CONFIG_RP_DEBUG
++					module_printk(KERN_NOTICE, "Got an IA wink from Asterisk, advance sequence switch.\n");
++#endif
++					chan->seqswitch = SEL_SEQ_2_REVERSAL;
++				}
+ 				if (chan->txstate != DAHDI_TXSTATE_ONHOOK) {
+ 					spin_unlock_irqrestore(&chan->lock, flags);
+ 					return -EBUSY;
+@@ -8342,9 +8434,15 @@ static inline void __rbs_otimer_expire(struct dahdi_chan *chan)
+ 
+ 	case DAHDI_TXSTATE_FLASH:
+ 		dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_OFFHOOK, 0);
+-		if (chan->file && (chan->file->f_flags & O_NONBLOCK))
+-			__qevent(chan, DAHDI_EVENT_HOOKCOMPLETE);
+-		wake_up_interruptible(&chan->waitq);
++		if (chan->sig == DAHDI_SIG_RPO) {
++			/* Don't send hook complete on every RP */
++			wake_up_interruptible(&chan->waitq);
++		} else {
++			if (chan->file && (chan->file->f_flags & O_NONBLOCK)) {
++				__qevent(chan, DAHDI_EVENT_HOOKCOMPLETE);
++			}
++			wake_up_interruptible(&chan->waitq);
++		}
+ 		break;
+ 
+ 	case DAHDI_TXSTATE_DEBOUNCE:
+@@ -8356,7 +8454,13 @@ static inline void __rbs_otimer_expire(struct dahdi_chan *chan)
+ 		break;
+ 
+ 	case DAHDI_TXSTATE_AFTERSTART:
+-		dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_OFFHOOK, 0);
++		if (chan->sig == DAHDI_SIG_RPT) {
++			/* We got here from commutator() after an 80ms delay. This was to allow relays to settle.
++			 * Now, send our first pulse, and return to RPBREAK when pulse is complete */
++			dahdi_rbs_sethook(chan, DAHDI_TXSIG_PULSE, DAHDI_TXSTATE_RPBREAK, chan->pulsebreaktime);
++		} else {
++			dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_OFFHOOK, 0);
++		}
+ 		if (chan->file && (chan->file->f_flags & O_NONBLOCK))
+ 			__qevent(chan, DAHDI_EVENT_HOOKCOMPLETE);
+ 		wake_up_interruptible(&chan->waitq);
+@@ -8403,6 +8507,92 @@ static inline void __rbs_otimer_expire(struct dahdi_chan *chan)
+ 		wake_up_interruptible(&chan->waitq);
+ 		break;
+ 
++	case DAHDI_TXSTATE_RPBREAK:
++		/* Got here from AFTERSTART or RPMAKE.
++		 * Current state: Pulse
++		 * New state: Normal */
++		dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_RPMAKE,
++			DAHDI_RP_BREAKTIME);
++		chan->pulsecount++;
++		wake_up_interruptible(&chan->waitq);
++		break;
++
++    case DAHDI_TXSTATE_RPMAKE:
++		/* Got here from RPBREAK.
++		 * Also handles telltale!
++		 * Current state: Normal
++		 * New state: Pulse */
++		if (chan->pulsecount >= 12) {
++			chan->seqswitch = SDR_SEQ_2_RUNDOWN;
++			dahdi_rbs_sethook(chan, DAHDI_TXSIG_PULSE, DAHDI_TXSTATE_RPAFTER, 50);
++#ifdef CONFIG_RP_DEBUG
++			module_printk(KERN_NOTICE, "---------OVERFLOW, sending reversal after %d pulses\n", chan->pulsecount);
++#endif
++			wake_up_interruptible(&chan->waitq);
++			break;
++		}
++
++		dahdi_rbs_sethook(chan, DAHDI_TXSIG_PULSE,
++			DAHDI_TXSTATE_RPBREAK, DAHDI_RP_MAKETIME);
++		chan->otimer = chan->pulseaftertime * DAHDI_CHUNKSIZE;
++
++		wake_up_interruptible(&chan->waitq);
++		break;
++
++	case DAHDI_TXSTATE_RPAFTER:
++		/* By the time we get here, commutator() has already sent a PULSE to discharge the cable and the STP
++		 * relay in the sub sender. This has no other effect. (CD-25013-01 11.813) */
++#ifdef CONFIG_RP_DEBUG
++		module_printk(KERN_NOTICE, "STATE RP-AFTER (%x), instance %d\n", chan->txsig, chan->seqswitch);
++#endif
++
++		switch(chan->seqswitch) {
++			case SEL_SEQ_2_REVERSAL:
++				/* CD 11.814 incoming advance reverse battery */
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_RPAFTER, DAHDI_BONKTIME);
++				chan->seqswitch = SEL_SEQ_3_BREAK_TR;
++				break;
++			case SEL_SEQ_3_BREAK_TR:
++				/* CD 11.815 (RV3) breaks T+R, terminates reversal */
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_PULSE, DAHDI_TXSTATE_RPAFTER, 50);
++				chan->seqswitch = SEL_SEQ_4_DISCHARGE;
++				break;
++			case SEL_SEQ_4_DISCHARGE:
++				/* CD 12.2 (RV3), (RV4) released restore normal ONHOOK polarity
++				 * Normal polarity remains until called sub answers, which is
++				 * controlled by Asterisk. Our state machine is finished. */
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_RPAFTER, 100);
++				__qevent(chan, DAHDI_EVENT_DIALCOMPLETE);
++				chan->seqswitch = SEL_SEQ_5_TALKING;
++
++				/* If we got here before finishing selections... */
++				if (chan->selidx < RP_IA) {
++#ifdef CONFIG_RP_DEBUG
++					module_printk(KERN_NOTICE, "TELLTALE/OVERFLOW complete! Awaiting sender.\n");
++#endif
++					/* CD 25012-01 13.10 Trunk Closure after Telltale
++					 * Originating sender will send one final off-hook event to drive
++					 * the distant selector down. Have to catch this, so we don't register
++					 * it as a new call attempt. */
++					/* Off-hook will be sent to commutator(), which will send it then to DOWNDRIVE. */
++					chan->seqswitch = SEL_SEQ_6_DOWNDRIVE;
++				}
++				wake_up_interruptible(&chan->waitq);
++				break;
++			default:
++				break;
++		}
++		break;
++
++	case DAHDI_TXSTATE_DOWNDRIVE:
++#ifdef CONFIG_RP_DEBUG
++		module_printk(KERN_NOTICE, "TXSTATE_DOWNDRIVE: Hanging up...\n");
++#endif
++		__qevent(chan, DAHDI_EVENT_ONHOOK);
++		dahdi_hangup(chan);
++		wake_up_interruptible(&chan->waitq);
++		break;
++
+ 	default:
+ 		break;
+ 	}
+@@ -8578,11 +8768,209 @@ static void __dahdi_hooksig_pvt(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
+ 		    default:
+ 			break;
+ 		}
++		break;
++		case DAHDI_SIG_RPO:
++			/* If we're in a dialing state, pass the call to the sender()
++			 * Or if we are in seqswitch 2, the sub hungup while dialing,
++			 * so set selections to something that can never be satisfied (in dahdi_hangup())
++			 * and just call our sender until the real selector bonks its head. */
++			if ((chan->txstate == DAHDI_TXSTATE_OFFHOOK) && ((chan->dialing == 1)
++						|| (chan->seqswitch == SDR_SEQ_2_RUNDOWN))) {
++				sender(chan, rxsig);
++			}
++			break;
++		case DAHDI_SIG_RPT:
++			/* If we notice a hook transition from a real sender while signaling,
++			 * pass it along to commutator(). Otheriwse, either the caller hung up,
++			 * (seqsw = 5) or we are in overflow cleanup (seqsw = 6). */
++			if ((chan->selidx <= RP_IA) && (chan->seqswitch <= SEL_SEQ_2_REVERSAL)) {
++				commutator(chan, rxsig);
++			} else if (chan->seqswitch == SEL_SEQ_5_TALKING && rxsig == DAHDI_RXSIG_ONHOOK) {
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "Detected ONHOOK in seqswitch 5. Sub hung up?");
++#endif
++				/* DOWNDRIVE handles the hangup for us. Just send it there. */
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_DOWNDRIVE, 30);
++				chan->seqswitch = SEL_SEQ_0_NORMAL;
++			} else if (chan->seqswitch == SEL_SEQ_6_DOWNDRIVE && rxsig == DAHDI_RXSIG_OFFHOOK) {
++				commutator(chan, rxsig);
++			}
++			break;
+ 	    default:
+ 		break;
+ 	}
+ }
+ 
++/**
++ * Pretends to be a subscriber sender. Takes care of originating RP signalling
++ * such as:
++ * Converting the dialstring to an array of integers.
++ * Counting and storing pulses, and debouncing transients.
++ * Gracefully driving the distant selector to telltale if the
++ * subscriber hangs up in the middle of selections.
++ *	(selidx is set to 101 in dahdi_hangup())
++ *
++ * ref: CD-21193-02 Subscriber Sender Non-Coin (Panel)
++ *      CD-25012-01 Subscriber Sender (No. 1 Crossbar)
++**/
++void sender(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
++{
++	int i;
++
++	/* If first time we're called on this call, handle dialstring conversion. */
++	if (chan->seqswitch == SDR_SEQ_0_NORMAL) {
++		/* If the first char from Asterisk is 'Z', we need office selections.
++		 * If not, then we skip office selections. */
++		if (chan->txdialbuf[0] == 'Z') {
++			chan->selidx = RP_OB;
++			memmove(&chan->txdialbuf, &chan->txdialbuf[1], 7);
++			chan->txdialbuf[7] = '\0';
++		} else {
++			chan->selidx = RP_IB;
++		}
++
++		/* Convert string selections to int selections. */
++		for (i = 0; i < 7; i++) {
++			chan->selections[i] = chan->txdialbuf[i] - '0';
++		}
++		chan->seqswitch = SDR_SEQ_1_DIALING;
++	}
++
++	switch(rxsig) {
++		case DAHDI_RXSIG_PULSE:
++			/* For the first 10-20ms ignore any transient pulses. They're not real. */
++			if ((chan->rpdebtimer > 18500)) {
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, " DEBOUNCED!\n");
++#endif
++				return;
++			} else {
++				chan->pulsecount++;
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "Pulse: %d, SELECTION: %d,  i-%d\n",
++						chan->pulsecount-1, chan->selidx, chan->rpdebtimer);
++#endif
++				if (chan->pulsecount == chan->selections[chan->selidx]+1) {
++#ifdef CONFIG_RP_DEBUG
++					module_printk(KERN_NOTICE, "       STOP\n\n\n");
++#endif
++					/* send onhook/offhook at the end of a selection */
++					dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_FLASH, chan->winktime);
++					/* reset rpdebtimer so we can ignore early transients */
++					chan->rpdebtimer = 20000 + chan->winktime;
++					chan->pulsecount = 0;	/* reset positions and then... */
++					chan->selidx++;			/* ...look at the next selection */
++				}
++			}
++			break;
++		case DAHDI_RXSIG_ONHOOK:
++			break;
++		case DAHDI_RXSIG_OFFHOOK:
++			if (chan->selidx >= RP_FB) {
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "SELECTIONS COMPLETE!\n");
++#endif
++			}
++			chan->pulsecount = 0;
++			chan->selidx = 0;
++			chan->dialing = 0;
++			/* If we're in a rundown state then we need to send one more trunk closure
++			   then let rbs_sethook take care of the rest for us */
++			if (chan->seqswitch == SDR_SEQ_2_RUNDOWN) {
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "Sender completed rundown.\n");
++#endif
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_DOWNDRIVE, 500);
++				break;
++			} else {
++				chan->seqswitch = SDR_SEQ_0_NORMAL;
++				__qevent(chan, DAHDI_EVENT_DIALCOMPLETE);
++			}
++			break;
++		default:
++		break;
++	}
++}
++
++/**
++ * Pretends to be a full selector term sender (or a panel selector).
++ * When it it receives an off-hook, it starts sending pulses via
++ * rbs_sethook and otimer_expire.
++ * When it receives an on-hook, it stores the number of pulses it sent
++ * and increments the selections counter to store the next pulses.
++ *
++ * Implements a time measure to release if the originating side hangs up.
++ * This is to ensure reliability when dealing with badly behaved trunk test frames.
++ *
++ * ref: CD-25013-01 Full Selector Terminating Sender
++**/
++void commutator(struct dahdi_chan *chan, enum dahdi_rxsig rxsig)
++{
++	int *pulsecount = &chan->pulsecount;
++	int *selections = chan->selections;
++
++	switch(rxsig) {
++		case DAHDI_RXSIG_OFFHOOK:
++#ifdef CONFIG_RP_DEBUG
++			module_printk(KERN_NOTICE, "RPT got OFFHOOK, selidx: %i, seqswitch %i\n", chan->selidx, chan->seqswitch);
++#endif
++			if (chan->seqswitch == SEL_SEQ_0_NORMAL) {
++				__qevent(chan, DAHDI_EVENT_RINGOFFHOOK);
++				chan->seqswitch = SEL_SEQ_1_UPDRIVE;
++			}
++
++			if (chan->seqswitch == SEL_SEQ_2_REVERSAL) { /* set by WINK ioctl */
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "Finished FU selections. Sending reversal!");
++				module_printk(KERN_NOTICE, "Selections: %d,%d,%d,%d,%d,%d,%d",
++				selections[0], selections[1], selections[2], selections[3],
++				selections[4], selections[5], selections[6]);
++#endif
++				/* CD-25013-01 11.813, this pulse does not increment count */
++				chan->selidx = RP_IA; /* maybe we can get rid of selidx and just use the seqswitch? */
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_PULSE, DAHDI_TXSTATE_RPAFTER, 100);
++				break;
++			}
++
++			if (chan->seqswitch == SEL_SEQ_6_DOWNDRIVE) { /* set by overflow handler in otimer_expire */
++				/* Don't react. This is just a downdrive. */
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_OFFHOOK, DAHDI_TXSTATE_DOWNDRIVE, 100);
++				break;
++			}
++
++			/* Start pulsing after a brief delay in TXSTATE_START
++			 * (This is to allow the relays enough time to settle in their new states) */
++			dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_AFTERSTART, 80);
++			chan->rpdebtimer = 8000;
++			break;
++
++		case DAHDI_RXSIG_ONHOOK:
++			if(chan->seqswitch != SEL_SEQ_0_NORMAL) {
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "GOT ONHOOK, selidx: %i, seqswitch %i\n", chan->selidx, chan->seqswitch);
++#endif
++
++				/* Clever trick. Set a timer for a while, then go on hook, waiting
++				 * for next selection to start. If still ONHOOK after 10 sec, then go straight
++				 * to DOWNDRIVE, which hangs up the channel. If we get an RXSIG_OFFHOOK, then
++				 * TXSTATE_DOWNDRIVE should be cancelled, and signalling will continue. */
++				chan->rpdebtimer = 6400;
++				dahdi_rbs_sethook(chan, DAHDI_TXSIG_ONHOOK, DAHDI_TXSTATE_DOWNDRIVE, chan->rpdebtimer);
++
++				/* telltale is handled in otimer_expire(), so we can just.. */
++#ifdef CONFIG_RP_DEBUG
++				module_printk(KERN_NOTICE, "selidx %i stored pulsecount %i", chan->selidx, *pulsecount);
++#endif
++				selections[chan->selidx++] = *pulsecount;
++				__qevent(chan, DAHDI_EVENT_PULSEDIGIT | ('0' + *pulsecount));
++				*pulsecount = 0;
++			}
++			break;
++		default:
++			break;
++	}
++}
++
+ /**
+  * dahdi_hooksig() - send a signal on a channel to userspace
+  * @chan:	the DAHDI channel
+@@ -8665,6 +9053,39 @@ void dahdi_rbsbits(struct dahdi_chan *chan, int cursig)
+ 		__qevent(chan, DAHDI_EVENT_BITSCHANGED);
+ 		break;
+ 
++		/* Revertive Pulse (Full Mechanical) signaling
++		 * It is not meaningful to talk about RP states as being ON or OFF hook
++		 * Panel selectors can physically return 3 battery states to the RPT card for
++		 * transmission into user-space:
++		 * Battery on TIP		1,0 - NORMAL
++		 * Battery on RING		0,1 - REVERSE: ADVANCE / OVERFLOW / TELL-TALE / TALKING
++		 * Ground on BOTH		0,0 - PULSE HAPPENING NOW
++		 */
++
++	   case DAHDI_SIG_RPO: /* physical bits come from selector, passed to userspace */
++		if ((cursig & (DAHDI_ABIT | DAHDI_BBIT)) == (DAHDI_BBIT)) {			/* 0,1 Reversal*/
++			__dahdi_hooksig_pvt(chan, DAHDI_RXSIG_OFFHOOK);
++		} else if ((cursig & (DAHDI_ABIT | DAHDI_BBIT)) == (DAHDI_ABIT)) {	/* 1,0 Normal */
++			__dahdi_hooksig_pvt(chan, DAHDI_RXSIG_ONHOOK);
++		} else if ((cursig & (DAHDI_ABIT | DAHDI_BBIT)) == 0) {				/* 0,0 Open */
++			__dahdi_hooksig_pvt(chan, DAHDI_RXSIG_PULSE);
++		}
++		break;
++
++
++		/* It can be meaningful to talk about RP senders as being on or off hook. They can send
++		 * forward two states only:
++		 * OPEN LOOP: ON HOOK
++		 * CLOSED LOOP: OFF HOOK
++		 */
++	   case DAHDI_SIG_RPT: /* physical bits come from sender, passed to userspace */
++		if ((cursig & (DAHDI_ABIT | DAHDI_BBIT)) == (DAHDI_ABIT | DAHDI_BBIT)) {	/* 1,1 Closed */
++			__dahdi_hooksig_pvt(chan, DAHDI_RXSIG_OFFHOOK);
++		} else if ((cursig & (DAHDI_ABIT | DAHDI_BBIT)) == 0) {						/* 0,0 Open */
++			__dahdi_hooksig_pvt(chan, DAHDI_RXSIG_ONHOOK);
++		}
++		break;
++
+ 	   default:
+ 		break;
+ 	}
+@@ -9840,6 +10261,12 @@ int _dahdi_transmit(struct dahdi_span *span)
+ 				if (chan->otimer <= 0)
+ 					__rbs_otimer_expire(chan);
+ 			}
++			/* RP transient debounce timer */
++			if (chan->rpdebtimer) {
++				chan->rpdebtimer -= DAHDI_CHUNKSIZE;
++				if (chan->rpdebtimer <= 0)
++					chan->rpdebtimer = 0;
++			}
+ 		}
+ 		spin_unlock(&chan->lock);
+ 	}
+@@ -10189,6 +10616,12 @@ int _dahdi_receive(struct dahdi_span *span)
+ 			if (chan->itimer <= 0)
+ 				rbs_itimer_expire(chan);
+ 		}
++		/* RP transient debounce timer */
++		if (chan->rpdebtimer) {
++			chan->rpdebtimer -= DAHDI_CHUNKSIZE;
++			if (chan->rpdebtimer <= 0)
++				chan->rpdebtimer = 0;
++		}
+ 		if (chan->ringdebtimer)
+ 			chan->ringdebtimer--;
+ 		if (chan->sig & __DAHDI_SIG_FXS) {
+diff --git a/drivers/dahdi/xpp/dahdi_debug.h b/drivers/dahdi/xpp/dahdi_debug.h
+index 0488451..8abb8c2 100644
+--- a/drivers/dahdi/xpp/dahdi_debug.h
++++ b/drivers/dahdi/xpp/dahdi_debug.h
+@@ -126,6 +126,8 @@ static inline char *rxsig2str(enum dahdi_rxsig sig)
+ 		return "RING";
+ 	case DAHDI_RXSIG_INITIAL:
+ 		return "INITIAL";
++	case DAHDI_RXSIG_PULSE:
++		return "PULSE";
+ 	}
+ 	return "Unknown rxsig";
+ }
+@@ -141,6 +143,10 @@ static inline char *txsig2str(enum dahdi_txsig sig)
+ 		return "TXSIG_START";
+ 	case DAHDI_TXSIG_KEWL:
+ 		return "TXSIG_KEWL";	/* Drop battery if possible */
++	case DAHDI_TXSIG_PULSE:
++		return "PULSE";
++	case DAHDI_TXSIG_REVERSAL:
++		return "REVERSAL";
+ 	case DAHDI_TXSIG_TOTAL:
+ 		break;
+ 	}
+@@ -231,6 +237,10 @@ static inline char *sig2str(int sig)
+ 		return "E&M";
+ 	case DAHDI_SIG_EM_E1:
+ 		return "E&M-E1";
++	case DAHDI_SIG_RPO:
++		return "RPO";
++	case DAHDI_SIG_RPT:
++		return "RPT";
+ 	case DAHDI_SIG_CLEAR:
+ 		return "Clear";
+ 	case DAHDI_SIG_HDLCRAW:
+diff --git a/include/dahdi/kernel.h b/include/dahdi/kernel.h
+index 1d471c1..c5e1956 100644
+--- a/include/dahdi/kernel.h
++++ b/include/dahdi/kernel.h
+@@ -603,6 +603,21 @@ struct dahdi_chan {
+ 	int	pulsecount;
+ 	int	pulsetimer;
+ 
++	/* Revertive Pulse selections stuff */
++	int selections[7];
++	enum selection {
++		RP_OB,
++		RP_OG,
++		RP_IB,
++		RP_IG,
++		RP_FB,
++		RP_FT,
++		RP_FU,
++		RP_IA
++	} selidx;
++	int seqswitch;
++	int rpdebtimer;
++
+ 	/* RBS timers */
+ 	int 	itimerset;		/*!< what the itimer was set to last */
+ 	int 	itimer;
+@@ -688,6 +703,29 @@ struct dahdi_hdlc {
+ 
+ #define DAHDI_MAX_PRETRAINING   1000	/*!< 1000ms max pretraining time */
+ 
++/* Revertive Pulse definitions */
++#define DAHDI_RP_MAKETIME 40		/* Tip has battery. */
++#define DAHDI_RP_BREAKTIME 40		/* Tip is grounded. */
++#define DAHDI_BONKTIME 200			/* Tell-Tale, Overflow, Incoming Advance */
++
++#define DAHDI_RP_MINTIME (20 * 8)	/* A selector should ground T for at least 20 ms */
++#define DAHDI_RP_MAXTIME (100 * 8)	/* A selector shouldn't ground T for more than 100 ms */
++
++#define DAHDI_RPTIMEOUT ((DAHDI_RPMAXTIME / 8) + 50)
++
++#define SDR_SEQ_0_NORMAL 0
++#define SDR_SEQ_1_DIALING 1
++#define SDR_SEQ_2_RUNDOWN 2
++
++#define SEL_SEQ_0_NORMAL 0
++#define SEL_SEQ_1_UPDRIVE 1
++#define SEL_SEQ_2_REVERSAL 2
++#define SEL_SEQ_3_BREAK_TR 3
++#define SEL_SEQ_4_DISCHARGE 4
++#define SEL_SEQ_5_TALKING 5
++#define SEL_SEQ_6_DOWNDRIVE 6
++/* end RP definitions */
++
+ #ifdef	FXSFLASH
+ #define DAHDI_FXSFLASHMINTIME	450	/*!< min 450ms */
+ #define DAHDI_FXSFLASHMAXTIME	550	/*!< max 550ms */
+@@ -708,6 +746,8 @@ enum dahdi_txsig {
+ 	DAHDI_TXSIG_OFFHOOK, /*!< Off hook */
+ 	DAHDI_TXSIG_START,   /*!< Start / Ring */
+ 	DAHDI_TXSIG_KEWL,     /*!< Drop battery if possible */
++	DAHDI_TXSIG_PULSE,   /*!< Ground on Tip & Ring */
++	DAHDI_TXSIG_REVERSAL,
+ 	/*! Leave this as the last entry */
+ 	DAHDI_TXSIG_TOTAL,
+ };
+@@ -717,7 +757,8 @@ enum dahdi_rxsig {
+ 	DAHDI_RXSIG_OFFHOOK,
+ 	DAHDI_RXSIG_START,
+ 	DAHDI_RXSIG_RING,
+-	DAHDI_RXSIG_INITIAL
++	DAHDI_RXSIG_INITIAL,
++	DAHDI_RXSIG_PULSE	/*!< revertive pulse coming from real selector */
+ };
+ 	
+ enum {
+@@ -1242,6 +1283,12 @@ void dahdi_rbsbits(struct dahdi_chan *chan, int bits);
+ /*! \brief Tell DAHDI abou changes in received signalling */
+ void dahdi_hooksig(struct dahdi_chan *chan, enum dahdi_rxsig rxsig);
+ 
++/*! \brief Turn DAHDI into a panel sender */
++void sender(struct dahdi_chan *chani, enum dahdi_rxsig rxsig);
++
++/* \brief Turn DAHDI into a panel selector */
++void commutator(struct dahdi_chan *chan, enum dahdi_rxsig rxsig);
++
+ /*! \brief Queue an event on a channel */
+ void dahdi_qevent_nolock(struct dahdi_chan *chan, int event);
+ 
+diff --git a/include/dahdi/user.h b/include/dahdi/user.h
+index 68e72e0..127027c 100644
+--- a/include/dahdi/user.h
++++ b/include/dahdi/user.h
+@@ -78,6 +78,9 @@
+ 
+ #define DAHDI_SIG_EM		(1 << 6)			/* Ear & Mouth (E&M) */
+ 
++#define DAHDI_SIG_RPO		(1 << 21)			/* Full Mechanical Orig */
++#define DAHDI_SIG_RPT		(1 << 22)			/* Full Mechanical Term */
++
+ /* The following are all variations on clear channel */
+ 
+ #define __DAHDI_SIG_DACS	(1 << 16)

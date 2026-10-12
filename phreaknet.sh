@@ -282,6 +282,7 @@ AUTOSET_KVERS=0
 EXTERNAL_CODECS=0
 RTPULSING=1
 HEARPULSING=1
+REVERTIVE_PULSING=1
 HAVE_COMPATIBLE_SPANDSP=1
 PACMAN_UPDATED=0 # Internal flag
 PACMAN_NOUPDATE=0
@@ -1684,6 +1685,23 @@ git_patch() {
 	rm "/tmp/$1"
 }
 
+# Same as git_patch, but tolerate patches with less context than usual
+git_patch_c2() {
+	printf "Applying git patch: %s\n" "$1"
+	if [ "$GIT_REPO_PATH" = "" ]; then
+		die "Variable GIT_REPO_PATH is empty... bug!"
+	fi
+	cp "$GIT_REPO_PATH/patches/$1" "/tmp/$1"
+	if [ $? -ne 0 ]; then
+		die "File $GIT_REPO_PATH/patches/$1 does not exist"
+	fi
+	git apply -C2 "/tmp/$1"
+	if [ $? -ne 0 ]; then
+		die "Failed to apply git patch $1 - this should be reported..."
+	fi
+	rm "/tmp/$1"
+}
+
 # In most cases, the rate limit is only an issue in the GitHub runners...
 github_waitfor_ratelimit_reset() {
 	echoerr "Download failed, checking if we were rate-limited..."
@@ -2003,7 +2021,11 @@ install_wanpipe() {
 		die "Failed to download/extract wanpipe"
 	fi
 	rm ${AST_SOURCE_PARENT_DIR}/${WANPIPE_SOURCE_NAME}.tgz
+
 	#phreak_fuzzy_patch "af_wanpipe.diff"
+
+	# Connections Museum patch
+	git_patch "rp_wanpipe.diff"
 
 	#./Setup dahdi --silent
 	#./Setup install --silent # Even if Setup dahdi fails, this can work
@@ -2322,10 +2344,15 @@ get_dahlin_source() {
 		# The 2nd one DOES NOT APPLY with git apply and WILL FAIL, because fuzz (offset 33 lines) and git apply is too stupid to deal with that.
 		# Therefore, fallback to using patch, manually, for it.
 		phreak_fuzzy_patch "kewl2.diff"
-		# hearpulsing
+
+		# Connections Museum patches
 		if [ "$HEARPULSING" = "1" ]; then
 			git_patch "hearpulsing-dahlin.diff"
 		fi
+		if [ "$REVERTIVE_PULSING" = "1" ]; then
+			git_patch_c2 "rp_dahlin.diff"
+		fi
+
 		if [ "$EMPULSE" = "1" ]; then
 			printf "Enabling EMPULSE for this build\n"
 			sed -i 's|/\* #define EMPULSE \*/|#define EMPULSE|g' include/dahdi/dahdi_config.h # Enable EMPULSE by default. Note that the * must be escaped for sed.
@@ -2346,10 +2373,13 @@ get_dahtool_source() {
 	dahtool_apply_pr 23 # PR 23 (xpp/echo_loader.c: static get_ver)
 
 	# New Features
-	# hearpulsing
 	if [ "$EXTRA_FEATURES" = "1" ]; then
+		# Connections Museum patches
 		if [ "$HEARPULSING" = "1" ]; then
-			git_patch "hearpulsing-dahtool.patch" # hearpulsing
+			git_patch "hearpulsing-dahtool.patch"
+		fi
+		if [ "$REVERTIVE_PULSING" = "1" ]; then
+			git_patch "rp_dahtool.diff"
 		fi
 	fi
 }
@@ -2985,8 +3015,19 @@ phreak_patches() {
 		git_patch "sipcustparams.patch" # chan_sip: Add custom parameter support, adds SIP_PARAMETER function.
 	fi
 
+	# Out of tree patches
+	# This needs to be applied BEFORE rp_ast.diff as that patch is crafted to tolerate this one, but not vice versa
+	git_patch "dahdicleanup.diff"
+
+	# Connections Museum patches
 	if [ "$HEARPULSING" = "1" ]; then
-		git_patch "hearpulsing-ast.diff" # DAHDI hearpulsing
+		git_patch "hearpulsing-ast.diff"
+	fi
+	if [ "$REVERTIVE_PULSING" = "1" ]; then
+		git_patch_c2 "rp_ast.diff"
+	fi
+	if [ "$HEARPULSING" = "1" ] || [ "$REVERTIVE_PULSING" = "1" ]; then
+		git_patch "hearpulsing_rp_ast_config.diff" # chan_dahdi.conf documentation for hearpulsing and revertive pulsing changes.
 	fi
 
 	if [ "$WEAK_TLS" = "1" ]; then
@@ -3028,9 +3069,6 @@ phreak_patches() {
 		phreak_tree_module "res/res_pjsip_sca.c"
 		phreak_tree_module "res/res_pjsip_sca_body_generator.c"
 	fi
-
-	# Out of tree patches
-	git_patch "dahdicleanup.diff"
 
 	if [ $AST_MAJOR_VER -lt 21 ]; then
 		if [ "$EXTERNAL_CODECS" = "1" ]; then

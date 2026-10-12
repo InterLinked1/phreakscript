@@ -1,0 +1,41 @@
+diff --git a/configs/samples/chan_dahdi.conf.sample b/configs/samples/chan_dahdi.conf.sample
+index d44eda477c..d861f32c19 100644
+--- a/configs/samples/chan_dahdi.conf.sample
++++ b/configs/samples/chan_dahdi.conf.sample
+@@ -467,6 +467,8 @@ context=public
+ ; featb:          Feature Group B (MF (domestic, US))
+ ; fgccama:        Feature Group C-CAMA (DP DNIS, MF ANI)
+ ; fgccamamf:      Feature Group C-CAMA MF (MF DNIS, MF ANI)
++; rpo:            Revertive Pulse Originating
++; rpt:            Revertive Pulse Terminating
+ ; fxs_ls:         FXS (Loop Start)
+ ; fxs_gs:         FXS (Ground Start)
+ ; fxs_ks:         FXS (Kewl Start)
+@@ -640,6 +642,27 @@ usecallerid=yes
+ ;
+ ;dialtone_detect=no
+ ;
++;
++; Select yes to enable early-audio cut through on analog channels.
++; This is useful for working with analog or electromechanical switches
++; where the signalling would normally be audible. Default is "no".
++;
++;hearpulsing=no
++;
++;
++; For RPT signalled channels, whether Asterisk requires additional revertive
++; pulse selections on an office frame.
++; If set to no, office selections are skipped, and only selections pertaining
++; to the last four digits of a telephone number are expected.
++; If set to yes, two extra selections are required before the normal panel
++; selections. These digits are simply prepended to the station digits to create
++; a 6-digit extension. Default is "no".
++; For RPO signalled channels, this setting does not apply; to send office selections
++; to the terminating switch, your dial string must have 6 digits: Office Brush (0-4),
++; Office Group (0-9), and 4 stations digits like any other telephone number.
++;officeselections=no
++;
++;
+ ; The following option enables receiving MWI on FXO lines.  The default
+ ; value is no.
+ ; 	The mwimonitor can take the following values

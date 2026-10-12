@@ -1,0 +1,417 @@
+diff --git a/channels/chan_dahdi.c b/channels/chan_dahdi.c
+index e308ba21d0..8a10c4e5eb 100644
+--- a/channels/chan_dahdi.c
++++ b/channels/chan_dahdi.c
+@@ -1220,3 +1220,4 @@ static struct dahdi_chan_conf dahdi_chan_conf_default(void)
+ 			.use_callerid = 1,
+ 			.sig = -1,
+ 			.outsigmod = -1,
++			.officeselections = 0,
+@@ -1346,6 +1347,10 @@ static enum analog_sigtype dahdisig_to_analogsig(int sig)
+ 		return ANALOG_SIG_FGC_CAMAMF;
+ 	case SIG_FEATB:
+ 		return ANALOG_SIG_FEATB;
++	case SIG_RPO:
++		return ANALOG_SIG_RPO;
++	case SIG_RPT:
++		return ANALOG_SIG_RPT;
+ 	case SIG_SFWINK:
+ 		return ANALOG_SIG_SFWINK;
+ 	case SIG_SF:
+@@ -4758,6 +4763,10 @@ static char *dahdi_sig2str(int sig)
+ 		return "SF (Tone) with Feature Group D (MF)";
+ 	case SIG_SF_FEATB:
+ 		return "SF (Tone) with Feature Group B (MF)";
++	case SIG_RPO:
++	   return "Full Mechanical Originating (RPO)";
++	case SIG_RPT:
++	   return "Full Mechanical Terminating (RPT)";
+ 	case 0:
+ 		return "Pseudo";
+ 	default:
+@@ -11710,6 +11719,7 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 		case SIG_FXOLS:
+ 		case SIG_FXOGS:
+ 		case SIG_FXOKS:
++		case SIG_RPT:
+ 			res = dahdi_set_hook(i->subs[SUB_REAL].dfd, DAHDI_OFFHOOK);
+ 			if (res && (errno == EBUSY)) {
+ 				break;
+@@ -11872,4 +11882,5 @@ static struct dahdi_pvt *handle_init_event(struct dahdi_pvt *i, int event)
+ 		case SIG_FXSLS:
+ 		case SIG_FXSGS:
+ 		case SIG_FXSKS:
+ 		case SIG_FXOKS:
++		case SIG_RPT:
+@@ -12685,7 +12696,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 				}
+ 				if (conf->is_sig_auto)
+ 					chan_sig = sigtype_to_signalling(p.sigtype);
+-				if (p.sigtype != (chan_sig & 0x3ffff)) {
++				if (p.sigtype != (chan_sig & 0x63ffff)) {
+ 					ast_log(LOG_ERROR, "Signalling requested on channel %d is %s but line is in %s signalling\n", channel, sig2str(chan_sig), sig2str(p.sigtype));
+ 					destroy_dahdi_pvt(tmp);
+ 					return NULL;
+@@ -13197,3 +13208,4 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 		tmp->dahditrcallerid = conf->chan.dahditrcallerid;
+ 		tmp->restrictcid = conf->chan.restrictcid;
+ 		tmp->use_callingpres = conf->chan.use_callingpres;
++		tmp->officeselections = conf->chan.officeselections;
+@@ -13347,4 +13359,5 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 		tmp->ani_info_digits = conf->chan.ani_info_digits;
+ 		tmp->ani_wink_time = conf->chan.ani_wink_time;
+ 		tmp->ani_timeout = conf->chan.ani_timeout;
++		tmp->officeselections = conf->chan.officeselections;
+ 		tmp->hanguponpolarityswitch = conf->chan.hanguponpolarityswitch;
+@@ -13456,4 +13469,5 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
+ 				analog_p->ani_info_digits = conf->chan.ani_info_digits;
+ 				analog_p->ani_timeout = conf->chan.ani_timeout;
+ 				analog_p->ani_wink_time = conf->chan.ani_wink_time;
++				analog_p->officeselections = conf->chan.officeselections;
+ 				analog_p->hanguponpolarityswitch = conf->chan.hanguponpolarityswitch;
+@@ -19150,3 +19164,6 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct
++		} else if(!strcasecmp(v->name, "officeselections")) {
++			/* RP requires OB, OG selections */
++			confp->chan.officeselections = ast_true(v->value);
+ 		} else if (!strcasecmp(v->name, "mwimonitornotify")) {
+ 			ast_copy_string(mwimonitornotify, v->value, sizeof(mwimonitornotify));
+ 		} else if (ast_cc_is_config_param(v->name)) {
+@@ -19273,6 +19290,10 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct
+ 					confp->chan.sig = SIG_FGC_CAMAMF;
+ 				} else if (!strcasecmp(v->value, "featb")) {
+ 					confp->chan.sig = SIG_FEATB;
++				} else if (!strcasecmp(v->value, "rpo")) {
++					confp->chan.sig = SIG_RPO;
++				} else if (!strcasecmp(v->value, "rpt")) {
++					confp->chan.sig = SIG_RPT;
+ #ifdef HAVE_PRI
+ 				} else if (!strcasecmp(v->value, "pri_net")) {
+ 					confp->chan.sig = SIG_PRI;
+diff --git a/channels/chan_dahdi.h b/channels/chan_dahdi.h
+index 051cc2313f..643eb675f3 100644
+--- a/channels/chan_dahdi.h
++++ b/channels/chan_dahdi.h
+@@ -478,3 +478,9 @@ struct dahdi_pvt {
+ 	struct sig_pri_span *pri;
+ 	int logicalspan;
+ #endif	/* defined(HAVE_PRI) */
++
++	/*!
++	 * \brief TRUE if the channel requires office frame selections to complete the call
++	 */
++	unsigned int officeselections:1;
++
+@@ -795,6 +801,8 @@ struct dahdi_pvt {
+ #define SIG_FXOLS       DAHDI_SIG_FXOLS
+ #define SIG_FXOGS       DAHDI_SIG_FXOGS
+ #define SIG_FXOKS       DAHDI_SIG_FXOKS
++#define SIG_RPO			DAHDI_SIG_RPO
++#define SIG_RPT			DAHDI_SIG_RPT
+ #define SIG_SF          DAHDI_SIG_SF
+ #define SIG_SFWINK      (0x0100000 | DAHDI_SIG_SF)
+ #define SIG_SF_FEATD    (0x0200000 | DAHDI_SIG_SF)
+@@ -868,6 +876,8 @@ static inline int dahdi_analog_lib_handles(int signalling, int radio, int oprmod
+ 	case SIG_SF_FEATDMF:
+ 	case SIG_FEATDMF_TA:
+ 	case SIG_SF_FEATB:
++	case SIG_RPO:
++	case SIG_RPT:
+ 		break;
+ 	default:
+ 		/* The rest of the function should cover the remainder of signalling types */
+diff --git a/channels/sig_analog.c b/channels/sig_analog.c
+index cbedfb2905..dcfd46ce54 100644
+--- a/channels/sig_analog.c
++++ b/channels/sig_analog.c
+@@ -90,6 +90,8 @@ static const struct {
+ 	{ ANALOG_SIG_SF_FEATDMF, "sf_featdmf" },
+ 	{ ANALOG_SIG_SF_FEATB, "sf_featb" },
+ 	{ ANALOG_SIG_E911, "e911" },
++	{ ANALOG_SIG_RPO, "rpo" },
++	{ ANALOG_SIG_RPT, "rpt" },
+ };
+ 
+ static const struct {
+@@ -1182,6 +1184,7 @@ int analog_call(struct analog_pvt *p, struct ast_channel *ast, const char *rdest
+ 	case ANALOG_SIG_SF_FEATDMF:
+ 	case ANALOG_SIG_FEATDMF_TA:
+ 	case ANALOG_SIG_SF_FEATB:
++	case ANALOG_SIG_RPO:
+ 		c = strchr(dest, '/');
+ 		if (c) {
+ 			c++;
+@@ -1254,6 +1257,78 @@ int analog_call(struct analog_pvt *p, struct ast_channel *ast, const char *rdest
+ 		case ANALOG_SIG_FEATB:
+ 			snprintf(p->dop.dialstr, sizeof(p->dop.dialstr), "M*%s#", c);
+ 			break;
++		case ANALOG_SIG_RPO:
++			/* Do some RP math to convert a phone number to selections */
++			int selections[7] = {0};	/* OB, OG, IB, IG, FB, FT, FU */
++			char lineno[4] = {0};		/* subscribers line number */
++			int officereq;				/* Office required, 0=False, 1=True */
++			int line_int; 				/* Need an int to do math on */
++			int i;
++
++			/* If the dialstring is longer than 4, we might need to make (optional)
++			 * office selections. For this case, we will accept 6 digits, and send
++			 * them to DAHDI prepended with a "Z" to indicate to the sender that OB, OG
++			 * are required.
++			 *
++			 * The dialstring without office selections is just the 4 digit line number.
++			 * The dialstring with office selections is 2 digits for OB, OG, plus the 4
++			 * digit line number
++			 */
++			if (strlen(c) == 6) {
++				int j, pos;
++				/* Do office selections */
++				officereq = 1;
++				/* move back 4 spaces from end of dial string */
++				j = strlen(c) - 4;
++				/* extract the line number from the end */
++				for (pos = 0; pos < 4; pos++) {
++					lineno[pos] = c[j];
++					j++;
++				}
++				/* and copy the first two chars into OB and OG */
++				selections[0] = c[0] - '0';
++				selections[1] = c[1] - '0';
++			} else if (strlen(c) == 4) {
++				/* Skip Office */
++				officereq = 0;
++				/* just copy the line number over without fanfare */
++				strncpy(lineno, c, 4);
++			} else {
++				ast_log(LOG_ERROR, "RP dialstring must be 4 or 6 digits only (got '%s')\n", c);
++				return -1;
++			}
++
++			line_int = atoi(lineno);
++
++			/* Remember to +1 to each of these for pulse counting purposes.
++			 * (the first pulse we receive is the 0th, the second pulse is the 1st...) */
++
++			selections[2] = line_int/2000;              /* Incoming Brush */
++			selections[3] = (line_int % 2000)/500;      /* Incoming Group */
++			selections[4] = (line_int % 500)/100;       /* Final Brush */
++			selections[5] = (line_int % 100)/10;        /* Final Tens */
++			selections[6] = line_int % 10;              /* Final Units */
++
++			/* Convert the selections array into a str to be passed into analog dial */
++			for (i = 0; i < 7; i++) {
++				sprintf(&c[i], "%d", selections[i]);
++			}
++
++			/* if skipping office, then just print the last 5, and send
++			 * all selections to DAHDI */
++			if (officereq == 0) {
++				ast_debug(1, "pulses to count: %s", &c[strlen(c)-5]);
++				snprintf(p->dop.dialstr, sizeof(p->dop.dialstr), "%s", c);
++			/* if not skipping office, then print all selections and
++			 * send to DAHDI prepended by a 'Z' */
++			} else if (officereq == 1) {
++				ast_debug(1, "pulses to count, including office selections: %s", c);
++				snprintf(p->dop.dialstr, sizeof(p->dop.dialstr), "Z%s", c);
++			}
++			ast_debug(1, "sending to analog_dial_digits: %s", p->dop.dialstr);
++			p->dop.op = ANALOG_DIAL_OP_REPLACE;
++			res = analog_dial_digits(p, ANALOG_SUB_REAL, &p->dop);
++			break;
+ 		default:
+ 			if (p->pulse) {
+ 				snprintf(p->dop.dialstr, sizeof(p->dop.dialstr), "P%sw", c);
+@@ -1543,6 +1618,8 @@ int analog_answer(struct analog_pvt *p, struct ast_channel *ast)
+ 	case ANALOG_SIG_FXOLS:
+ 	case ANALOG_SIG_FXOGS:
+ 	case ANALOG_SIG_FXOKS:
++	case ANALOG_SIG_RPO:
++	case ANALOG_SIG_RPT:
+ 		/* Pick up the line */
+ 		ast_debug(1, "Took %s off hook\n", ast_channel_name(ast));
+ 		if (p->hanguponpolarityswitch) {
+@@ -1978,6 +2055,9 @@ static void *__analog_ss_thread(void *data)
+ 	int len = 0;
+ 	int res;
+ 	int idx;
++	int selections[7] = {0}; /* OB, OG, IB, IG, FB, FT, FU */
++	int selidx = 0;
++	int lineno[10] = {0};
+ 	ast_callid callid;
+ 	RAII_VAR(struct ast_features_pickup_config *, pickup_cfg, NULL, ao2_cleanup);
+ 	const char *pickupexten;
+@@ -3029,6 +3109,117 @@ static void *__analog_ss_thread(void *data)
+ 			ast_log(LOG_WARNING, "PBX exited non-zero\n");
+ 		}
+ 		goto quit;
++	case ANALOG_SIG_RPT: /* RPT: Asterisk is a term sender/commutator */
++		ast_debug(1, "Office Selections is set to %d", p->officeselections);
++		if (p->officeselections == 1) {
++			selidx = 0;
++		} else {
++			selidx = 2;
++		}
++		selections[selidx] = '\0';
++		while (selidx <= 7) {
++			res = ast_waitfordigit(chan, 10000);
++			if (res < 0) {
++				ast_debug(1, "RPT: ast_waitfordigit returned < 0...\n");
++				ast_hangup(chan);
++				goto quit;
++			} else if (res) {
++				selections[selidx++] = res - '0';
++				selections[selidx] = '\0';
++				ast_debug(1, "Storing a %d at %d\n", (selections[selidx - 1]), (selidx - 1));
++
++				if (selidx == 7) {
++					/* XXX need to send a polarity reversal ioctl to DAHDI */
++					analog_wink(p, idx);
++					ast_debug(1, "Sent a wink to DAHDI");
++					ast_debug(1, "Evaluating selections: %d,%d,%d,%d,%d,%d,%d\n",
++							selections[0], selections[1],
++							selections[2], selections[3], selections[4], selections[5], selections[6]);
++
++					/* Do some RP math to convert selections to a phone number */
++					lineno[2] = selections[6];	/* units */
++					lineno[1] = selections[5];	/* tens */
++					lineno[0] = selections[4];	/* Final Brush - hundreds */
++
++					switch (selections[3]) {	/* Incoming Group - hundreds */
++						case 0:
++							break;
++						case 1:
++						case 2:
++						case 3:
++							lineno[0] = lineno[0] + selections[3] * 5;
++							break;
++						default:
++							break;
++					}
++
++					switch (selections[2]) {	/* Incoming Brush - thousands */
++						case 0:
++							break;
++						case 1:
++						case 2:
++						case 3:
++						case 4:
++							lineno[0] = lineno[0] + selections[2] * 20;
++							break;
++						default:
++							break;
++					}
++
++					/* To make the int array a str, we have to get crafty,
++					 * because element 0 in lineno has 2 digits (math!)
++					 * one of which may be a 0 */
++					if (p->officeselections == 1) {
++						snprintf(exten, sizeof(exten), "%d%d%02d%d%d",
++							selections[0], selections[1],
++							lineno[0], lineno[1], lineno[2]);
++					} else {
++						snprintf(exten, sizeof(exten), "%02d%d%d",
++							lineno[0], lineno[1], lineno[2]);
++					}
++					ast_debug(1, "Line number is: %s\n", exten);
++
++					analog_set_echocanceller(p, 1);
++					analog_set_ringtimeout(p, 0);
++
++					if (ast_exists_extension(chan, ast_channel_context(chan), exten, 1,
++						ast_channel_caller(chan)->id.number.valid ? ast_channel_caller(chan)->id.number.str : NULL)) {
++						ast_channel_lock(chan);
++						ast_channel_exten_set(chan, exten);
++						ast_setstate(chan, AST_STATE_UP);
++						ast_channel_unlock(chan);
++						analog_dsp_reset_and_flush_digits(p);
++						p->subs[idx].f.frametype = AST_FRAME_CONTROL;
++						p->subs[idx].f.subclass.integer = AST_CONTROL_ANSWER;
++						res = ast_pbx_run(chan);
++						if (res) {
++							ast_log(LOG_WARNING, "PBX exited non-zero\n");
++							res = analog_play_tone(p, idx, ANALOG_TONE_CONGESTION);
++						}
++						goto quit;
++					} else {
++						ast_verb(3, "Unknown extension '%s' in context '%s' requested\n", exten, ast_channel_context(chan));
++						sleep(2);
++						res = analog_play_tone(p, idx, ANALOG_TONE_INFO);
++						if (res < 0) {
++							ast_log(LOG_WARNING, "Unable to start special tone on %d\n", p->channel);
++						} else {
++							sleep(1);
++						}
++						res = ast_streamfile(chan, "ss-noservice", ast_channel_language(chan));
++						if (res >= 0) {
++							ast_waitstream(chan, "");
++						}
++						res = analog_play_tone(p, idx, ANALOG_TONE_CONGESTION);
++						ast_hangup(chan);
++						goto quit;
++					}
++				}
++			} else {
++				break;
++			}
++		}
++		break;
+ 	default:
+ 		ast_log(LOG_WARNING, "Don't know how to handle simple switch with signalling %s on channel %d\n", analog_sigtype_to_str(p->sig), p->channel);
+ 		break;
+@@ -3211,7 +3402,7 @@ static struct ast_frame *__analog_handle_event(struct analog_pvt *p, struct ast_
+ 							|| (mysig == ANALOG_SIG_FGC_CAMAMF) || (mysig == ANALOG_SIG_FEATB)
+ 							|| (mysig == ANALOG_SIG_SF) || (mysig == ANALOG_SIG_SFWINK)
+ 							|| (mysig == ANALOG_SIG_SF_FEATD) || (mysig == ANALOG_SIG_SF_FEATDMF)
+-							|| (mysig == ANALOG_SIG_SF_FEATB)))) {
++							|| (mysig == ANALOG_SIG_SF_FEATB) || (mysig == ANALOG_SIG_RPO)))) {
+ 						ast_setstate(ast, AST_STATE_RINGING);
+ 					} else if (!p->answeronpolarityswitch) {
+ 						ast_setstate(ast, AST_STATE_UP);
+@@ -4207,6 +4398,8 @@ void *analog_handle_init_event(struct analog_pvt *i, int event)
+ 			}
+ 			ast_callid_threadstorage_auto_clean(callid, callid_created);
+ 			break;
++		case ANALOG_SIG_RPO:	/* For RPT card, do nothing special. This is only useful for OGTs. */
++		case ANALOG_SIG_RPT:	/* For RPO card, send pulses, and act like a panel selector  */
+ 		case ANALOG_SIG_FXSLS:
+ 		case ANALOG_SIG_FXSGS:
+ 		case ANALOG_SIG_FXSKS:
+@@ -4287,6 +4480,8 @@ void *analog_handle_init_event(struct analog_pvt *i, int event)
+ 		case ANALOG_SIG_SF_FEATB:
+ 		case ANALOG_SIG_SF:
+ 		case ANALOG_SIG_SFWINK:
++		case ANALOG_SIG_RPO:
++		case ANALOG_SIG_RPT:
+ 		case ANALOG_SIG_FXSLS:
+ 		case ANALOG_SIG_FXSGS:
+ 		case ANALOG_SIG_FXSKS:
+diff --git a/channels/sig_analog.h b/channels/sig_analog.h
+index 2d2e7e5ce0..91aaf934bb 100644
+--- a/channels/sig_analog.h
++++ b/channels/sig_analog.h
+@@ -65,6 +65,8 @@ enum analog_sigtype {
+ 	ANALOG_SIG_SF_FEATDMF,
+ 	ANALOG_SIG_FEATDMF_TA,
+ 	ANALOG_SIG_SF_FEATB,
++	ANALOG_SIG_RPO,
++	ANALOG_SIG_RPT,
+ };
+ 
+ enum analog_tone {
+@@ -103,6 +105,8 @@ enum analog_event {
+ 	ANALOG_EVENT_PULSEDIGIT = (1 << 16),
+ 	ANALOG_EVENT_DTMFDOWN = (1 << 17),
+ 	ANALOG_EVENT_DTMFUP = (1 << 18),
++	ANALOG_EVENT_POLREVERSE,
++	ANALOG_EVENT_POLNORMAL,
+ };
+ 
+ enum analog_sub {
+@@ -310,3 +314,9 @@ struct analog_pvt {
+ 	unsigned int use_callerid:1;			/*!< Whether or not to use caller id on this channel */
+ 	unsigned int usedistinctiveringdetection:1;
+ 	unsigned int callwaitingcallerid:1;		/*!< TRUE if send caller ID for Call Waiting */
++
++	/*!
++	 * \brief TRUE if the channel requires office frame selections to complete the call
++	 */
++	unsigned int officeselections:1;
++

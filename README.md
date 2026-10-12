@@ -23,7 +23,8 @@ PhreakScript installs:
 	  - Support for sending/receiving R2 signaling tones
    - Analog enhancements
       - Real time dial pulsing support
-      - "Hearpulsing" patches
+      - "Hearpulsing" patches (courtesy of Connections Museum)
+      - Revertive pulse signaling support (courtesy of Connections Museum)
       - SMDR support for "WHOZZ Calling?" call accounting devices
       - Supervision test and hook state applications
       - 1A2 key system music on hold support

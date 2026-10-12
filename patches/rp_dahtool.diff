@@ -1,0 +1,54 @@
+diff --git a/dahdi_cfg.c b/dahdi_cfg.c
+index 2766c18..e9d8bd4 100644
+--- a/dahdi_cfg.c
++++ b/dahdi_cfg.c
+@@ -252,6 +252,10 @@ static const char *sigtype_to_str(const int sig)
+ 		return "FXO Groundstart";
+ 	case DAHDI_SIG_FXOKS:
+ 		return "FXO Kewlstart";
++	case DAHDI_SIG_RPO:
++		return "Revertive Pulse Originating";
++	case DAHDI_SIG_RPT:
++		return "Revertive Pulse Terminating";
+ 	case DAHDI_SIG_CAS:
+ 		return "CAS / User";
+ 	case DAHDI_SIG_DACS:
+@@ -650,6 +654,12 @@ static int chanconfig(char *keyword, char *args)
+ 			} else if (!strcasecmp(keyword, "fxoks")) {
+ 				cc[x].sigtype = DAHDI_SIG_FXOKS;
+ 				sig[x] = sigtype_to_str(cc[x].sigtype);
++			} else if (!strcasecmp(keyword, "rpo")) {
++				cc[x].sigtype = DAHDI_SIG_RPO;
++				sig[x] = sigtype_to_str(cc[x].sigtype);
++			} else if (!strcasecmp(keyword, "rpt")) {
++				cc[x].sigtype = DAHDI_SIG_RPT;
++				sig[x] = sigtype_to_str(cc[x].sigtype);
+ 			} else if (!strcasecmp(keyword, "cas") || !strcasecmp(keyword, "user")) {
+ 				if (parse_idle(&cc[x].idlebits, idle))
+ 					return -1;
+@@ -1413,6 +1423,8 @@ static struct handler {
+ 	{ "fxols", chanconfig },
+ 	{ "fxogs", chanconfig },
+ 	{ "fxoks", chanconfig },
++	{ "rpo", chanconfig },
++	{ "rpt", chanconfig },
+ 	{ "rawhdlc", chanconfig },
+ 	{ "nethdlc", chanconfig },
+ 	{ "fcshdlc", chanconfig },
+@@ -1857,6 +1869,16 @@ finish:
+ 						" on a BRI span (use hardhdlc)"
+ 						"\n");
+ 					break;
++				case DAHDI_SIG_RPO:
++					fprintf(stderr, "\tyou messed up the code"
++						" for RPO/RPT cards somehow"
++						"\n");
++					break;
++				case DAHDI_SIG_RPT:
++					fprintf(stderr, "\tyou messed up the code"
++						" for RPO/RPT cards somehow"
++						"\n");
++					break;
+ 				default:
+ 					break;
+ 				}
