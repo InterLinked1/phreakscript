@@ -78,6 +78,9 @@ the best Asterisk and DAHDI experience.
 **wanpipe**
 : Install or upgrade wanpipe (only). Generally this command does not need to be used. To install Asterisk with DAHDI and wanpipe, use the install command and provide the -d or --dahdi option instead.
 
+**confighz**
+: Build kernel with CONFIG_HZ set to 1000 Hz (can resolve timing-related issues)
+
 **odbc**
 : Install ODBC (Open Database Connector) for MariaDB
 

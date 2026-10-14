@@ -555,6 +555,7 @@ Commands:
    experimental       Add experimental features to an existing Asterisk source
    dahdi              Install or upgrade PhreakNet-enhanced DAHDI
    wanpipe            Install wanpipe
+   confighz           Build kernel with CONFIG_HZ set to 1000 Hz (can resolve timing-related issues, e.g. dial pulsing esp. with wanpipe)
    g72x               Add G.723.1/G.729 support to an existing installation
    odbc               Install ODBC (MariaDB)
    installts          Install Asterisk Test Suite
@@ -4435,6 +4436,90 @@ elif [ "$cmd" = "dahdi" ]; then
 elif [ "$cmd" = "wanpipe" ]; then
 	assert_root
 	install_wanpipe
+elif [ "$cmd" = "confighz" ]; then
+	# https://github.com/torvalds/linux/blob/master/kernel/Kconfig.hz
+	confighz=$( grep "^CONFIG_HZ" /boot/config-$(uname -r) | grep "HZ=" | cut -d'=' -f2 | tr -d '\n' )
+	if [ $confighz -eq 1000 ]; then
+		echog "CONFIG_HZ is currently set to $confighz"
+	else
+		printf "CONFIG_HZ is currently set to: %s\n" "$confighz"
+		echoerr "Rebuilding kernel to set CONFIG_HZ to 1000"
+		echoerr "Press ^C now to abort..."
+		sleep 5
+		if [ "$PAC_MAN" = "apt-get" ]; then
+			install_package "linux-source build-essential libncurses-dev bison flex libssl-dev libelf-dev"
+		else
+			echoerr "Unable to automatically install packages required to compile the kernel, operation may fail..."
+		fi
+		cd /usr/src
+		ksrcdir=$( ls -d */ | grep linux-source- | tail -1 ) # Get the most recent kernel source directory
+		if [ ! -d "$ksrcdir" ]; then
+			ksrcfile=$( ls linux-source-*.tar.xz | tail -1 )
+			if [ -f "$ksrcfile" ]; then
+				# It's a file that hasn't been extracted yet
+				tar -xvf "$ksrcfile"
+				ksrcdir=$( ls -d */ | grep linux-source- | tail -1 ) # Recheck, should have one now
+			fi
+		fi
+		if [ ! -d "$ksrcdir" ]; then
+			die "Couldn't find kernel source"
+		fi
+		cd "$ksrcdir"
+		if [ ! -f Kconfig ]; then
+			die "Thought $ksrcdir was the kernel source directory, but it's not?"
+		fi
+		cp /boot/config-$(uname -r) .config
+
+		# Edit config to change CONFIG_HZ to 1000 Hz.
+		# 250 Hz is the default, but it could be something else:
+		./scripts/config --file .config --disable "CONFIG_HZ_${confighz}"
+		./scripts/config --file .config --enable "CONFIG_HZ_1000"
+		./scripts/config --file .config --set-val CONFIG_HZ 1000
+
+		./scripts/config --file .config --set-str CONFIG_LOCALVERSION "-hz1000"
+		./scripts/config --file .config --disable LOCALVERSION_AUTO
+
+		make olddefconfig # Set new symbols to their default value to avoid interactive prompts
+
+		newhz=$( grep "^CONFIG_HZ" .config | grep "HZ=" | cut -d'=' -f2 | tr -d '\n' )
+		if [ "$newhz" != "1000" ]; then
+			die "Failed to set CONFIG_HZ=1000 in .config (still $newhz)"
+		fi
+
+		make -j$(nproc) bindeb-pkg
+
+		newversion=$( make -s kernelrelease )
+		printf "Building kernel version: %s\n" "$newversion"
+		kpkg=$( ls -t ../linux-image-${newversion}_*.deb 2>/dev/null | head -1 )
+		if [ -z "$kpkg" ]; then
+			die "Missing linux-image-${newversion}_*.deb"
+		fi
+
+		# Recompile DAHDI Linux for the new kernel
+		DAHDI_LIN_SRC_DIR=`tar -tzf $DAHLIN_SRC_NAME | head -1 | cut -f1 -d"/"`
+		if [ -d $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR ]; then
+			cd $AST_SOURCE_PARENT_DIR/$DAHDI_LIN_SRC_DIR
+			$AST_MAKE && $AST_MAKE install
+			cd "$ksrcdir"
+		fi
+
+		dpkg -i "$kpkg"
+
+		grubtitle="Advanced options for Debian GNU/Linux>Debian GNU/Linux, with Linux ${newversion}"
+		if grep -q "^GRUB_DEFAULT=" /etc/default/grub; then
+			sed -i "s|^GRUB_DEFAULT=.*|GRUB_DEFAULT=\"${grubtitle}\"|" /etc/default/grub
+		else
+			printf 'GRUB_DEFAULT="%s"\n' "$grubtitle" >> /etc/default/grub
+		fi
+		grub-mkconfig -o /boot/grub/grub.cfg
+		printf "Set permanent GRUB default to: %s\n" "$grubtitle"
+
+		printf "New kernel version: %s\n" "$newversion"
+
+		builthz=$( grep "^CONFIG_HZ=" /boot/config-${newversion} | cut -d'=' -f2 | tr -d '\n' )
+		printf "CONFIG_HZ in the newly installed kernel (%s) is: %s\n" "$newversion" "$builthz"
+		echog "Kernel rebuild completed, reboot and rerun 'phreaknet confighz' to verify completion"
+	fi
 elif [ "$cmd" = "odbc" ]; then
 	assert_root
 	install_odbc
