@@ -3047,17 +3047,16 @@ phreak_patches() {
 	## Merged, not yet in a release version (use asterisk_pr_if, e.g. asterisk_pr_if 1234 220400 210900 201400)
 	asterisk_pr_if 2196 230700 221300 202300 # Make hashtab function arguments const
 	asterisk_pr_if 2174 230700 221300 202300 # res_manager_devicestate: Add AMI actions to set device/mailbox states
+	asterisk_pr_if 2199 230700 221300 202300 # app_mixmonitor: Abort if ast_writefile fails
+	asterisk_pr_if 2208 230700 221300 202300 # chan_iax2: Avoid spurious DP cache warning
+	asterisk_pr_if 2214 230700 221300 202300 # res_pjsip_publish_asterisk: Add explicit dependency on res_pjsip_session
 
 	## Unmerged patches: remove or switch to asterisk_pr_if once merged (hopefully soon)
 	asterisk_pr_unconditional 1504 # func_channel: Allow manually changing audio format during a call
 
 	asterisk_pr_unconditional 2149 # file.c: Prevent duplicate recording attempts
-	asterisk_pr_unconditional 2199 # app_mixmonitor: Abort if ast_writefile fails
-
-	asterisk_pr_unconditional 2208 # chan_iax2: Avoid spurious DP cache warning
-	asterisk_pr_unconditional 2214 # res_pjsip_publish_asterisk: Add explicit dependency on res_pjsip_session
 	asterisk_pr_unconditional 2216 # app_amd: Detect fax CED tone
-	asterisk_pr_unconditional 2218 # Add ability to disable RTP learning
+	#asterisk_pr_unconditional 2218 # Add ability to disable RTP learning # doesn't apply cleanly
 	asterisk_pr_unconditional 2220 # chan_dahdi: Add on-hook ADSI script download support
 
 	# Stagnant patches: hopefully will be merged eventually, but not in the near term
