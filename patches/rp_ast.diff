@@ -144,7 +144,7 @@ index cbedfb2905..dcfd46ce54 100644
  		case ANALOG_SIG_FEATB:
  			snprintf(p->dop.dialstr, sizeof(p->dop.dialstr), "M*%s#", c);
  			break;
-+		case ANALOG_SIG_RPO:
++		case ANALOG_SIG_RPO: { /* scope hack so we can declare variables here: */
 +			/* Do some RP math to convert a phone number to selections */
 +			int selections[7] = {0};	/* OB, OG, IB, IG, FB, FT, FU */
 +			char lineno[4] = {0};		/* subscribers line number */
@@ -215,7 +215,7 @@ index cbedfb2905..dcfd46ce54 100644
 +			ast_debug(1, "sending to analog_dial_digits: %s", p->dop.dialstr);
 +			p->dop.op = ANALOG_DIAL_OP_REPLACE;
 +			res = analog_dial_digits(p, ANALOG_SUB_REAL, &p->dop);
-+			break;
++			break; }
  		default:
  			if (p->pulse) {
  				snprintf(p->dop.dialstr, sizeof(p->dop.dialstr), "P%sw", c);
