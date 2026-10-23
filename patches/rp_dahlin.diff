@@ -428,7 +428,7 @@ index d7cf478..3ae501e 100644
 +	switch(rxsig) {
 +		case DAHDI_RXSIG_PULSE:
 +			/* For the first 10-20ms ignore any transient pulses. They're not real. */
-+			if ((chan->rpdebtimer > 18500)) {
++			if ((chan->rpdebtimer > 19700)) {
 +#ifdef CONFIG_RP_DEBUG
 +				module_printk(KERN_NOTICE, " DEBOUNCED!\n");
 +#endif
