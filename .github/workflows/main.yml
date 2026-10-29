@@ -298,7 +298,7 @@ jobs:
      - name: Build DAHDI and Asterisk
        run: |
           sudo ./phreaknet.sh make
-          sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --dahdi --drivers --devmode --sip
+          sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --dahdi --drivers --disable-vpmadt032 --devmode --sip
   ubuntu-22:
     runs-on: ubuntu-22.04
     name: Ubuntu 22.04
