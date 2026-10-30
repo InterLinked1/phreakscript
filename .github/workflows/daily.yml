@@ -18,4 +18,4 @@ jobs:
      - name: Build DAHDI and Asterisk
        run: |
           sudo ./phreaknet.sh make
-          sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --dahdi --drivers --devmode --sip
+          sudo GIT_REPO_PATH=${{ github.workspace }} phreaknet install --fast --dahdi --drivers --devmode --disable-vpmadt032 --sip
